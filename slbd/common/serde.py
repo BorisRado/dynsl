@@ -82,3 +82,7 @@ def to_grpc_format(
                 tensors=server_model_pb2.TensorList(tensors=value)
             )
     return out
+
+
+def bytes_list_to_grpc_format(bytes_data: List[bytes]) -> server_model_pb2.TensorList:
+    return server_model_pb2.TensorList(tensors=bytes_data)

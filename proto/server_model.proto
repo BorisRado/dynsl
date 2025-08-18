@@ -8,21 +8,29 @@ package server_model;
 
 // The server model service definition.
 service ServerModel {
-  rpc UnaryRequest (BatchData) returns (BatchData) {}
+  rpc UnaryRequest (BatchDataForward) returns (BatchDataBackward) {}
 
   // While documentation states that it is better to use unary RPCs, e.g.:
   // * https://stackoverflow.com/questions/56766921/multiple-unary-rpc-calls-vs-long-running-bidirectional-streaming-in-grpc
   // * https://grpc.io/docs/guides/performance/
   // according to the tests I performed the streaming version is much faster in this use case
-  rpc StreamRequest (stream BatchData) returns (stream BatchData) {}
+  rpc StreamRequest (stream BatchDataForward) returns (stream BatchDataBackward) {}
 
 }
 
-message BatchData {
-  string method = 1;  // the client specifies which method of the server model must be invoked
+message BatchDataForward {
+  bool training = 1;  // the client specifies if requesting a forward or forward+backward
   map<string, ByteTensor> data = 2;  // dictionary with parameters to be passed to the function
   ControlCode control_code = 3;
   string cid = 4;
+  float local_computation_time = 5;
+}
+
+message BatchDataBackward {
+  map<string, ByteTensor> data = 1;  // dictionary with parameters to be passed to the function
+  ControlCode control_code = 2;
+  int32 layers_diff = 3;
+  optional TensorList additional_layers_parameters = 4;
 }
 
 enum ControlCode {

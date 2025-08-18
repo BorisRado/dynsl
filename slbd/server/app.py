@@ -18,6 +18,7 @@ from flwr.proto.transport_pb2_grpc import add_FlowerServiceServicer_to_server
 from flwr.server.client_manager import ClientManager, SimpleClientManager
 from flwr.server.superlink.fleet.grpc_bidi.grpc_server import valid_certificates
 
+from slbd.server.layer_allocator import LayerAllocator
 from slbd.server.grpc.flower_servicer import FlowerServiceServicer
 from slbd.server.server_model.manager import ServerModelManager, GrpcServerModelManager
 from slbd.server.strategy import Strategy
@@ -48,7 +49,7 @@ def init_defaults(
             client_manager = SimpleClientManager()
 
         server_model_manager = GrpcServerModelManager(
-            init_server_model_fn=strategy.init_server_model_fn,
+            model=strategy.get_model_architecture(),
         )
 
         server = Server(
@@ -68,6 +69,7 @@ def init_defaults(
 async def start_grpc_server(  # pylint: disable=too-many-arguments
     client_manager: ClientManager,
     server_model_manager: ServerModelManager,
+    client_layer_allocator: LayerAllocator,
     server_address: str,
     max_concurrent_workers: int = 1000,
     max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
@@ -105,7 +107,7 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     else:
         server.add_insecure_port(server_address)
 
-    slbd_servicer = ServerModelServicer(server_model_manager)
+    slbd_servicer = ServerModelServicer(server_model_manager, client_layer_allocator)
     server_model_pb2_grpc.add_ServerModelServicer_to_server(slbd_servicer, server)
 
     flwr_servicer = FlowerServiceServicer(client_manager)
@@ -122,7 +124,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     server_address: str = ADDRESS_FLEET_API_GRPC_BIDI,
     server: Optional[Server] = None,
     config: Optional[ServerConfig] = None,
-    strategy: Optional[Strategy] = None,
+    strategy: Strategy = None,
     client_manager: Optional[ClientManager] = None,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     certificates: Optional[Tuple[bytes, bytes, bytes]] = None,
@@ -154,6 +156,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     grpc_server = await start_grpc_server(
         client_manager=initialized_server.client_manager(),
         server_model_manager=initialized_server.server_model_manager,
+        client_layer_allocator=initialized_server.get_client_layer_allocator(),
         server_address=address,
         max_message_length=grpc_max_message_length,
         certificates=certificates,

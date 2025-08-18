@@ -1,10 +1,10 @@
 import uuid
 import copy
+from collections import OrderedDict, defaultdict
 from logging import ERROR
 from typing import Optional, List, Tuple, Union, Dict, Callable
 
 from flwr.common import (
-    Parameters,
     FitIns,
     EvaluateIns,
     FitRes,
@@ -12,13 +12,15 @@ from flwr.common import (
     EvaluateRes,
     ndarrays_to_parameters,
     parameters_to_ndarrays,
-    NDArrays,
     log,
 )
 from flwr.server.client_manager import ClientManager
-from flwr.server.strategy.aggregate import aggregate, weighted_loss_avg
+from flwr.server.strategy.aggregate import weighted_loss_avg
 from flwr.server.client_proxy import ClientProxy
 
+import torch
+
+from slbd.common.constants import CLIENT_LAST_LAYER_IDX_KEY
 from slbd.server.server_model.server_model import ServerModel
 from slbd.common import (
     ServerModelEvaluateIns,
@@ -26,7 +28,10 @@ from slbd.common import (
     ServerModelFitRes,
 )
 from slbd.server.strategy import Strategy
+from slbd.torch.model_utils import get_model_layer_keys, get_num_layers
 from slbd.server.server_model.utils import ClientRequestGroup
+from slbd.common.utils import weighted_average_state_dicts
+from slbd.server.layer_allocator import LayerAllocator
 
 
 class PlainSlStrategy(Strategy):
@@ -35,7 +40,7 @@ class PlainSlStrategy(Strategy):
     def __init__(
         self,
         *,
-        init_server_model_fn: Callable[[], ServerModel],
+        model: torch.nn.Sequential,
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,
         config_server_segnent_fn: Optional[Callable[[str], Dict[str, Scalar]]] = None,
@@ -49,7 +54,7 @@ class PlainSlStrategy(Strategy):
         process_clients_as_batch: bool = False,
     ) -> None:
         super().__init__()
-        self.init_server_model_fn = init_server_model_fn
+        self.model = model
         self.fraction_fit = fraction_fit
         self.fraction_evaluate = fraction_evaluate
         self.config_server_segnent_fn = config_server_segnent_fn
@@ -65,105 +70,82 @@ class PlainSlStrategy(Strategy):
         self._round_active_clients = []
         self.requests_state: Dict[Tuple[str, str], Dict[str, ClientRequestGroup]] = {}
 
-    def init_server_model_fn(self) -> ServerModel:
-        return self.init_server_model_fn().to_server_model()
-
     def evaluate(
         self,
         server_round: int,
-        client_parameters: Parameters,
-        server_parameters: Parameters
+        model_state_dict: OrderedDict,
     ) -> Optional[Tuple[float, Dict[str, Scalar]]]:
         return None
+
+    def _setup_epoch(self, clients, model_state_dict, client_layer_allocator, is_training, base_config):
+        config = copy.deepcopy(base_config)
+        client_layer_allocator.init_epoch(clients, is_training=is_training)
+        self._round_active_clients = [client.cid for client in clients]
+
+        client_ins_cls = FitIns if is_training else EvaluateIns
+        server_ins_cls = ServerModelFitIns if is_training else ServerModelEvaluateIns
+        # divide the parameters into client and server part
+        all_clients_fit_ins = []
+        client_split_layers = []
+        for client in clients:
+            client_split_layer = client_layer_allocator.get_client_suggested_init_layers(client)
+            client_split_layers.append(client_split_layer)
+            client_parameters = ndarrays_to_parameters([
+                model_state_dict[key].numpy()
+                for layer_idx in range(client_split_layer)
+                for key in get_model_layer_keys(self.model)[layer_idx]
+            ])
+            config[CLIENT_LAST_LAYER_IDX_KEY] = client_split_layer
+            client_fit_ins = client_ins_cls(client_parameters, config)
+            all_clients_fit_ins.append((client, client_fit_ins))
+
+        # for now, init a single model with enough layers to be able to process any client request
+        server_model_state_dict = OrderedDict(
+            (key, model_state_dict[key])
+            for layer_idx in range(min(client_split_layers), get_num_layers(self.model))
+            for key in get_model_layer_keys(self.model)[layer_idx]
+        )
+        server_fit_ins = server_ins_cls(server_model_state_dict, min(client_split_layers), config, sid="")
+
+        # Return client/config pairs
+        all_server_models_fit_ins = [server_fit_ins,]
+        self._cid_to_sid_mapping = {client.cid: "" for client in clients}
+        return all_clients_fit_ins, all_server_models_fit_ins
+
 
     def configure_fit(
         self,
         server_round: int,
-        parameters: Parameters,
-        client_manager: ClientManager
+        model_state_dict: OrderedDict,
+        client_manager: ClientManager,
+        client_layer_allocator: LayerAllocator
     ) -> List[Tuple[ClientProxy, FitIns]]:
-        """Distributes to all the sampled clients the current parameters and the configuration
-        obtained via self.configure_client_fit_fn
-
-        Parameters
-        ----------
-        server_round : int
-            Current training epoch
-        parameters : Parameters
-            Current parameters of the client-side model
-        client_manager : ClientManager
-            the client manager
-
-        Returns
-        -------
-        List[Tuple[ClientProxy, FitIns]]
-            Instructions for the client
-        """
         config = {}
         if self.config_client_fit_fn:
             config = self.config_client_fit_fn(server_round)
-        fit_ins = FitIns(parameters, config)
 
-        # Sample clients
+        # uninformed and unbiased sampling of clients
         sample_size, min_num_clients = self.num_fit_clients(
             client_manager.num_available()
         )
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
-        self._round_active_clients = [client.cid for client in clients]
-
-        # Return client/config pairs
-        return [(client, copy.deepcopy(fit_ins)) for client in clients]
-
-    def configure_server_fit(
-        self,
-        server_round: int,
-        parameters: NDArrays,
-        cids: List[str],
-    ) -> List[ServerModelFitIns]:
-        """Distribute to all the server models the current weights of the server model
-
-        Parameters
-        ----------
-        server_round : int
-            Training epoch
-        parameters : NDArrays
-            Current version of the server model weights
-        cids : List[str]
-            List of client IDs selected for this round of training
-
-        Returns
-        -------
-        List[ServerModelFitIns]
-            A set of configurations of the N server models. By default the number of server models
-            is set to 1. If want to get a different number of server models, make the
-            `config_server_segment_fn` return a dictionary with the key `num_server_models`
-            that states how many server models to be used
-        """
-        _ = (server_round, )
-        config = {}
-        if self.config_server_segnent_fn:
-            config = self.config_server_segnent_fn(server_round, cids)
-        num_server_models = 1 if self.common_server_model else len(cids)
-        if num_server_models == 1:
-            self._cid_to_sid_mapping = {cid: "" for cid in cids}
-            return [
-                ServerModelFitIns(parameters=parameters, config=config, sid="")
-            ]
-        self._cid_to_sid_mapping = {cid: cid for cid in cids}
-        return [
-            ServerModelFitIns(parameters=parameters, config=config, sid=cid)
-            for cid in cids
-        ]
+        all_clients_fit_ins, all_server_models_fit_ins = self._setup_epoch(
+            clients, model_state_dict, client_layer_allocator, True, config
+        )
+        return all_clients_fit_ins, all_server_models_fit_ins
 
     def configure_evaluate(
         self,
         server_round: int,
-        parameters: Parameters,
+        model_state_dict: OrderedDict,
         client_manager: ClientManager,
+        client_layer_allocator: LayerAllocator,
     ) -> List[Tuple[ClientProxy, EvaluateIns]]:
-        evaluate_ins = EvaluateIns(parameters, {})
+        config = {}
+        # if self.config_client_fit_fn:
+        #     config = self.config_client_fit_fn(server_round)
 
         # Sample clients
         sample_size, min_num_clients = self.num_evaluation_clients(
@@ -172,74 +154,67 @@ class PlainSlStrategy(Strategy):
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
-        self._round_active_clients = [client.cid for client in clients]
 
-        # Return client/config pairs
-        return [(client, copy.deepcopy(evaluate_ins)) for client in clients]
+        all_clients_eval_ins, all_server_models_eval_ins = self._setup_epoch(
+            clients, model_state_dict, client_layer_allocator, False, config
+        )
 
-    def configure_server_evaluate(
-        self,
-        server_round: int,
-        parameters: NDArrays,
-        cids: List[str],
-    ) -> List[ServerModelEvaluateIns]:
-        # for simplicity assume that the server model is the same for all clients
-        self._cid_to_sid_mapping = {cid: "" for cid in cids}
-        return [ServerModelEvaluateIns(parameters=parameters, config={}, sid="")]
+        return all_clients_eval_ins, all_server_models_eval_ins
+
+    def _aggregate_layer_parameters(self, trained_values: List[Tuple[torch.tensor, int]], key):
+        assert len(trained_values) > 0
+        assert sum([weight for _, weight in trained_values]) == 1000
+        total_weights = sum(weight for _, weight in trained_values)
+        return sum(tensor * (weight / total_weights) for tensor, weight in trained_values)
 
     def aggregate_fit(
         self,
         server_round: int,
         results: List[Tuple[ClientProxy, FitRes]],
+        server_model_results: List[ServerModelFitRes],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
-    ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
+    ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, failures,)
         self.requests_state = {}
         self._round_active_clients = []
         for failure in failures:
             log(ERROR, str(failure))
 
-        weights_results = [
-            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
-            for _, fit_res in results
-        ]
-        parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
+        # client parameters to state dict
+        per_parameter_trained_values = defaultdict(list)
+        for _, fit_res in results:
+            ndarrays = parameters_to_ndarrays(fit_res.parameters)
+            trained_per_layer = {
+                int(k[len("_proc"):]): v for k, v in fit_res.metrics.items() if k.startswith("_proc")
+            }
+
+            client_trained_statedict = {
+                key: (torch.from_numpy(array), trained_per_layer[int(key.split(".")[0])])
+                for key, array in zip(
+                    self.model.state_dict().keys(),
+                    ndarrays
+                )
+            }
+            for key, tensor in client_trained_statedict.items():
+                per_parameter_trained_values[key].append(tensor)
+
+        for res in server_model_results:
+            trained_per_layer = res.per_layer_training_examples
+            for key, tensor in res.model_state_dict.items():
+                per_parameter_trained_values[key].append(
+                    (tensor.detach().cpu(), trained_per_layer[int(key.split(".")[0])])
+                )
+        out_state_dict = OrderedDict([
+            (key, self._aggregate_layer_parameters(per_parameter_trained_values[key], key))
+            for key in self.model.state_dict().keys()
+        ])
+
 
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:
             fit_metrics = [(res.num_examples, res.metrics) for _, res in results]
             aggregated_metrics = self.fit_metrics_aggregation_fn(fit_metrics)
-        return parameters_aggregated, aggregated_metrics
-
-    def aggregate_server_fit(
-        self,
-        server_round: int,
-        results: List[ServerModelFitRes]
-    ) -> Optional[NDArrays]:
-        """Does a weighted average of the received server model weights. It weights the
-        server parameters by a parameter `num_examples` provided in the config of every
-        server result (if not preset, `num_examples` is set to 1, hence performing a plain average)
-
-        Parameters
-        ----------
-        server_round : int
-            Training epoch
-        results : List[ServerModelFitRes]
-            Updated server model weights and corresponding configuration for aggregating weights
-
-        Returns
-        -------
-        Optional[NDArrays]
-            Updated server model weights
-        """
-        _ = (server_round, )
-        weights_results = [
-            (res.parameters, res.config.pop("num_examples", 1))
-            for res in results
-        ]
-        parameters_aggregated = aggregate(weights_results)
-
-        return parameters_aggregated
+        return out_state_dict, aggregated_metrics
 
     def aggregate_evaluate(
         self,
@@ -276,21 +251,19 @@ class PlainSlStrategy(Strategy):
     def route_client_request(
         self,
         cid: str,
-        method_name: str,
     ) -> Tuple[ClientRequestGroup, Optional[Callable]]:
         sid = self._cid_to_sid_mapping[cid]
-        request_key = (sid, method_name)
-        if request_key not in self.requests_state:
-            self.requests_state[request_key] = {}
-        for reqg in self.requests_state[request_key].values():
+        if sid not in self.requests_state:
+            self.requests_state[sid] = {}
+        for reqg in self.requests_state[sid].values():
             if not reqg.is_ready():
                 return reqg, lambda: None
 
         # all requests are ready. Create a new one
         request_group = ClientRequestGroup(sid)
         request_id = str(uuid.uuid4())[:8]
-        self.requests_state[request_key][request_id] = request_group
-        callback_fn = lambda: self.requests_state[request_key].pop(request_id)
+        self.requests_state[sid][request_id] = request_group
+        callback_fn = lambda: self.requests_state[sid].pop(request_id)
         return request_group, callback_fn
 
     def mark_ready_requests(self):
@@ -306,3 +279,6 @@ class PlainSlStrategy(Strategy):
     def mark_client_as_done(self, cid):
         self._round_active_clients.remove(cid)
         self.mark_ready_requests()
+
+    def get_model_architecture(self):
+        return copy.deepcopy(self.model)

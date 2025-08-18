@@ -4,6 +4,8 @@ from typing import Optional, Union, Callable, Tuple
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
+import torch.nn as nn
+
 from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
 from flwr.common.constant import TRANSPORT_TYPE_GRPC_BIDI
 from flwr.client.message_handler.message_handler import handle_control_message
@@ -29,6 +31,7 @@ def start_client(
     *,
     server_address: str,
     client_fn: Optional[ClientFn] = None,
+    model: nn.Sequential,
     client: Optional[Client] = None,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     root_certificates: Optional[Union[bytes, str]] = None,
@@ -47,6 +50,7 @@ def start_client(
         load_client_app_fn=None,
         client_fn=client_fn,
         client=client,
+        model=model,
         grpc_max_message_length=grpc_max_message_length,
         root_certificates=root_certificates,
         insecure=insecure,
@@ -65,6 +69,7 @@ def _start_client_internal(
     load_client_app_fn: Optional[Callable[[], ClientApp]] = None,
     client_fn: Optional[ClientFn] = None,
     client: Optional[Client] = None,
+    model: nn.Sequential = None,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     root_certificates: Optional[Union[bytes, str]] = None,
     insecure: Optional[bool] = None,
@@ -105,6 +110,7 @@ def _start_client_internal(
         Starts an insecure gRPC connection when True. Enables HTTPS connection
         when False, using system certificates if `root_certificates` is None.
     """
+    assert model is not None
     if insecure is None:
         insecure = root_certificates is None
 
@@ -125,7 +131,7 @@ def _start_client_internal(
             client_fn = single_client_factory
 
         def _load_client_app() -> ClientApp:
-            return ClientApp(client_fn=client_fn)
+            return ClientApp(client_fn=client_fn, model=model)
 
         load_client_app_fn = _load_client_app
 

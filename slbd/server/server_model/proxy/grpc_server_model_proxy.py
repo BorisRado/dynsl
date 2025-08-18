@@ -1,10 +1,9 @@
 from queue import Queue
-from typing import Optional
 from logging import DEBUG
 
 from flwr.common import log
 
-from slbd.common import BatchData
+from slbd.common import bytes_to_torch, torch_to_bytes, LayerChangeInfo
 from slbd.common.serde import (
     control_code_to_proto,
     control_code_from_proto,
@@ -17,30 +16,9 @@ from slbd.proto import server_model_pb2_grpc
 from slbd.proto import server_model_pb2
 
 
-class ClientException(Exception):
-    """Exception indicating that the client invoked a method it should not have. For instance,
-    server model configuration should be taken care of by the server, and any attempt
-    at doing so by the client will result in an exception. The client may only use this proxy
-    for computing predictions and for requesting gradient updates."""
-
-
-class FutureResponse:
-    def __init__(self, response_future):
-        self.response_future = response_future
-
-    def get_response(self):
-        return self.response_future()
-
-
-
 # pylint: disable=no-member
 class GrpcServerModelProxy(ServerModelProxy):
 
-    """
-    In all server invokations the timeout parameter is currently ignored. This is because there is
-    currently no way to set a timeout for streaming requests. See:
-    - https://github.com/grpc/grpc/issues/20562
-    """
     def __init__(
         self,
         *,
@@ -53,104 +31,38 @@ class GrpcServerModelProxy(ServerModelProxy):
         self.request_queue = None
 
     def _initialize_stream(self):
-        self.request_queue = Queue(maxsize=20)
+        self.request_queue = Queue(maxsize=1)
         self.response_stream = self.stub.StreamRequest(iter(self.request_queue.get, None))
-        self.request_queue.put(server_model_pb2.BatchData(
+        self.request_queue.put(server_model_pb2.BatchDataForward(
             control_code=control_code_to_proto(ControlCode.INIT_STREAM),
             cid=self.cid,
         ))
 
-    def _blocking_request(
-        self,
-        method: str,
-        batch_data: BatchData,
-        _streams_: bool,
-        _timeout_: Optional[float],
-    ) -> BatchData:
-        """Issue a blocking request to the server over gRPC
-
-        Parameters
-        ----------
-        method : str
-            name of the method to be invoked
-        batch_data : BatchData
-            data to be sent to the server
-        _timeout_ : Optional[float]
-            optionally pass the maximum time allowed for the server to return a response
-
-        Returns
-        -------
-        BatchData
-            data returned by the server
-        """
-        if _streams_:
-            if self.request_queue is None:
-                self._initialize_stream()
-
-            ins = server_model_pb2.BatchData(
-                method=method,
-                data=to_grpc_format(batch_data.data),
-                control_code=control_code_to_proto(batch_data.control_code),
-            )
-            self.request_queue.put(ins)
-            res = next(self.response_stream)
-        else:
-
-            res = self.stub.UnaryRequest(
-                server_model_pb2.BatchData(
-                    method=method,
-                    data=to_grpc_format(batch_data.data),
-                    control_code=control_code_to_proto(batch_data.control_code),
-                    cid=self.cid,
-                )
-            )
-        return BatchData(
-            data=from_grpc_format(res.data),
-            control_code=control_code_from_proto(res.control_code)
-        )
-
-    def _streaming_request(self, method, batch_data, _streams_, _timeout_):
-        assert _streams_, "Not implemented yet for unary requests"
-        if self.request_queue is None:
-            self._initialize_stream()
-        ins = server_model_pb2.BatchData(
-            method=method,
-            data=to_grpc_format(batch_data.data),
-            control_code=control_code_to_proto(batch_data.control_code)
-        )
-        self.request_queue.put(ins)
-
-    def _nonblocking_request(self, method, batch_data, _timeout_, _streams_):
-        assert _streams_, "Not implemented yet for unary requests"
+    def __call__(self, embeddings, labels, local_computation_time, training=True):
+        batch_data = torch_to_bytes(embeddings=embeddings, labels=labels)
         if self.request_queue is None:
             self._initialize_stream()
 
-        ins = server_model_pb2.BatchData(
-            method=method,
-            data=to_grpc_format(batch_data.data),
-            control_code=control_code_to_proto(batch_data.control_code)
+        ins = server_model_pb2.BatchDataForward(
+            data=to_grpc_format(batch_data),
+            control_code=control_code_to_proto(ControlCode.OK),
+            training=training,
+            local_computation_time=local_computation_time,
         )
         self.request_queue.put(ins)
-        def get_future_fuction():
-            res = next(self.response_stream)
-            batch_data = BatchData(
-                data=from_grpc_format(res.data),
-                control_code=control_code_from_proto(res.control_code)
-            )
-            return self._parse_response_args(batch_data)
-
-        future_response = FutureResponse(get_future_fuction)
-        return future_response
+        res = next(self.response_stream)
+        num_layers_diff = res.layers_diff
+        return bytes_to_torch(from_grpc_format(res.data)), LayerChangeInfo(
+            layers_diff=num_layers_diff,
+            additional_layers_parameters=None if num_layers_diff <= 0 \
+                else [v.numpy() for v in bytes_to_torch(from_grpc_format(res.data))]
+        )
 
     def close_stream(self):
         if self.request_queue is None:
             return
-        self.request_queue.put(server_model_pb2.BatchData(
+        self.request_queue.put(server_model_pb2.BatchDataForward(
             control_code=control_code_to_proto(ControlCode.DO_CLOSE_STREAM)
         ))
         res = next(self.response_stream)
         assert control_code_from_proto(res.control_code) == ControlCode.STREAM_CLOSED_OK
-
-
-    def get_pending_batches_count(self) -> int:
-        raise Exception("TODO")

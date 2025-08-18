@@ -1,5 +1,9 @@
 import asyncio
 from functools import wraps
+from collections import OrderedDict
+
+import torch
+
 
 def run_async(func):
     @wraps(func)
@@ -19,3 +23,37 @@ def run_async(func):
             return asyncio.run(func(*args, **kwargs))
 
     return wrapper
+
+
+def weighted_average_state_dicts(weighted_state_dicts):
+    """
+    Compute weighted average of state dicts.
+
+    Args:
+        weighted_state_dicts: List of tuples (weight, state_dict)
+
+    Returns:
+        OrderedDict containing weighted average of state dicts
+    """
+    if not weighted_state_dicts:
+        return None
+
+    # Get total weight
+    total_weight = sum(weight for weight, _ in weighted_state_dicts)
+
+    # Initialize averaged state dict with zeros
+    result = OrderedDict()
+    first_dict = weighted_state_dicts[0][1]
+    for key in first_dict.keys():
+        result[key] = torch.zeros_like(first_dict[key])
+
+    # Compute weighted sum
+    for weight, state_dict in weighted_state_dicts:
+        for key in state_dict.keys():
+            result[key] += weight * state_dict[key]
+
+    # Divide by total weight
+    for key in result.keys():
+        result[key] = result[key] / total_weight
+
+    return result

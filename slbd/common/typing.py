@@ -1,6 +1,9 @@
+from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, Union, List, Optional
+
+import torch
 
 from flwr.common import Config, NDArrays
 
@@ -13,35 +16,38 @@ class ControlCode(Enum):
     INIT_STREAM = 4
 
 
-class RequestType(Enum):
-    """
-    Possible types of the request a client can make to the server:
-    - BLOCKING: the client issues the request and waits until receiving the return value
-    - FUTURE: the client issues a request and continues processing. The client must fetch the result from the server before submitting a new request
-    - STRAM: the client issues requests and does not wait to receive any response
-    """
-    BLOCKING = 0
-    FUTURE = 1
-    STREAM = 2
-
-
-class RequestArgumentFormat(Enum):
-    """
-    Server methods can be requested by passing either the native BatchData object or
-    (preferred way) using either bytes or numpy/pytorch tensors
-    """
-    RAW = 1  # BatchData
-    NUMPY = 2  # Numpy arrays / list of numpy arrays
-    TORCH = 3  # Torch arrays / list of Torch arrays
-
-
 @dataclass
-class BatchData:
+class BatchDataForward:
     """
     Generic class being passed between client and server during training/evaluation
     """
     data: Dict[str, Union[bytes, List[bytes]]]
     control_code: ControlCode
+    is_training: bool
+    local_computation_time: float
+
+
+@dataclass
+class BatchDataBackward:
+    """
+    Generic class being passed between client and server during training/evaluation
+    """
+    data: Dict[str, Union[bytes, List[bytes]]]
+    control_code: ControlCode
+    layers_diff: int
+    additional_layers_parameters: List[bytes] = None
+
+
+@dataclass
+class TimingMetrics:
+    client_local_computation_time: float
+    client_round_time: float
+    server_computation_time: float
+
+@dataclass
+class LayerChangeInfo:
+    layers_diff: int
+    additional_layers_parameters: List[torch.Tensor] = None
 
 
 @dataclass
@@ -51,7 +57,8 @@ class ServerModelFitIns:
     - `parameters` contains the currect weights of the server model
     - `config` may contain arbitrary user-defined values (learning rate, optimizer, ...)
     """
-    parameters: NDArrays
+    model_state_dict: OrderedDict
+    first_server_model_layer: int
     config: Config
     sid: str
 
@@ -61,7 +68,8 @@ class ServerModelEvaluateIns:
     """
     Configuration for the server model of the model prior evaluation
     """
-    parameters: NDArrays
+    model_state_dict: OrderedDict
+    first_server_model_layer: int
     config: Config
     sid: str
 
@@ -72,8 +80,10 @@ class ServerModelFitRes:
     Summary of the final version of the server model, with the updated model weights (`parameters`)
     and the number of training example of the server model has processed
     """
-    parameters: NDArrays
-    config: Config
+    model_state_dict: OrderedDict
+    per_layer_training_examples: Dict[str, int]
+    metrics: Dict[str, float]
+    config: Config = None
     sid: Optional[str] = None
 
     def __post_init__(self):

@@ -91,11 +91,17 @@ class ClientRequestGroup:
         self.sid = sid
         self.batches = []
         self.events = []
-        self.cids = []
+        self.cids = [] # required for sorting the batches
+        self.is_training = None
         self._is_ready = asyncio.Event()
         self._initializing_state = True
 
     def add(self, batch_data, event, cid):
+        if self.is_training is not None:
+            assert self.is_training == batch_data.is_training
+        else:
+            self.is_training = batch_data.is_training
+
         self.batches.append(batch_data)
         self.events.append(event)
         self.cids.append(cid)
@@ -109,9 +115,6 @@ class ClientRequestGroup:
     def get_num_batches(self):
         return len(self.batches)
 
-    def get_group_client_ids(self):
-        return self.cids
-
     def is_new(self):
         state = self._initializing_state
         self._initializing_state = False
@@ -119,6 +122,9 @@ class ClientRequestGroup:
 
     def get_data(self):
         # sort by cid to get consistent order
-        batches = [x for _, x in sorted(zip(self.cids, self.batches), key=lambda pair: pair[0])]
-        events = [x for _, x in sorted(zip(self.cids, self.events), key=lambda pair: pair[0])]
-        return batches, events
+        sorted_indices = sorted(range(len(self.cids)), key=lambda k: self.cids[k])
+        batches = [self.batches[idx] for idx in sorted_indices]
+        events = [self.events[idx] for idx in sorted_indices]
+        cids = [self.cids[idx] for idx in sorted_indices]
+
+        return batches, events, cids

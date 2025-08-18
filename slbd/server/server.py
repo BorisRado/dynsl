@@ -1,13 +1,13 @@
 import copy
 import timeit
-from logging import DEBUG, INFO
-from typing import Dict, Optional, Tuple, List
+from collections import OrderedDict
+from logging import INFO, ERROR
+from typing import Dict, Optional, Tuple
 
 from flwr.common import (
     Parameters,
     Scalar,
     log,
-    NDArrays,
 )
 from flwr.server.client_manager import ClientManager
 from flwr.server.history import History
@@ -20,8 +20,8 @@ from flwr.server.server import (
 )
 
 from slbd.server.strategy import Strategy
+from slbd.server.layer_allocator import LayerAllocator
 from slbd.server.server_model.manager.manager import ServerModelManager
-from slbd.common import ServerModelFitIns
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 
 
@@ -36,13 +36,9 @@ class Server(FlwrServer):
         strategy: Strategy,
     ) -> None:
         super().__init__(client_manager=client_manager, strategy=strategy)
-        # rename client parameters from `parameters` to `client_parameters`
-        self.client_parameters = self.parameters
-        del self.parameters
-
         self.server_model_manager: ServerModelManager = server_model_manager
         self.server_model_manager.set_strategy(strategy)
-        self.server_parameters: NDArrays = []
+        self.client_layer_allocator = LayerAllocator(max_client_layers=10) # TODO: model owner needs to specify this value
 
     # pylint: disable=too-many-locals
     def fit(self, num_rounds: int, timeout: Optional[float]) -> History:
@@ -51,8 +47,7 @@ class Server(FlwrServer):
 
         # Initialize parameters
         log(INFO, "Initializing global parameters")
-        self.client_parameters = self._get_initial_parameters(server_round=0, timeout=timeout)
-        self.server_parameters = self._get_initial_server_parameters()
+        self.parameters = self._get_initial_parameters()
 
         # Run federated learning for num_rounds
         log(INFO, "FL starting")
@@ -65,35 +60,31 @@ class Server(FlwrServer):
                 timeout=timeout,
             )
             if res_fit is not None:
-                client_parameters_prime, server_parameters_prime, fit_metrics, _ = res_fit
-                if client_parameters_prime:
-                    self.client_parameters = client_parameters_prime
-                if server_parameters_prime:
-                    self.server_parameters = server_parameters_prime
+                parameters_prime, fit_metrics, _ = res_fit
+                self.parameters.update({k: v for k, v in parameters_prime.items() if v is not None})
                 history.add_metrics_distributed_fit(
                     server_round=current_round, metrics=fit_metrics
                 )
 
             # Evaluate model using strategy implementation
-            res_cen = self.strategy.evaluate(
-                current_round,
-                client_parameters=self.client_parameters,
-                server_parameters=self.server_parameters
-            )
-            if res_cen is not None:
-                loss_cen, metrics_cen = res_cen
-                log(
-                    INFO,
-                    "fit progress: (%s, %s, %s, %s)",
-                    current_round,
-                    loss_cen,
-                    metrics_cen,
-                    timeit.default_timer() - start_time,
-                )
-                history.add_loss_centralized(server_round=current_round, loss=loss_cen)
-                history.add_metrics_centralized(
-                    server_round=current_round, metrics=metrics_cen
-                )
+            # res_cen = self.strategy.evaluate(
+            #     current_round,
+            #     parameters=self.parameters,
+            # )
+            # if res_cen is not None:
+            #     loss_cen, metrics_cen = res_cen
+            #     log(
+            #         INFO,
+            #         "fit progress: (%s, %s, %s, %s)",
+            #         current_round,
+            #         loss_cen,
+            #         metrics_cen,
+            #         timeit.default_timer() - start_time,
+            #     )
+            #     history.add_loss_centralized(server_round=current_round, loss=loss_cen)
+            #     history.add_metrics_centralized(
+            #         server_round=current_round, metrics=metrics_cen
+            #     )
 
             # Evaluate model on a sample of available clients
             res_fed = self.evaluate_round(server_round=current_round, timeout=timeout)
@@ -122,10 +113,11 @@ class Server(FlwrServer):
     ]:
         """Validate current global model on a number of clients."""
         # Get clients and their respective instructions from strategy
-        client_instructions = self.strategy.configure_evaluate(
+        client_instructions, server_model_configs = self.strategy.configure_evaluate(
             server_round=server_round,
-            parameters=self.client_parameters,
+            model_state_dict=self.parameters,
             client_manager=self._client_manager,
+            client_layer_allocator=self.client_layer_allocator,
         )
 
         # make a copy of instructions to avoid modifying the original ones in case multiple
@@ -138,19 +130,14 @@ class Server(FlwrServer):
             log(INFO, "evaluate_round %s: no clients selected, cancel", server_round)
             return None
         log(
-            DEBUG,
+            INFO,
             "evaluate_round %s: strategy sampled %s clients (out of %s)",
             server_round,
             len(client_instructions),
             self._client_manager.num_available(),
         )
 
-        server_model_config = self.strategy.configure_server_evaluate(
-            server_round=server_round,
-            parameters=self.server_parameters,
-            cids=[ins[0].cid for ins in client_instructions]
-        )
-        self.server_model_manager.initialize_server_models(server_model_config)
+        self.server_model_manager.initialize_server_models(server_model_configs, is_training=False)
 
         # Collect `evaluate` results from all clients participating in this round
         results, failures = evaluate_clients(
@@ -160,7 +147,7 @@ class Server(FlwrServer):
             group_id=server_round,
         )
         log(
-            DEBUG,
+            INFO,
             "evaluate_round %s received %s results and %s failures",
             server_round,
             len(results),
@@ -186,10 +173,11 @@ class Server(FlwrServer):
     ]:
         """Perform a single round of federated averaging."""
         # Get clients and their respective instructions from strategy
-        client_instructions = self.strategy.configure_fit(
+        client_instructions, server_model_configs = self.strategy.configure_fit(
             server_round=server_round,
-            parameters=self.client_parameters,
+            model_state_dict=self.parameters,
             client_manager=self._client_manager,
+            client_layer_allocator=self.client_layer_allocator,
         )
 
         client_instructions = [(proxy, copy.deepcopy(ins)) for proxy, ins in client_instructions]
@@ -200,7 +188,7 @@ class Server(FlwrServer):
             log(INFO, "fit_round %s: no clients selected, cancel", server_round)
             return None
         log(
-            DEBUG,
+            INFO,
             "fit_round %s: strategy sampled %s clients (out of %s)",
             server_round,
             len(client_instructions),
@@ -208,12 +196,7 @@ class Server(FlwrServer):
         )
 
         # start the server proxies
-        server_model_config: List[ServerModelFitIns] = self.strategy.configure_server_fit(
-            server_round=server_round,
-            parameters=self.server_parameters,
-            cids=[proxy.cid for proxy, _ in client_instructions]
-        )
-        self.server_model_manager.initialize_server_models(server_model_config)
+        self.server_model_manager.initialize_server_models(server_model_configs, is_training=True)
 
         # Collect `fit` results from all clients participating in this round
         results, failures = fit_clients(
@@ -223,7 +206,7 @@ class Server(FlwrServer):
             group_id=server_round,
         )
         log(
-            DEBUG,
+            INFO,
             "fit_round %s received %s results and %s failures",
             server_round,
             len(results),
@@ -232,32 +215,33 @@ class Server(FlwrServer):
         server_fit_res = self.server_model_manager.collect_server_fit_results()
 
         # Aggregate training results
-        aggregated_client_result: Tuple[
-            Optional[Parameters],
+        aggregated_result: Tuple[
+            OrderedDict,
             Dict[str, Scalar],
-        ] = self.strategy.aggregate_fit(server_round, results, failures)
-        server_parameters_aggregated = \
-            self.strategy.aggregate_server_fit(server_round, server_fit_res)
+        ] = self.strategy.aggregate_fit(server_round, results, server_fit_res, failures)
 
-        client_parameters_aggregated, metrics_aggregated = aggregated_client_result
+        parameters_aggregated, metrics_aggregated = aggregated_result
+        self.client_layer_allocator.epoch_end()
         return (
-            client_parameters_aggregated,
-            server_parameters_aggregated,
+            parameters_aggregated,
             metrics_aggregated,
             (results, failures)
         )
 
-    def _get_initial_server_parameters(self) -> Parameters:
-        parameters: Optional[Parameters] = self.strategy.initialize_server_parameters()
+    def _get_initial_parameters(self) -> OrderedDict:
+        """Get initial parameters from one of the available clients."""
+        # Server-side parameter initialization
+        parameters: Optional[OrderedDict] = self.strategy.initialize_parameters(
+            client_manager=self._client_manager
+        )
         if parameters is not None:
-            log(INFO, "Using initial server parameters provided by the strategy")
+            log(INFO, "Using initial global parameters provided by strategy")
             return parameters
 
-        # initialize one random server trainer and get parameters from it
-        # it's lightweight operation so we perform it in the main process
-        log(INFO, "Initializing random server model in order to fetch initial parameters")
-        server_model = \
-            self.strategy.init_server_model_fn().to_server_model()
-        get_parameters_res = server_model.get_parameters()
-        log(INFO, "Received initial parameters from a virtual server model")
-        return get_parameters_res
+        # Get initial parameters from one of the clients
+        log(INFO, "Requesting initial parameters the server model manager")
+        parameters: OrderedDict = self.server_model_manager.get_global_model_params()
+        return parameters
+
+    def get_client_layer_allocator(self):
+        return self.client_layer_allocator

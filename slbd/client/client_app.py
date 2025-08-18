@@ -45,10 +45,9 @@ class ClientApp:
 
     def __init__(
         self,
-        client_fn: Optional[ClientFn] = None,  # Only for backward compatibility
-        mods: Optional[List[Mod]] = None,
+        model,
+        client_fn: ClientFn,
     ) -> None:
-        self._mods: List[Mod] = mods if mods is not None else []
 
         def ffn(
             message: Message,
@@ -57,6 +56,7 @@ class ClientApp:
         ) -> Message:  # pylint: disable=invalid-name
             out_message = handle_legacy_message_from_msgtype(
                 client_fn=client_fn,
+                model=model,
                 message=message,
                 context=context,
                 server_model_stub=server_model_stub,
@@ -64,7 +64,7 @@ class ClientApp:
             return out_message
 
         # Wrap mods around the wrapped handle function
-        self._call = make_ffn(ffn, mods if mods is not None else [])
+        self._call = make_ffn(ffn, [])
 
 
     def __call__(

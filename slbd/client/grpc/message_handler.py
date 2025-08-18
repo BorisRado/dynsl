@@ -21,10 +21,12 @@ from flwr.common.recordset_compat import (
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
+from slbd.client.model_trainer import ModelTrainer
+from slbd.client.numpy_client import NumPyClient
 
 
 def handle_legacy_message_from_msgtype(
-    client_fn: ClientFn, message: Message, context: Context, server_model_stub: ServerModelStub
+    client_fn: ClientFn, model, message: Message, context: Context, server_model_stub: ServerModelStub
 ) -> Message:
     """Handle legacy message in the inner most mod."""
     cid = str(message.metadata.partition_id)
@@ -35,13 +37,16 @@ def handle_legacy_message_from_msgtype(
     if CLIENT_ID_CONFIG_KEY in config_record:
         server_cid = config_record.pop(CLIENT_ID_CONFIG_KEY)
 
-    client = client_fn(cid)
+    server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
+
+    client = NumPyClient(
+        cid=cid,
+        torch_client_fn=client_fn,
+        whole_model=model,
+        server_model_proxy=server_model_proxy,
+    )
     client = client.to_client()
 
-    server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
-    client.set_server_model_proxy(
-        server_model_proxy
-    )
     client.set_context(context)
 
     message_type = message.metadata.message_type

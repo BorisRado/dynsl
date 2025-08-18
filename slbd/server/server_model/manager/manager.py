@@ -1,5 +1,6 @@
 from typing import List, Union
 from abc import ABC, abstractmethod
+from collections import OrderedDict
 
 from slbd.server.server_model.proxy.server_model_proxy import ServerModelProxy
 from slbd.common import ServerModelFitRes, ServerModelEvaluateIns, ServerModelFitIns
@@ -27,10 +28,20 @@ class ServerModelManager(ABC):
     @abstractmethod
     def initialize_server_models(
         self,
-        configs: List[Union[ServerModelEvaluateIns, ServerModelFitIns]]
+        configs: List[Union[ServerModelEvaluateIns, ServerModelFitIns]],
+        is_training: bool,
     ):
         """Initialize the server models"""
 
     @abstractmethod
     def get_server_model_ids(self):
         """Get all the server model ids"""
+
+    @abstractmethod
+    def get_global_model_params(self) -> OrderedDict:
+        """Get the initial weights of the global model"""
+
+    @abstractmethod
+    def extract_layer_weights(self, layer_from, layer_to):
+        # returns a copy of the model weights
+        ""
