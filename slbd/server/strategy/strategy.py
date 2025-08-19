@@ -176,13 +176,13 @@ class Strategy:
     @abstractmethod
     def route_client_request(
         self,
-        cid: str,
+        client_id: str,
     ) -> Tuple[ClientRequestGroup, Optional[Callable]]:
         """Map a client ID to a RequestGroup that will contain the request
 
         Parameters
         ----------
-        cid : str
+        client_id : str
             ID of the client
 
         Returns
@@ -199,7 +199,7 @@ class Strategy:
         """
 
     @abstractmethod
-    def mark_client_as_done(self, cid: str) -> None:
+    def mark_client_as_done(self, client_id: str) -> None:
         """Mark the client as done
         """
 

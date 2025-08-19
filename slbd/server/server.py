@@ -221,7 +221,7 @@ class Server(FlwrServer):
         ] = self.strategy.aggregate_fit(server_round, results, server_fit_res, failures)
 
         parameters_aggregated, metrics_aggregated = aggregated_result
-        self.client_layer_allocator.epoch_end()
+        self.client_layer_allocator.finalize_epoch()
         return (
             parameters_aggregated,
             metrics_aggregated,

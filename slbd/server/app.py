@@ -22,7 +22,7 @@ from slbd.server.layer_allocator import LayerAllocator
 from slbd.server.grpc.flower_servicer import FlowerServiceServicer
 from slbd.server.server_model.manager import ServerModelManager, GrpcServerModelManager
 from slbd.server.strategy import Strategy
-from slbd.server.grpc.servicer import ServerModelServicer
+from slbd.server.grpc.server_model_servicer import ServerModelServicer
 from slbd.server.server import Server
 from slbd.common.utils import run_async
 from slbd.proto import server_model_pb2_grpc

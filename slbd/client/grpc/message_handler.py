@@ -23,7 +23,7 @@ from flwr.common.recordset_compat import (
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
-from slbd.client.numpy_client import NumPyClient
+from slbd.client.flower_numpy_client import FlowerNumpyClientAdapter
 
 
 def handle_legacy_message_from_msgtype(
@@ -44,8 +44,8 @@ def handle_legacy_message_from_msgtype(
 
     server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
 
-    client = NumPyClient(
-        cid=cid,
+    client = FlowerNumpyClientAdapter(
+        client_id=cid,
         torch_client_fn=client_fn,
         whole_model=model,
         server_model_proxy=server_model_proxy,

@@ -53,8 +53,8 @@ class ModelTrainer:
         self._dataset_size = 0
         self._num_batches = 0
         self._per_parameter_data_points = defaultdict(int)
-        self.forward_times = []
-        self.backward_times = []
+        self._forward_times = []
+        self._backward_times = []
         self._init_model(last_layer_idx, init_parameters)
         self._removed_parameters = []
 
@@ -104,14 +104,14 @@ class ModelTrainer:
         self._optimizer.zero_grad()
 
         # forward on client model
-        with measure_time(self.forward_times, self._use_cuda):
+        with measure_time(self._forward_times, self._use_cuda):
             # if 5 < self._tmp_idx < 12:
             #     time.sleep(0.8)
             client_output = self._model(input_vars)
 
         if self._model._is_complete:
             # if model is in its entirety on the client, compute the loss on the client
-            with measure_time(self.backward_times, self._use_cuda):
+            with measure_time(self._backward_times, self._use_cuda):
                 loss = self._criterion(client_output, labels.to(self._device))
                 loss.backward()
                 self._optimizer.step()
@@ -121,10 +121,10 @@ class ModelTrainer:
             gradient, control = self._server_model_proxy(
                 embeddings=client_output,
                 labels=labels,
-                local_computation_time=-1 if len(self.backward_times) == 0 else \
-                    self.backward_times[-1] + self.forward_times[-1]
+                local_computation_time=-1 if len(self._backward_times) == 0 else \
+                    self._backward_times[-1] + self._forward_times[-1]
             )
-            with measure_time(self.backward_times, self._use_cuda):
+            with measure_time(self._backward_times, self._use_cuda):
                 client_output.backward(gradient.to(client_output.device))
                 self._optimizer.step()
 
@@ -139,7 +139,7 @@ class ModelTrainer:
         input_vars = input_vars.to(self._device)
 
         with torch.no_grad():
-            with measure_time(self.forward_times, self._use_cuda):
+            with measure_time(self._forward_times, self._use_cuda):
                 client_output = self._model(input_vars)
 
         self._dataset_size += input_vars.shape[0]
@@ -151,7 +151,7 @@ class ModelTrainer:
                 embeddings=client_output,
                 labels=None,
                 training=False,
-                local_computation_time=self.forward_times[-1],
+                local_computation_time=self._forward_times[-1],
             )
         logits = logits.to(self._device)
         self._num_batches += 1

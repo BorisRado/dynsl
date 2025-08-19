@@ -9,23 +9,23 @@ from flwr.common import (
     Scalar,
 )
 from flwr.client import NumPyClient as FlwrNumpyClient
-from slbd.client.torch_client import TorchClient
+from slbd.client.torch_client import AbstractTorchClient
 from slbd.client.model_trainer import ModelTrainer
 from slbd.common.constants import CLIENT_LAST_LAYER_IDX_KEY, MIN_NUMBER_OF_CLIENT_LAYERS
 
 
-class NumPyClient(FlwrNumpyClient):
-    """Abstract base class for Flower clients using NumPy."""
+class FlowerNumpyClientAdapter(FlwrNumpyClient):
+    """Adapter class for Flower clients using NumPy in split learning context."""
 
     context: Context
     def __init__(
         self,
-        cid: str,
-        torch_client_fn: TorchClient,
+        client_id: str,
+        torch_client_fn: AbstractTorchClient,
         whole_model: torch.nn.Sequential,
         server_model_proxy
     ):
-        self.torch_client = torch_client_fn(cid)
+        self.torch_client = torch_client_fn(client_id)
         self.whole_model = whole_model
         self.server_model_proxy = server_model_proxy
 

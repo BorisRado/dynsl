@@ -81,21 +81,21 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         return event.get_result()
 
     def _trigger_computation(self, request_group: ClientRequestGroup):
-        batches, events, cids = request_group.get_data()
+        batches, events, client_ids = request_group.get_data()
         assert len(batches) == 1
-        offset = self.client_layer_allocator.get_client_offset_from_base(cids[0])
+        offset = self.client_layer_allocator.get_client_offset_from_base(client_ids[0])
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
         kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
-        server_model = self.server_model_manager.get_server_model(request_group.sid)
+        server_model = self.server_model_manager.get_server_model(request_group.server_id)
         if request_group.is_training:
             result = server_model.train_and_compute_gradient(kwargs, offset=offset)
         else:
             result = server_model.eval_get_logits(kwargs, offset=offset)
         self.client_layer_allocator.trigger_reallocation()
 
-        for event, cid, res in zip(events, cids, result):
-            diff_data = self.client_layer_allocator.get_layers_diff(cid)
+        for event, client_id, result_item in zip(events, client_ids, result):
+            diff_data = self.client_layer_allocator.get_layers_diff(client_id)
             num_layers_diff, params = 0, None
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
@@ -103,7 +103,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                     .extract_layer_weights(previous, previous+num_layers_diff)
 
             event.set_result(BatchDataBackward(
-                data=ndarray_dict_to_bytes(res),
+                data=ndarray_dict_to_bytes(result_item),
                 control_code=ControlCode.OK,
                 layers_diff=num_layers_diff,
                 additional_layers_parameters=torch_list_to_bytes(params)

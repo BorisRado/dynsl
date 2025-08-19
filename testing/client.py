@@ -6,12 +6,12 @@ import torchvision.transforms as transforms
 from flwr.common import Config, Scalar
 
 from slbd.client.app import start_client
-from slbd.client.torch_client import TorchClient
+from slbd.client.abstract_torch_client import AbstractTorchClient
 from slbd.client.model_trainer import ModelTrainer
 
 from testing.model import Model
 
-class Client(TorchClient):
+class Client(AbstractTorchClient):
 
     def __init__(self, cid):
         _ = (cid, )

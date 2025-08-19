@@ -25,7 +25,7 @@ class ServerModel(ABC):
     @abstractmethod
     def configure_fit(
         self,
-        ins: ServerModelFitIns
+        instructions: ServerModelFitIns
     ) -> None:
         """Configure the server model before any client starts to train it
 

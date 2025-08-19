@@ -87,16 +87,16 @@ class ClientRequestGroup:
     2. trigger the same method on the server model
     Thus, a ClientRequestGroup is a collection of requests that are meant to be processed together.
     """
-    def __init__(self, sid):
-        self.sid = sid
+    def __init__(self, server_id):
+        self.server_id = server_id
         self.batches = []
         self.events = []
-        self.cids = [] # required for sorting the batches
+        self.client_ids = [] # required for sorting the batches
         self.is_training = None
         self._is_ready = asyncio.Event()
         self._initializing_state = True
 
-    def add(self, batch_data, event, cid):
+    def add(self, batch_data, event, client_id):
         if self.is_training is not None:
             assert self.is_training == batch_data.is_training
         else:
@@ -104,7 +104,7 @@ class ClientRequestGroup:
 
         self.batches.append(batch_data)
         self.events.append(event)
-        self.cids.append(cid)
+        self.client_ids.append(client_id)
 
     def mark_as_ready(self):
         self._is_ready.set()
@@ -121,10 +121,10 @@ class ClientRequestGroup:
         return state
 
     def get_data(self):
-        # sort by cid to get consistent order
-        sorted_indices = sorted(range(len(self.cids)), key=lambda k: self.cids[k])
+        # sort by client_id to get consistent order
+        sorted_indices = sorted(range(len(self.client_ids)), key=lambda k: self.client_ids[k])
         batches = [self.batches[idx] for idx in sorted_indices]
         events = [self.events[idx] for idx in sorted_indices]
-        cids = [self.cids[idx] for idx in sorted_indices]
+        client_ids = [self.client_ids[idx] for idx in sorted_indices]
 
-        return batches, events, cids
+        return batches, events, client_ids

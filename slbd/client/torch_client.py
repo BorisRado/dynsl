@@ -6,7 +6,7 @@ from flwr.common import Config, Scalar
 from slbd.client.model_trainer import ModelTrainer
 
 
-class TorchClient(ABC):
+class AbstractTorchClient(ABC):
 
     @abstractmethod
     def get_properties(self, config: Config) -> Dict[str, Scalar]:

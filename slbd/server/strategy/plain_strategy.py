@@ -85,7 +85,7 @@ class PlainSlStrategy(Strategy):
         base_config
     ):
         config = copy.deepcopy(base_config)
-        client_layer_allocator.init_epoch(clients, is_training=is_training)
+        client_layer_allocator.initialize_epoch(clients, is_training=is_training)
         self._round_active_clients = [client.cid for client in clients]
 
         client_ins_cls = FitIns if is_training else EvaluateIns
@@ -258,20 +258,20 @@ class PlainSlStrategy(Strategy):
 
     def route_client_request(
         self,
-        cid: str,
+        client_id: str,
     ) -> Tuple[ClientRequestGroup, Optional[Callable]]:
-        sid = self._cid_to_sid_mapping[cid]
-        if sid not in self.requests_state:
-            self.requests_state[sid] = {}
-        for reqg in self.requests_state[sid].values():
+        server_id = self._cid_to_sid_mapping[client_id]
+        if server_id not in self.requests_state:
+            self.requests_state[server_id] = {}
+        for reqg in self.requests_state[server_id].values():
             if not reqg.is_ready():
                 return reqg, lambda: None
 
         # all requests are ready. Create a new one
-        request_group = ClientRequestGroup(sid)
+        request_group = ClientRequestGroup(server_id)
         request_id = str(uuid.uuid4())[:8]
-        self.requests_state[sid][request_id] = request_group
-        callback_fn = lambda: self.requests_state[sid].pop(request_id)
+        self.requests_state[server_id][request_id] = request_group
+        callback_fn = lambda: self.requests_state[server_id].pop(request_id)
         return request_group, callback_fn
 
     def mark_ready_requests(self):
@@ -284,8 +284,8 @@ class PlainSlStrategy(Strategy):
                     # each client is processed individually
                     reqg.mark_as_ready()
 
-    def mark_client_as_done(self, cid):
-        self._round_active_clients.remove(cid)
+    def mark_client_as_done(self, client_id):
+        self._round_active_clients.remove(client_id)
         self.mark_ready_requests()
 
     def get_model_architecture(self):

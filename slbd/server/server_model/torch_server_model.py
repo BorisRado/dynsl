@@ -34,10 +34,10 @@ class TorchServerModel:
             metrics=self._metrics_dict,
         )
 
-    def _get_model_from_ins(self, ins):
-        self.first_server_layer = ins.first_server_model_layer
-        model = extract_submodel(self._model, ins.first_server_model_layer, -1)
-        state_dict = shift_state_dict(ins.model_state_dict, -self.first_server_layer)
+    def _get_model_from_ins(self, instructions):
+        self.first_server_layer = instructions.first_server_model_layer
+        model = extract_submodel(self._model, instructions.first_server_model_layer, -1)
+        state_dict = shift_state_dict(instructions.model_state_dict, -self.first_server_layer)
         model.load_state_dict(state_dict)
         return model
 
@@ -46,9 +46,9 @@ class TorchServerModel:
 
     def configure_fit(
         self,
-        ins: ServerModelFitIns
+        instructions: ServerModelFitIns
     ) -> None:
-        self._model = self._get_model_from_ins(ins)
+        self._model = self._get_model_from_ins(instructions)
         self._model.train()
         self._model.to(self.device)
         self._optimizer = torch.optim.SGD(self._model.parameters(), momentum=0.9, lr=0.01)
