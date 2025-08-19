@@ -18,9 +18,9 @@ def run_async(func):
         if loop and loop.is_running():
             # If there's a running event loop, call it as an async function
             return func(*args, **kwargs)
-        else:
-            # If no event loop is running, create one and run the function
-            return asyncio.run(func(*args, **kwargs))
+
+        # If no event loop is running, create one and run the function
+        return asyncio.run(func(*args, **kwargs))
 
     return wrapper
 

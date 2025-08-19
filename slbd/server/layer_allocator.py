@@ -1,4 +1,3 @@
-import copy
 from logging import INFO
 from typing import List
 
@@ -24,7 +23,7 @@ class LayerAllocator:
             log(INFO, f"{client_proxy.cid} requires at least {min_client_layers}")
         return self._per_client_min_layers[client_proxy.cid]
 
-    def get_client_suggested_init_layers(self, client_proxy):
+    def get_num_init_client_layers(self, client_proxy):
         # if client is unknown, suggest the minimum number of layers the client must train
         # otherwise, use prior knowledge to define the number of layers to be set at the
         # beginning of training to every client
@@ -46,12 +45,13 @@ class LayerAllocator:
         self._client_layer_diff = {cid: 0 for cid in self.epoch_clients}
 
         min_client_layers = min([
-            self.get_client_suggested_init_layers(client_proxy) for client_proxy in epoch_clients
+            self.get_num_init_client_layers(client_proxy) for client_proxy in epoch_clients
         ])
 
         # _offsets_from_base stores how many layers should we skip on the server model
         self._offsets_from_base = {
-            proxy.cid: self.get_client_suggested_init_layers(proxy) - min_client_layers for proxy in epoch_clients
+            proxy.cid: self.get_num_init_client_layers(proxy) - min_client_layers
+            for proxy in epoch_clients
         }
 
         # _per_client_processed_batches - not really useful. Just for debugging
@@ -61,7 +61,7 @@ class LayerAllocator:
         # at the beginning of every epoch, the number of layers is equal to the suggested value
         # be the allocator
         self._client_allocated_layers = {
-            proxy.cid: self.get_client_suggested_init_layers(proxy) for proxy in epoch_clients
+            proxy.cid: self.get_num_init_client_layers(proxy) for proxy in epoch_clients
         }
 
     def epoch_end(self):

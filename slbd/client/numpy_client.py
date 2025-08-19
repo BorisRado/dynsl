@@ -39,7 +39,12 @@ class NumPyClient(FlwrNumpyClient):
         last_client_idx = config.pop(CLIENT_LAST_LAYER_IDX_KEY)
 
         # initialize the model trainer
-        model_trainer = ModelTrainer(self.whole_model, last_client_idx, parameters, self.server_model_proxy)
+        model_trainer = ModelTrainer(
+            whole_model=self.whole_model,
+            last_layer_idx=last_client_idx,
+            init_parameters=parameters,
+            server_model_proxy=self.server_model_proxy
+        )
 
         # call the model-owner training logic
         self.torch_client.fit(config, model_trainer)
@@ -48,11 +53,21 @@ class NumPyClient(FlwrNumpyClient):
         trained_parameters, processed_data_points_dict = model_trainer.get_fit_results()
         return trained_parameters, model_trainer._dataset_size, processed_data_points_dict
 
-    def evaluate(self, parameters: NDArrays, config: Dict[str, Scalar]) -> Tuple[float, int, Dict[str, Scalar]]:
+    def evaluate(
+        self,
+        parameters: NDArrays,
+        config: Dict[str, Scalar]
+    ) -> Tuple[float, int, Dict[str, Scalar]]:
         last_client_idx = config.pop(CLIENT_LAST_LAYER_IDX_KEY)
 
         # initialize the model trainer
-        model_trainer = ModelTrainer(self.whole_model, last_client_idx, parameters, self.server_model_proxy, is_training=False)
+        model_trainer = ModelTrainer(
+            whole_model=self.whole_model,
+            last_layer_idx=last_client_idx,
+            init_parameters=parameters,
+            server_model_proxy=self.server_model_proxy,
+            is_training=False
+        )
 
         # call the model-owner training logic
         self.torch_client.evaluate(config, model_trainer)

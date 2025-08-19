@@ -1,7 +1,5 @@
-from typing import List, Optional
-
 from flwr.client.mod.utils import make_ffn
-from flwr.client.typing import ClientFn, Mod
+from flwr.client.typing import ClientFn
 from flwr.common import Context, Message
 
 from slbd.proto.server_model_pb2_grpc import ServerModelStub

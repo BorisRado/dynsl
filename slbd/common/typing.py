@@ -5,7 +5,7 @@ from typing import Dict, Union, List, Optional
 
 import torch
 
-from flwr.common import Config, NDArrays
+from flwr.common import Config
 
 
 class ControlCode(Enum):

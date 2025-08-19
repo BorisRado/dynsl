@@ -2,13 +2,11 @@ from collections import OrderedDict
 from abc import abstractmethod
 from typing import Optional, List, Tuple, Dict, Callable, Union
 
-from flwr.common import Parameters, Scalar
-from flwr.server.strategy import Strategy as FlwrStrategy
+from flwr.common import Scalar
 from flwr.common import EvaluateIns, EvaluateRes, FitIns, FitRes, Scalar
 from flwr.server.client_manager import ClientManager
 from flwr.server.client_proxy import ClientProxy
 
-from slbd.server.server_model.server_model import ServerModel
 from slbd.common import (
     ServerModelEvaluateIns,
     ServerModelFitIns,
@@ -18,7 +16,7 @@ from slbd.server.server_model.utils import ClientRequestGroup
 from slbd.server.layer_allocator import LayerAllocator
 
 
-class Strategy(FlwrStrategy):
+class Strategy:
 
     def initialize_parameters(self, client_manager) -> Optional[OrderedDict]:
         return None
@@ -27,7 +25,7 @@ class Strategy(FlwrStrategy):
     def configure_fit(
         self,
         server_round: int,
-        parameters: OrderedDict,
+        model_state_dict: OrderedDict,
         client_manager: ClientManager,
         client_layer_allocator: LayerAllocator
     ) -> Tuple[List[Tuple[ClientProxy, FitIns]], List[ServerModelFitIns]]:
@@ -94,7 +92,7 @@ class Strategy(FlwrStrategy):
     def configure_evaluate(
         self,
         server_round: int,
-        parameters: OrderedDict,
+        model_state_dict: OrderedDict,
         client_manager: ClientManager,
         client_layer_allocator: LayerAllocator
     ) -> Tuple[List[Tuple[ClientProxy, EvaluateIns]], List[ServerModelEvaluateIns]]:

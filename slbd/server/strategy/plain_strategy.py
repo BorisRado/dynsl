@@ -21,7 +21,6 @@ from flwr.server.client_proxy import ClientProxy
 import torch
 
 from slbd.common.constants import CLIENT_LAST_LAYER_IDX_KEY
-from slbd.server.server_model.server_model import ServerModel
 from slbd.common import (
     ServerModelEvaluateIns,
     ServerModelFitIns,
@@ -30,7 +29,6 @@ from slbd.common import (
 from slbd.server.strategy import Strategy
 from slbd.torch.model_utils import get_model_layer_keys, get_num_layers
 from slbd.server.server_model.utils import ClientRequestGroup
-from slbd.common.utils import weighted_average_state_dicts
 from slbd.server.layer_allocator import LayerAllocator
 
 
@@ -75,9 +73,17 @@ class PlainSlStrategy(Strategy):
         server_round: int,
         model_state_dict: OrderedDict,
     ) -> Optional[Tuple[float, Dict[str, Scalar]]]:
+        _ = (server_round, model_state_dict, )
         return None
 
-    def _setup_epoch(self, clients, model_state_dict, client_layer_allocator, is_training, base_config):
+    def _setup_epoch(
+        self,
+        clients,
+        model_state_dict,
+        client_layer_allocator,
+        is_training,
+        base_config
+    ):
         config = copy.deepcopy(base_config)
         client_layer_allocator.init_epoch(clients, is_training=is_training)
         self._round_active_clients = [client.cid for client in clients]
@@ -88,7 +94,7 @@ class PlainSlStrategy(Strategy):
         all_clients_fit_ins = []
         client_split_layers = []
         for client in clients:
-            client_split_layer = client_layer_allocator.get_client_suggested_init_layers(client)
+            client_split_layer = client_layer_allocator.get_num_init_client_layers(client)
             client_split_layers.append(client_split_layer)
             client_parameters = ndarrays_to_parameters([
                 model_state_dict[key].numpy()
@@ -100,12 +106,13 @@ class PlainSlStrategy(Strategy):
             all_clients_fit_ins.append((client, client_fit_ins))
 
         # for now, init a single model with enough layers to be able to process any client request
+        min_client_layers = min(client_split_layers)
         server_model_state_dict = OrderedDict(
             (key, model_state_dict[key])
-            for layer_idx in range(min(client_split_layers), get_num_layers(self.model))
+            for layer_idx in range(min_client_layers, get_num_layers(self.model))
             for key in get_model_layer_keys(self.model)[layer_idx]
         )
-        server_fit_ins = server_ins_cls(server_model_state_dict, min(client_split_layers), config, sid="")
+        server_fit_ins = server_ins_cls(server_model_state_dict, min_client_layers, config, sid="")
 
         # Return client/config pairs
         all_server_models_fit_ins = [server_fit_ins,]
@@ -143,6 +150,7 @@ class PlainSlStrategy(Strategy):
         client_manager: ClientManager,
         client_layer_allocator: LayerAllocator,
     ) -> List[Tuple[ClientProxy, EvaluateIns]]:
+        _ = (server_round, )
         config = {}
         # if self.config_client_fit_fn:
         #     config = self.config_client_fit_fn(server_round)
@@ -161,17 +169,17 @@ class PlainSlStrategy(Strategy):
 
         return all_clients_eval_ins, all_server_models_eval_ins
 
-    def _aggregate_layer_parameters(self, trained_values: List[Tuple[torch.tensor, int]], key):
+    def _aggregate_layer_parameters(self, trained_values: List[Tuple[torch.tensor, int]]):
         assert len(trained_values) > 0
-        assert sum([weight for _, weight in trained_values]) == 1000
+        assert sum(weight for _, weight in trained_values) == 1000
         total_weights = sum(weight for _, weight in trained_values)
         return sum(tensor * (weight / total_weights) for tensor, weight in trained_values)
 
     def aggregate_fit(
         self,
         server_round: int,
-        results: List[Tuple[ClientProxy, FitRes]],
-        server_model_results: List[ServerModelFitRes],
+        client_results: List[Tuple[ClientProxy, FitRes]],
+        server_results: List[ServerModelFitRes],
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, failures,)
@@ -182,10 +190,11 @@ class PlainSlStrategy(Strategy):
 
         # client parameters to state dict
         per_parameter_trained_values = defaultdict(list)
-        for _, fit_res in results:
+        for _, fit_res in client_results:
             ndarrays = parameters_to_ndarrays(fit_res.parameters)
             trained_per_layer = {
-                int(k[len("_proc"):]): v for k, v in fit_res.metrics.items() if k.startswith("_proc")
+                int(k[len("_proc"):]): v for k, v in fit_res.metrics.items()
+                if k.startswith("_proc")
             }
 
             client_trained_statedict = {
@@ -198,21 +207,20 @@ class PlainSlStrategy(Strategy):
             for key, tensor in client_trained_statedict.items():
                 per_parameter_trained_values[key].append(tensor)
 
-        for res in server_model_results:
+        for res in server_results:
             trained_per_layer = res.per_layer_training_examples
             for key, tensor in res.model_state_dict.items():
                 per_parameter_trained_values[key].append(
                     (tensor.detach().cpu(), trained_per_layer[int(key.split(".")[0])])
                 )
         out_state_dict = OrderedDict([
-            (key, self._aggregate_layer_parameters(per_parameter_trained_values[key], key))
+            (key, self._aggregate_layer_parameters(per_parameter_trained_values[key]))
             for key in self.model.state_dict().keys()
         ])
 
-
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:
-            fit_metrics = [(res.num_examples, res.metrics) for _, res in results]
+            fit_metrics = [(res.num_examples, res.metrics) for _, res in client_results]
             aggregated_metrics = self.fit_metrics_aggregation_fn(fit_metrics)
         return out_state_dict, aggregated_metrics
 

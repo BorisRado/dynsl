@@ -1,3 +1,5 @@
+import torch.nn as nn
+
 from flwr.client.client import (
     maybe_call_evaluate,
     maybe_call_fit,
@@ -21,12 +23,15 @@ from flwr.common.recordset_compat import (
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
-from slbd.client.model_trainer import ModelTrainer
 from slbd.client.numpy_client import NumPyClient
 
 
 def handle_legacy_message_from_msgtype(
-    client_fn: ClientFn, model, message: Message, context: Context, server_model_stub: ServerModelStub
+    client_fn: ClientFn,
+    model: nn.Sequential,
+    message: Message,
+    context: Context,
+    server_model_stub: ServerModelStub
 ) -> Message:
     """Handle legacy message in the inner most mod."""
     cid = str(message.metadata.partition_id)

@@ -1,10 +1,10 @@
-from logging import DEBUG
-
-import torch
 import time
+from logging import DEBUG
 from collections import defaultdict
 from contextlib import contextmanager
 
+import torch
+import torch.nn as nn
 from flwr.common import log
 
 from slbd.torch.model_utils import (
@@ -18,16 +18,25 @@ from slbd.torch.model_utils import (
 
 @contextmanager
 def measure_time(time_list, use_cuda):
-    torch.cuda.synchronize() if use_cuda else None
+    if use_cuda:
+        torch.cuda.synchronize()
     start = time.time()
     yield
-    torch.cuda.synchronize() if use_cuda else None
+    if use_cuda:
+        torch.cuda.synchronize()
     end = time.time()
     time_list.append(end - start)
 
 
 class ModelTrainer:
-    def __init__(self, whole_model, last_layer_idx, init_parameters, server_model_proxy, is_training=True):
+    def __init__(
+        self,
+        whole_model: nn.Sequential,
+        last_layer_idx: int,
+        init_parameters,
+        server_model_proxy,
+        is_training=True
+    ):
         self._use_cuda = torch.cuda.is_available()
         self._whole_model = whole_model
         self._last_layer_idx = last_layer_idx
@@ -46,12 +55,12 @@ class ModelTrainer:
         self._per_parameter_data_points = defaultdict(int)
         self.forward_times = []
         self.backward_times = []
-        self._init_model(whole_model, last_layer_idx, init_parameters)
+        self._init_model(last_layer_idx, init_parameters)
         self._removed_parameters = []
 
         self._tmp_idx = 0 # for debugging/testing
 
-    def _init_model(self, whole_model, last_layer_idx, init_parameters):
+    def _init_model(self, last_layer_idx, init_parameters):
         self._model = extract_submodel(self._whole_model, 0, last_layer_idx)
         state_dict = param_list_to_state_dict(init_parameters, self._model)
         self._model.load_state_dict(state_dict)
@@ -70,7 +79,7 @@ class ModelTrainer:
             return
 
         if control.layers_diff > 0:
-            log(DEBUG, f"Receiving {control.layers_diff} new layers")
+            log(DEBUG, "Receiving %d new layers" % control.layers_diff)
             self._model = attach_layers(
                 self._whole_model,
                 self._model,
@@ -82,7 +91,7 @@ class ModelTrainer:
             # need to better think how to properly handle this. For now, we store the
             # weights locally and upload to the server at the end of the training round
             # along with the other layers
-            log(DEBUG, f"Removing {control.layers_diff} layers from client model")
+            log(DEBUG, "Removing %d layers from client model" % -control.layers_diff)
             params = extract_submodel_weights(self._model, -control.layers_diff, -1)
             # append at the beginning
             self._removed_parameters = params + self._removed_parameters
@@ -96,8 +105,8 @@ class ModelTrainer:
 
         # forward on client model
         with measure_time(self.forward_times, self._use_cuda):
-            if 5 < self._tmp_idx < 12:
-                time.sleep(0.8)
+            # if 5 < self._tmp_idx < 12:
+            #     time.sleep(0.8)
             client_output = self._model(input_vars)
 
         if self._model._is_complete:
@@ -112,7 +121,8 @@ class ModelTrainer:
             gradient, control = self._server_model_proxy(
                 embeddings=client_output,
                 labels=labels,
-                local_computation_time=-1 if len(self.backward_times) == 0 else self.backward_times[-1] + self.forward_times[-1]
+                local_computation_time=-1 if len(self.backward_times) == 0 else \
+                    self.backward_times[-1] + self.forward_times[-1]
             )
             with measure_time(self.backward_times, self._use_cuda):
                 client_output.backward(gradient.to(client_output.device))

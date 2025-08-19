@@ -29,6 +29,7 @@ class GrpcServerModelProxy(ServerModelProxy):
         log(DEBUG, "Initializing proxy for CID %s", cid)
         self.stub = stub
         self.request_queue = None
+        self.response_stream = None
 
     def _initialize_stream(self):
         self.request_queue = Queue(maxsize=1)

@@ -68,4 +68,6 @@ class GrpcServerModelManager(ServerModelManager):
     def extract_layer_weights(self, layer_from, layer_to):
         # returns a copy of the model weights
         assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
-        return extract_submodel_weights(self.spanned_server_models[""].get_model(), layer_from, layer_to)
+        return extract_submodel_weights(
+            self.spanned_server_models[""].get_model(), layer_from, layer_to
+        )

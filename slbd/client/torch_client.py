@@ -1,21 +1,22 @@
-
-from typing import Tuple, Dict
+from abc import ABC, abstractmethod
+from typing import Dict
 
 from flwr.common import Config, Scalar
 
 from slbd.client.model_trainer import ModelTrainer
 
 
-class TorchClient:
+class TorchClient(ABC):
 
+    @abstractmethod
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         _ = (config,)
         return {}
 
-    def fit(self, config: Config, model_trainer: ModelTrainer) -> Tuple[int, Dict[str, Scalar]]:
+    @abstractmethod
+    def fit(self, config: Config, model_trainer: ModelTrainer) -> None:
         _ = (config, model_trainer, )
-        return 0, {}
 
-    def evaluate(self, config: Config) -> Tuple[float, int, Dict[str, Scalar]]:
-        _ = (config,)
-        pass
+    @abstractmethod
+    def evaluate(self, config: Config, model_trainer: ModelTrainer) -> None:
+        _ = (config, model_trainer)

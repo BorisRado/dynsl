@@ -55,7 +55,11 @@ def param_list_to_state_dict(param_list, model):
     ])
 
 
-def concat_sequential_models(model1: nn.Sequential, model2: nn.Sequential, optimizer: Optional[torch.optim.Optimizer]) -> nn.Sequential:
+def concat_sequential_models(
+    model1: nn.Sequential,
+    model2: nn.Sequential,
+    optimizer: Optional[torch.optim.Optimizer]
+) -> nn.Sequential:
     layers1 = list(model1.children())
     layers2 = list(model2.children())
     if optimizer is not None:

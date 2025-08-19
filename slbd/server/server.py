@@ -1,7 +1,7 @@
 import copy
 import timeit
 from collections import OrderedDict
-from logging import INFO, ERROR
+from logging import INFO
 from typing import Dict, Optional, Tuple
 
 from flwr.common import (
@@ -38,7 +38,7 @@ class Server(FlwrServer):
         super().__init__(client_manager=client_manager, strategy=strategy)
         self.server_model_manager: ServerModelManager = server_model_manager
         self.server_model_manager.set_strategy(strategy)
-        self.client_layer_allocator = LayerAllocator(max_client_layers=10) # TODO: model owner needs to specify this value
+        self.client_layer_allocator = LayerAllocator(max_client_layers=10)
 
     # pylint: disable=too-many-locals
     def fit(self, num_rounds: int, timeout: Optional[float]) -> History:

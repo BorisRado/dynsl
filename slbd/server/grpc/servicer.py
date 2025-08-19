@@ -6,7 +6,7 @@ from slbd.proto import server_model_pb2
 from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.server_model.utils import ClientRequestGroup
 from slbd.common import BatchDataForward, BatchDataBackward, ControlCode, TimingMetrics
-from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, torch_to_bytes, torch_list_to_bytes
+from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, torch_list_to_bytes
 from slbd.server.layer_allocator import LayerAllocator
 from slbd.common.serde import (
     control_code_from_proto,
@@ -32,7 +32,11 @@ class EventWithReturnValue(asyncio.Event):
 
 # pylint: disable=no-member
 class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
-    def __init__(self, server_model_manager: ServerModelManager, client_layer_allocator: LayerAllocator) -> None:
+    def __init__(
+        self,
+        server_model_manager: ServerModelManager,
+        client_layer_allocator: LayerAllocator
+    ) -> None:
         super().__init__()
         self.server_model_manager = server_model_manager
         self._lock = asyncio.Lock()
@@ -83,8 +87,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
         kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
-        sid = request_group.sid
-        server_model = self.server_model_manager.get_server_model(sid)
+        server_model = self.server_model_manager.get_server_model(request_group.sid)
         if request_group.is_training:
             result = server_model.train_and_compute_gradient(kwargs, offset=offset)
         else:
@@ -96,7 +99,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             num_layers_diff, params = 0, None
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
-                params = self.server_model_manager.extract_layer_weights(previous, previous+num_layers_diff)
+                params = self.server_model_manager \
+                    .extract_layer_weights(previous, previous+num_layers_diff)
 
             event.set_result(BatchDataBackward(
                 data=ndarray_dict_to_bytes(res),

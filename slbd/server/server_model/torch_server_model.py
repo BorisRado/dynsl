@@ -17,7 +17,7 @@ class TorchServerModel:
     ):
         self._model = model
         self.device = device
-        self.first_server_model_layer = -1
+        self.first_server_layer = -1
         self._optimizer = None
         self._criterion = torch.nn.CrossEntropyLoss()
         self._per_parameter_data_points = defaultdict(int)
@@ -26,7 +26,7 @@ class TorchServerModel:
     def get_train_results(self):
         state_dict = shift_state_dict(
             self._model.state_dict(),
-            self.first_server_model_layer
+            self.first_server_layer
         )
         return ServerModelFitRes(
             model_state_dict=state_dict,
@@ -35,9 +35,9 @@ class TorchServerModel:
         )
 
     def _get_model_from_ins(self, ins):
-        self.first_server_model_layer = ins.first_server_model_layer
+        self.first_server_layer = ins.first_server_model_layer
         model = extract_submodel(self._model, ins.first_server_model_layer, -1)
-        state_dict = shift_state_dict(ins.model_state_dict, -self.first_server_model_layer)
+        state_dict = shift_state_dict(ins.model_state_dict, -self.first_server_layer)
         model.load_state_dict(state_dict)
         return model
 
@@ -68,7 +68,8 @@ class TorchServerModel:
         offset,
     ):
         sizes = [b.shape[0] for b in batches["labels"]]
-        embeddings = torch.cat([torch.from_numpy(b) for b in batches["embeddings"]], dim=0).to(self.device)
+        embeddings = \
+            torch.cat([torch.from_numpy(b) for b in batches["embeddings"]], dim=0).to(self.device)
         labels = torch.cat([torch.from_numpy(b) for b in batches["labels"]], dim=0).to(self.device)
 
         embeddings.requires_grad_(True)
@@ -89,17 +90,17 @@ class TorchServerModel:
             remaining_layers = list(self._model.children())[start_idx:end_idx]
 
         x = data
-        for idx, layer in enumerate(remaining_layers, start=start_idx+self.first_server_model_layer):
+        for idx, layer in enumerate(remaining_layers, start=start_idx+self.first_server_layer):
             x = layer(x)
             self._per_parameter_data_points[idx] += x.shape[0]
         return x
 
     def eval_get_logits(self, batches, offset):
         sizes = [b.shape[0] for b in batches["embeddings"]]
-        embeddings = torch.cat([torch.from_numpy(b) for b in batches["embeddings"]], dim=0).to(self.device)
+        embeddings = torch.cat([torch.from_numpy(b) for b in batches["embeddings"]], dim=0)
 
         with torch.no_grad():
-            logits = self._forward_sequence_of_layers(embeddings, offset)
+            logits = self._forward_sequence_of_layers(embeddings.to(self.device), offset)
 
         logits = [l.detach().cpu().numpy() for l in logits.split(sizes, dim=0)]
         return logits

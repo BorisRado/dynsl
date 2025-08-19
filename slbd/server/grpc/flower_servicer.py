@@ -34,6 +34,7 @@ def register_client_proxy(
     context: grpc.ServicerContext,
 ) -> bool:
     """Try registering GrpcClientProxy with ClientManager."""
+    _ = (context,)
     return client_manager.register(client_proxy)
 
 
