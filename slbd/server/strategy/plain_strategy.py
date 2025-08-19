@@ -41,7 +41,6 @@ class PlainSlStrategy(Strategy):
         model: torch.nn.Sequential,
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,
-        config_server_segnent_fn: Optional[Callable[[str], Dict[str, Scalar]]] = None,
         config_client_fit_fn: Optional[Callable[[str], Dict[str, Scalar]]] = None,
         evaluate_metrics_aggregation_fn = None,
         fit_metrics_aggregation_fn = None,
@@ -55,7 +54,6 @@ class PlainSlStrategy(Strategy):
         self.model = model
         self.fraction_fit = fraction_fit
         self.fraction_evaluate = fraction_evaluate
-        self.config_server_segnent_fn = config_server_segnent_fn
         self.config_client_fit_fn = config_client_fit_fn
         self.evaluate_metrics_aggregation_fn = evaluate_metrics_aggregation_fn
         self.fit_metrics_aggregation_fn = fit_metrics_aggregation_fn

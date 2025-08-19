@@ -2,6 +2,19 @@ import time
 from logging import DEBUG
 from collections import defaultdict
 from contextlib import contextmanager
+from typing import List, Dict, Any, Optional
+
+import torch
+import torch.nn as nn
+from flwr.common import log
+
+from slbd.torch.model_utils import (
+    extract_submodel,
+    param_list_to_state_dict,
+    attach_layers,
+    extract_submodel_weights,
+    get_num_layers
+)
 
 import torch
 import torch.nn as nn
@@ -29,45 +42,77 @@ def measure_time(time_list, use_cuda):
 
 
 class ModelTrainer:
+    """
+    Handles client-side model training and communication with server.
+
+    This class manages the client-side portion of the split model,
+    coordinates forward/backward passes with the server, and handles
+    dynamic layer allocation changes.
+    """
+
     def __init__(
         self,
         whole_model: nn.Sequential,
         last_layer_idx: int,
         init_parameters,
         server_model_proxy,
-        is_training=True
+        is_training: bool = True,
     ):
+        """
+        Initialize the ModelTrainer.
+
+        Args:
+            whole_model: The complete model architecture
+            last_layer_idx: Index of the last layer to train on client
+            init_parameters: Initial parameters for client layers
+            server_model_proxy: Proxy for server communication
+            is_training: Whether in training or evaluation mode
+            learning_rate: Learning rate for optimizer
+            momentum: Momentum for SGD optimizer
+        """
         self._use_cuda = torch.cuda.is_available()
         self._whole_model = whole_model
         self._last_layer_idx = last_layer_idx
-        self._model = None
-        self._optimizer = None
-        self._last_layer_idx = last_layer_idx
+        self._model: Optional[nn.Sequential] = None
+        self._optimizer: Optional[torch.optim.Optimizer] = None
         self._device = torch.device("cuda" if self._use_cuda else "cpu")
         self._server_model_proxy = server_model_proxy
         self._is_training = is_training
         self._criterion = torch.nn.CrossEntropyLoss()
 
-        # collected metrics
+        # Collected metrics
         self._metrics = {"loss": 0., "accuracy": 0.}
         self._dataset_size = 0
         self._num_batches = 0
         self._per_parameter_data_points = defaultdict(int)
-        self._forward_times = []
-        self._backward_times = []
+        self._forward_times: List[float] = []
+        self._backward_times: List[float] = []
+        self._removed_parameters: List[torch.Tensor] = []
+
         self._init_model(last_layer_idx, init_parameters)
-        self._removed_parameters = []
 
-        self._tmp_idx = 0 # for debugging/testing
+        self._tmp_idx = 0  # TODO: Remove this debugging variable
 
-    def _init_model(self, last_layer_idx, init_parameters):
+    def _init_model(self, last_layer_idx: int, init_parameters) -> None:
+        """
+        Initialize the client-side model.
+
+        Args:
+            last_layer_idx: Index of the last layer to include in client model
+            init_parameters: Initial parameters for the model
+        """
         self._model = extract_submodel(self._whole_model, 0, last_layer_idx)
         state_dict = param_list_to_state_dict(init_parameters, self._model)
         self._model.load_state_dict(state_dict)
         self._model.to(self._device)
+
         if self._is_training:
             self._model.train()
-            self._optimizer = torch.optim.SGD(self._model.parameters(), lr=0.01, momentum=0.9)
+            self._optimizer = torch.optim.SGD(
+                self._model.parameters(),
+                lr=0.01,
+                momentum=0.9
+            )
         else:
             self._optimizer = None
             self._model.eval()

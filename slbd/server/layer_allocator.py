@@ -1,5 +1,5 @@
 from logging import INFO
-from typing import List
+from typing import List, Dict, Any
 
 from flwr.common import GetPropertiesIns, log
 from flwr.server.client_proxy import ClientProxy
@@ -8,28 +8,66 @@ from slbd.common.constants import MIN_NUMBER_OF_CLIENT_LAYERS
 
 
 class LayerAllocator:
+    """
+    Manages dynamic allocation of model layers between clients and server.
+
+    This class determines how many layers each client should train locally
+    versus on the server, based on client capabilities and performance metrics.
+    """
 
     def __init__(self, max_client_layers: int):
-        self._per_client_min_layers = {}
+        """
+        Initialize the LayerAllocator.
+
+        Args:
+            max_client_layers: Maximum number of layers a client can handle
+        """
+        self._per_client_min_layers: Dict[str, int] = {}
         self._max_client_layers = max_client_layers
 
-    def get_client_min_layers(self, client_proxy):
+        # Configuration for reallocation logic
+        self._reallocation_config = {
+            'first_trigger_batch': 5,
+            'second_trigger_batch': 10,
+            'layers_to_add': 3,
+            'layers_to_remove': 3
+        }
+
+    def get_client_min_layers(self, client_proxy: ClientProxy) -> int:
+        """
+        Get the minimum number of layers required by a client.
+
+        Args:
+            client_proxy: The client proxy to query
+
+        Returns:
+            Minimum number of layers the client requires
+        """
         if client_proxy.cid not in self._per_client_min_layers:
-            # call get properties on client
+            # Call get_properties on client to fetch requirements
             get_properties_instructions = GetPropertiesIns({})
-            result = client_proxy.get_properties(get_properties_instructions, timeout=None, group_id=None)
-            min_client_layers = result.properties[MIN_NUMBER_OF_CLIENT_LAYERS]
+            result = client_proxy.get_properties(
+                get_properties_instructions, timeout=None, group_id=None
+            )
+            min_client_layers = int(result.properties[MIN_NUMBER_OF_CLIENT_LAYERS])
             self._per_client_min_layers[client_proxy.cid] = min_client_layers
-            log(INFO, f"{client_proxy.cid} requires at least {min_client_layers}")
+            log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers")
         return self._per_client_min_layers[client_proxy.cid]
 
-    def get_num_init_client_layers(self, client_proxy):
-        # if client is unknown, suggest the minimum number of layers the client must train
-        # otherwise, use prior knowledge to define the number of layers to be set at the
-        # beginning of training to every client
+    def get_num_init_client_layers(self, client_proxy: ClientProxy) -> int:
+        """
+        Get the initial number of layers to assign to a client.
 
-        # for now, we do not keep track previous statistics of clients, so we always suggest the
-        # minimum number of layers
+        Currently returns the minimum required layers. In future versions,
+        this could use historical performance data to make smarter decisions.
+
+        Args:
+            client_proxy: The client proxy to determine layers for
+
+        Returns:
+            Number of layers to initially assign to the client
+        """
+        # TODO: Use historical performance data for smarter allocation
         return self.get_client_min_layers(client_proxy)
 
     def initialize_epoch(
@@ -71,12 +109,19 @@ class LayerAllocator:
         self._client_allocated_layers = None
 
     def trigger_reallocation(self) -> None:
+        """
+        Trigger layer reallocation based on performance metrics.
+
+        Note: This is a placeholder implementation. In production,
+        this should use sophisticated algorithms based on timing metrics,
+        client capabilities, and server load.
+        """
         for client_id in self._epoch_clients:
-            if self._per_client_processed_batches[client_id] == 5:
-                self._client_layer_diff[client_id] = 3
-            if self._per_client_processed_batches[client_id] == 10:
-                self._client_layer_diff[client_id] = -3
-            # send three additional layers to client... just testing for now
+            batches_processed = self._per_client_processed_batches[client_id]
+            if batches_processed == self._reallocation_config['first_trigger_batch']:
+                self._client_layer_diff[client_id] = self._reallocation_config['layers_to_add']
+            elif batches_processed == self._reallocation_config['second_trigger_batch']:
+                self._client_layer_diff[client_id] = -self._reallocation_config['layers_to_remove']
 
     def get_client_local_layers(self, client_id):
         return self._client_allocated_layers[client_id]

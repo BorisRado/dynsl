@@ -1,5 +1,6 @@
-from typing import AsyncIterable
+import time
 import asyncio
+from typing import AsyncIterable
 
 from slbd.proto import server_model_pb2_grpc
 from slbd.proto import server_model_pb2
@@ -46,18 +47,14 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
     async def _compute_response(
         self,
         client_id: str,
-        request: server_model_pb2.BatchDataForward
+        request: server_model_pb2.BatchDataForward,
+        timing_metrics: TimingMetrics
     ) -> BatchDataBackward:
         data = BatchDataForward(
             data = from_grpc_format(request.data),
             control_code=control_code_from_proto(request.control_code),
             is_training=request.training,
             local_computation_time=request.local_computation_time
-        )
-        timing_metrics = TimingMetrics(
-            client_local_computation_time=data.local_computation_time,
-            client_round_time=-1,
-            server_computation_time=-1,
         )
 
         # store training metrics
@@ -99,8 +96,9 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             num_layers_diff, params = 0, None
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
-                params = self.server_model_manager \
-                    .extract_layer_weights(previous, previous+num_layers_diff)
+                if num_layers_diff > 0:
+                    params = self.server_model_manager \
+                        .extract_layer_weights(previous, previous+num_layers_diff)
 
             event.set_result(BatchDataBackward(
                 data=ndarray_dict_to_bytes(result_item),
@@ -129,11 +127,23 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         req = await request_iterator.__anext__()
         assert control_code_from_proto(req.control_code) == ControlCode.INIT_STREAM
         client_id = req.cid
+        data_sending_time, data_received_time, client_round_time = -1, -1, -1
         async for req in request_iterator:
             if control_code_from_proto(req.control_code) == ControlCode.DO_CLOSE_STREAM:
                 break
-            res = await self._compute_response(client_id, req)
+            data_received_time = time.time()
+            if data_sending_time > 0:
+                client_round_time = data_received_time - data_sending_time
+            timing_metrics = TimingMetrics(
+                client_local_computation_time=req.local_computation_time,
+                client_round_time=client_round_time,
+                server_computation_time=-1,
+            )
+            if client_round_time > 0:
+                assert timing_metrics.client_local_computation_time < timing_metrics.client_round_time
+            res = await self._compute_response(client_id, req, timing_metrics)
 
+            data_sending_time = time.time()
             if res is not None:
                 yield self._to_grpc(res)
 

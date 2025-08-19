@@ -1,14 +1,13 @@
-from typing import Tuple, Dict
+import random
 
+import numpy as np
 import torch
 import torchvision
 import torchvision.transforms as transforms
-from flwr.common import Config, Scalar
 
 from slbd.client.app import start_client
 from slbd.client.abstract_torch_client import AbstractTorchClient
-from slbd.client.model_trainer import ModelTrainer
-
+from slbd.common.constants import MIN_NUMBER_OF_CLIENT_LAYERS
 from testing.model import Model
 
 class Client(AbstractTorchClient):
@@ -22,10 +21,8 @@ class Client(AbstractTorchClient):
         self.dataset_folder = torch.hub.get_dir() + '/datasets'
         self.batch_size = 64
 
-
-    def get_properties(self, config):
-        _ = (config,)
-        return {}
+    def get_properties(self):
+        return {MIN_NUMBER_OF_CLIENT_LAYERS: 3}
 
     def fit(self, config, model_trainer):
         _ = (config, )
@@ -66,10 +63,6 @@ class Client(AbstractTorchClient):
         )
         for img, label in testloader:
             model_trainer.evaluate(img, label)
-
-    def get_properties(self, config):
-        _ = (config, )
-        return {"min_layers": 3}
 
 
 if __name__ == "__main__":

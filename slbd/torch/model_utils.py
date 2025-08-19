@@ -1,18 +1,36 @@
-from typing import Optional
-from collections import OrderedDict
 
+from typing import Optional, Dict, List
+from collections import OrderedDict
 import copy
+
 import torch
 import torch.nn as nn
 
 
-def extract_submodel(model, start_idx, end_idx):
-    """Creates a copy of the model weights starting from start_idx and ending in
+def extract_submodel(model: nn.Sequential, start_idx: int, end_idx: int) -> nn.Sequential:
+    """
+    Creates a copy of model layers from start_idx to end_idx.
+
+    Args:
+        model: The source sequential model
+        start_idx: Starting layer index (inclusive)
+        end_idx: Ending layer index (exclusive), use -1 for all remaining layers
+
+    Returns:
+        Sequential model containing the specified layers
+
+    Raises:
+        AssertionError: If end_idx exceeds the number of layers in the model
     """
     max_num_layers = get_num_layers(model)
-    assert end_idx <= max_num_layers
     if end_idx == -1:
         end_idx = max_num_layers
+
+    assert end_idx <= max_num_layers, (
+        f"end_idx ({end_idx}) cannot exceed model layers ({max_num_layers})"
+    )
+    assert start_idx >= 0, f"start_idx must be non-negative, got {start_idx}"
+    assert start_idx < end_idx, f"start_idx ({start_idx}) must be less than end_idx ({end_idx})"
 
     sub_layers = copy.deepcopy(list(model.children())[start_idx:end_idx])
     submodel = nn.Sequential(*sub_layers)
@@ -20,21 +38,61 @@ def extract_submodel(model, start_idx, end_idx):
     return submodel
 
 
-def extract_submodel_weights(model, start_idx, end_idx):
+def extract_submodel_weights(model: nn.Sequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
+    """
+    Extract weights from a submodel defined by layer indices.
+
+    Args:
+        model: The source model
+        start_idx: Starting layer index
+        end_idx: Ending layer index
+
+    Returns:
+        List of tensors containing the model weights
+    """
     submodel = extract_submodel(model, start_idx, end_idx)
     return [v.detach().cpu() for _, v in submodel.state_dict().items()]
 
 
-def load_submodel(model, start_idx, end_idx, state_dict):
+def load_submodel(
+    model: nn.Sequential,
+    start_idx: int,
+    end_idx: int,
+    state_dict: OrderedDict
+) -> nn.Sequential:
+    """
+    Load a submodel with given state dict.
+
+    Args:
+        model: The source model
+        start_idx: Starting layer index
+        end_idx: Ending layer index
+        state_dict: State dictionary to load
+
+    Returns:
+        Loaded submodel
+    """
     submodel = extract_submodel(model, start_idx, end_idx)
     submodel.load_state_dict(state_dict)
     return submodel
 
 
-def get_model_layer_keys(model):
+def get_model_layer_keys(model: nn.Sequential) -> Dict[int, List[str]]:
+    """
+    Get the parameter keys for each layer in the model.
+
+    Args:
+        model: The sequential model
+
+    Returns:
+        Dictionary mapping layer index to list of parameter keys
+    """
     return {
-        k: [v for v in model.state_dict() if int(v.split(".")[0]) == k]
-        for k in range(len(model))
+        layer_idx: [
+            param_key for param_key in model.state_dict()
+            if int(param_key.split(".")[0]) == layer_idx
+        ]
+        for layer_idx in range(len(model))
     }
 
 
