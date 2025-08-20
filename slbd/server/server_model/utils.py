@@ -3,10 +3,9 @@ from typing import Union
 from functools import partial
 
 import numpy as np
-try:
-    import torch
-except ImportError:
-    torch = None
+import torch
+
+from slbd.common import BatchDataForward
 
 
 def split_numpy(data, split_sizes: Union[int, np.ndarray]):
@@ -80,23 +79,31 @@ def single_client_format(func):
     return wrapper
 
 
+async def set_event_after(event: asyncio.Event, delay: float):
+    await asyncio.sleep(delay)
+    if not event.is_set():
+        event.set()
+
+
 class ClientRequestGroup:
     """Container class that contains all the multiple requests from one or more clients.
     A ClientRequestGroup is a collection of client requests that:
     1. are meant to be processed by the same server model
-    2. trigger the same method on the server model
+    2. trigger the same method on the server model (either all for training or for evaluation)
+    3. offload the same part of the computational graph to the server (i.e., have the same `offset`)
     Thus, a ClientRequestGroup is a collection of requests that are meant to be processed together.
     """
-    def __init__(self, server_id):
+    def __init__(self, offset, server_id):
         self.server_id = server_id
+        self.offset = offset
         self.batches = []
         self.events = []
         self.client_ids = [] # required for sorting the batches
         self.is_training = None
         self._is_ready = asyncio.Event()
-        self._initializing_state = True
+        self._background_task = asyncio.create_task(set_event_after(self._is_ready, 0.5))
 
-    def add(self, batch_data, event, client_id):
+    def add(self, batch_data: BatchDataForward, event, client_id: str):
         if self.is_training is not None:
             assert self.is_training == batch_data.is_training
         else:
@@ -109,18 +116,12 @@ class ClientRequestGroup:
     def mark_as_ready(self):
         self._is_ready.set()
 
-    def is_ready(self):
-        return self._is_ready.is_set()
-
-    def get_num_batches(self):
-        return len(self.batches)
-
-    def is_new(self):
-        state = self._initializing_state
-        self._initializing_state = False
-        return state
+    def get_num_batches(self) -> int:
+        return len(self.client_ids)
 
     def get_data(self):
+        if not self._background_task.done():
+            self._background_task.cancel()
         # sort by client_id to get consistent order
         sorted_indices = sorted(range(len(self.client_ids)), key=lambda k: self.client_ids[k])
         batches = [self.batches[idx] for idx in sorted_indices]

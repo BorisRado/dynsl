@@ -1,5 +1,5 @@
 from logging import INFO
-from typing import List, Dict, Any
+from typing import List, Dict
 
 from flwr.common import GetPropertiesIns, log
 from flwr.server.client_proxy import ClientProxy
@@ -75,6 +75,7 @@ class LayerAllocator:
         epoch_clients: List[ClientProxy],
         is_training: bool,
     ):
+        self.tmp_update_client = epoch_clients[0].cid
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]
         self._is_training = is_training
 
@@ -108,7 +109,7 @@ class LayerAllocator:
         self.max_layers = None
         self._client_allocated_layers = None
 
-    def trigger_reallocation(self) -> None:
+    def trigger_reallocation(self, client_ids) -> None:
         """
         Trigger layer reallocation based on performance metrics.
 
@@ -116,7 +117,9 @@ class LayerAllocator:
         this should use sophisticated algorithms based on timing metrics,
         client capabilities, and server load.
         """
-        for client_id in self._epoch_clients:
+        for client_id in client_ids:
+            if client_id != self.tmp_update_client:
+                continue
             batches_processed = self._per_client_processed_batches[client_id]
             if batches_processed == self._reallocation_config['first_trigger_batch']:
                 self._client_layer_diff[client_id] = self._reallocation_config['layers_to_add']

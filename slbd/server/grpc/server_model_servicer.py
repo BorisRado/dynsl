@@ -1,6 +1,9 @@
 import time
 import asyncio
-from typing import AsyncIterable
+from logging import INFO
+from typing import AsyncIterable, Dict
+
+from flwr.common import log
 
 from slbd.proto import server_model_pb2_grpc
 from slbd.proto import server_model_pb2
@@ -43,6 +46,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         self._lock = asyncio.Lock()
         self.request_queues = {}
         self.client_layer_allocator: LayerAllocator = client_layer_allocator
+        self._outstanding_batches: Dict[int, ClientRequestGroup] = {}
 
     async def _compute_response(
         self,
@@ -59,43 +63,48 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         # store training metrics
         self.client_layer_allocator.update_metrics(client_id, timing_metrics)
+        offset = self.client_layer_allocator.get_client_offset_from_base(client_id)
         event = EventWithReturnValue()
+
+        is_new = False
         async with self._lock:
-            request_group, callback_fn = self.server_model_manager.strategy.route_client_request(
-                client_id=client_id,
-            )
+            if (request_group := self._outstanding_batches.get(offset)) is None:
+                request_group = ClientRequestGroup(offset=offset, server_id="")
+                self._outstanding_batches[offset] = request_group
+                is_new = True
             request_group.add(data, event, client_id)
-            is_new = request_group.is_new()
-            self.server_model_manager.strategy.mark_ready_requests()
+            if request_group.get_num_batches() == 2:
+                request_group.mark_as_ready()
 
         if is_new:
             await request_group._is_ready.wait()
-            self._trigger_computation(request_group)
-            if callback_fn:
-                callback_fn()
+            async with self._lock:
+                self._trigger_computation(request_group)
+                del self._outstanding_batches[offset]
+
         await event.wait()
 
         return event.get_result()
 
-    def _trigger_computation(self, request_group: ClientRequestGroup):
+    def _trigger_computation(self, request_group: ClientRequestGroup) -> None:
         batches, events, client_ids = request_group.get_data()
-        assert len(batches) == 1
-        offset = self.client_layer_allocator.get_client_offset_from_base(client_ids[0])
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
         kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
         server_model = self.server_model_manager.get_server_model(request_group.server_id)
         if request_group.is_training:
-            result = server_model.train_and_compute_gradient(kwargs, offset=offset)
+            result = server_model.train_and_compute_gradient(kwargs, offset=request_group.offset)
         else:
-            result = server_model.eval_get_logits(kwargs, offset=offset)
-        self.client_layer_allocator.trigger_reallocation()
+            result = server_model.eval_get_logits(kwargs, offset=request_group.offset)
+        self.client_layer_allocator.trigger_reallocation(client_ids)
 
         for event, client_id, result_item in zip(events, client_ids, result):
             diff_data = self.client_layer_allocator.get_layers_diff(client_id)
             num_layers_diff, params = 0, None
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
+                log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
+                    client_id, num_layers_diff)
                 if num_layers_diff > 0:
                     params = self.server_model_manager \
                         .extract_layer_weights(previous, previous+num_layers_diff)
@@ -147,8 +156,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             if res is not None:
                 yield self._to_grpc(res)
 
-        async with self._lock:
-            self.server_model_manager.strategy.mark_client_as_done(client_id)
+        # async with self._lock:
+        #     self.server_model_manager.strategy.mark_client_as_done(client_id)
         yield server_model_pb2.BatchDataBackward(
             control_code=control_code_to_proto(ControlCode.STREAM_CLOSED_OK)
         )

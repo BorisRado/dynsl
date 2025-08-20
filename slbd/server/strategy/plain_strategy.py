@@ -1,4 +1,3 @@
-import uuid
 import copy
 from collections import OrderedDict, defaultdict
 from logging import ERROR
@@ -169,7 +168,6 @@ class PlainSlStrategy(Strategy):
 
     def _aggregate_layer_parameters(self, trained_values: List[Tuple[torch.tensor, int]]):
         assert len(trained_values) > 0
-        assert sum(weight for _, weight in trained_values) == 1000
         total_weights = sum(weight for _, weight in trained_values)
         return sum(tensor * (weight / total_weights) for tensor, weight in trained_values)
 
@@ -253,38 +251,6 @@ class PlainSlStrategy(Strategy):
         """Use a fraction of available clients for evaluation."""
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
-
-    def route_client_request(
-        self,
-        client_id: str,
-    ) -> Tuple[ClientRequestGroup, Optional[Callable]]:
-        server_id = self._cid_to_sid_mapping[client_id]
-        if server_id not in self.requests_state:
-            self.requests_state[server_id] = {}
-        for reqg in self.requests_state[server_id].values():
-            if not reqg.is_ready():
-                return reqg, lambda: None
-
-        # all requests are ready. Create a new one
-        request_group = ClientRequestGroup(server_id)
-        request_id = str(uuid.uuid4())[:8]
-        self.requests_state[server_id][request_id] = request_group
-        callback_fn = lambda: self.requests_state[server_id].pop(request_id)
-        return request_group, callback_fn
-
-    def mark_ready_requests(self):
-        for reqg_dict in self.requests_state.values():
-            for reqg in reqg_dict.values():
-                if (
-                    not self.process_clients_as_batch or # process batch individually
-                    reqg.get_num_batches() == len(self._round_active_clients)
-                ):
-                    # each client is processed individually
-                    reqg.mark_as_ready()
-
-    def mark_client_as_done(self, client_id):
-        self._round_active_clients.remove(client_id)
-        self.mark_ready_requests()
 
     def get_model_architecture(self):
         return copy.deepcopy(self.model)

@@ -2,7 +2,7 @@ import time
 from logging import DEBUG
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 import torch
 import torch.nn as nn

@@ -1,6 +1,6 @@
 from collections import OrderedDict
 from abc import abstractmethod
-from typing import Optional, List, Tuple, Dict, Callable, Union
+from typing import Optional, List, Tuple, Dict, Union
 
 from flwr.common import Scalar
 from flwr.common import EvaluateIns, EvaluateRes, FitIns, FitRes, Scalar
@@ -12,7 +12,6 @@ from slbd.common import (
     ServerModelFitIns,
     ServerModelFitRes,
 )
-from slbd.server.server_model.utils import ClientRequestGroup
 from slbd.server.layer_allocator import LayerAllocator
 
 
@@ -171,36 +170,6 @@ class Strategy:
         -------
         Optional[Tuple[float, Dict[str, Scalar]]]
             metrics
-        """
-
-    @abstractmethod
-    def route_client_request(
-        self,
-        client_id: str,
-    ) -> Tuple[ClientRequestGroup, Optional[Callable]]:
-        """Map a client ID to a RequestGroup that will contain the request
-
-        Parameters
-        ----------
-        client_id : str
-            ID of the client
-
-        Returns
-        -------
-        Tuple[ClientRequestGroup, Callable]
-            Tuple containing a the ClientRequestGroup, that will contain the request, and a
-            callback, which is executed after the ClientRequestGroup has been processed. Note,
-            that the strategy needs to handle creating new ClientRequestGroups.
-        """
-
-    @abstractmethod
-    def mark_ready_requests(self) -> None:
-        """Mark the requests as ready to be served
-        """
-
-    @abstractmethod
-    def mark_client_as_done(self, client_id: str) -> None:
-        """Mark the client as done
         """
 
     @abstractmethod
