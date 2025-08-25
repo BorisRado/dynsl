@@ -10,6 +10,7 @@ from slbd.proto import server_model_pb2
 from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.server_model.utils import ClientRequestGroup
 from slbd.common import BatchDataForward, BatchDataBackward, ControlCode, TimingMetrics
+from slbd.common.utils import measure_time
 from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, torch_list_to_bytes
 from slbd.server.layer_allocator import LayerAllocator
 from slbd.common.serde import (
@@ -92,10 +93,14 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
         kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
         server_model = self.server_model_manager.get_server_model(request_group.server_id)
-        if request_group.is_training:
-            result = server_model.train_and_compute_gradient(kwargs, offset=request_group.offset)
-        else:
-            result = server_model.eval_get_logits(kwargs, offset=request_group.offset)
+        with measure_time(True) as timer:
+            if request_group.is_training:
+                result = server_model.train_and_compute_gradient(kwargs, offset=request_group.offset)
+            else:
+                result = server_model.eval_get_logits(kwargs, offset=request_group.offset)
+        computation_time = timer.elapsed
+        self.client_layer_allocator.update_server_metrics(request_group.offset, computation_time)
+
         self.client_layer_allocator.trigger_reallocation(client_ids)
 
         for event, client_id, result_item in zip(events, client_ids, result):
@@ -146,7 +151,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             timing_metrics = TimingMetrics(
                 client_local_computation_time=req.local_computation_time,
                 client_round_time=client_round_time,
-                server_computation_time=-1,
             )
             if client_round_time > 0:
                 assert timing_metrics.client_local_computation_time < timing_metrics.client_round_time

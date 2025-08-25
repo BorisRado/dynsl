@@ -22,6 +22,7 @@ class TorchServerModel:
         self._criterion = torch.nn.CrossEntropyLoss()
         self._per_parameter_data_points = defaultdict(int)
         self._metrics_dict = {}
+        self._mix_before_model = True
 
     def get_train_results(self):
         state_dict = shift_state_dict(
@@ -72,6 +73,12 @@ class TorchServerModel:
             torch.cat([torch.from_numpy(b) for b in batches["embeddings"]], dim=0).to(self.device)
         labels = torch.cat([torch.from_numpy(b) for b in batches["labels"]], dim=0).to(self.device)
 
+        permutation = None
+        if self._mix_before_model:
+            permutation = torch.randperm(embeddings.shape[0])
+            embeddings = embeddings[permutation]
+            labels = labels[permutation]
+
         embeddings.requires_grad_(True)
 
         self._optimizer.zero_grad(set_to_none=True)
@@ -80,7 +87,11 @@ class TorchServerModel:
         loss.backward()
         self._optimizer.step()
 
-        gradients = [g.detach().cpu().numpy() for g in embeddings.grad.split(sizes, dim=0)]
+        gradient = embeddings.grad
+        if self._mix_before_model:
+            inverse_permutation = torch.argsort(permutation)
+            gradient = gradient[inverse_permutation]
+        gradients = [g.detach().cpu().numpy() for g in gradient.split(sizes, dim=0)]
         return gradients
 
     def _forward_sequence_of_layers(self, data, start_idx, end_idx=None):

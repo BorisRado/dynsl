@@ -146,3 +146,6 @@ class LayerAllocator:
 
     def get_client_offset_from_base(self, client_id):
         return self._offsets_from_base[client_id]
+
+    def update_server_metrics(self, offset, elapsed_time):
+        print(offset, elapsed_time)

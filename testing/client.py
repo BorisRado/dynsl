@@ -7,8 +7,8 @@ import torchvision.transforms as transforms
 
 from slbd.client.app import start_client
 from slbd.client.abstract_torch_client import AbstractTorchClient
-from slbd.common.constants import MIN_NUMBER_OF_CLIENT_LAYERS
 from testing.model import Model
+
 
 class Client(AbstractTorchClient):
 
@@ -20,9 +20,6 @@ class Client(AbstractTorchClient):
         ])
         self.dataset_folder = torch.hub.get_dir() + '/datasets'
         self.batch_size = 64
-
-    def get_properties(self):
-        return {MIN_NUMBER_OF_CLIENT_LAYERS: 3}
 
     def fit(self, config, model_trainer):
         _ = (config, )
@@ -73,7 +70,7 @@ if __name__ == "__main__":
     torch.manual_seed(10)
 
     start_client(
-        server_address="0.0.0.0:8080",
+        config_file="testing/client_config.yaml",
         client_fn=Client,
         model=Model(),
     )

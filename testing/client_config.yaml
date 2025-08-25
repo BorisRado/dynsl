@@ -1,0 +1,2 @@
+min_layers: 3
+server_address: 0.0.0.0:8080

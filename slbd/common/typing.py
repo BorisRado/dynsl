@@ -42,7 +42,7 @@ class BatchDataBackward:
 class TimingMetrics:
     client_local_computation_time: float
     client_round_time: float
-    server_computation_time: float
+
 
 @dataclass
 class LayerChangeInfo:

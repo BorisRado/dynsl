@@ -1,4 +1,5 @@
 import sys
+import yaml
 import asyncio
 import traceback
 import concurrent.futures
@@ -8,6 +9,7 @@ from typing import Optional, Tuple
 
 import grpc
 import grpc.aio
+import torch.nn as nn
 
 from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
 from flwr.common.address import parse_address
@@ -24,6 +26,7 @@ from slbd.server.server_model.manager import ServerModelManager, GrpcServerModel
 from slbd.server.strategy import Strategy
 from slbd.server.grpc.server_model_servicer import ServerModelServicer
 from slbd.server.server import Server
+from slbd.server.strategy import PlainSlStrategy
 from slbd.common.utils import run_async
 from slbd.proto import server_model_pb2_grpc
 
@@ -121,16 +124,34 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
 @run_async
 async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     *,
+    model: nn.Sequential,
+    config_file: str,
     server_address: str = ADDRESS_FLEET_API_GRPC_BIDI,
-    server: Optional[Server] = None,
-    config: Optional[ServerConfig] = None,
-    strategy: Strategy = None,
-    client_manager: Optional[ClientManager] = None,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     certificates: Optional[Tuple[bytes, bytes, bytes]] = None,
 ) -> History:
 
     event(EventType.START_SERVER_ENTER)
+
+    # Read and parse the model owner's config file with all experiment configuration
+    try:
+        with open(config_file, 'r') as f:
+            config_dict = yaml.safe_load(f)
+    except FileNotFoundError:
+        log(ERROR, f"Config file not found: {config_file}")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        log(ERROR, f"Error parsing YAML config file: {e}")
+        sys.exit(1)
+
+    strategy = PlainSlStrategy(
+        model=model,
+        fraction_fit=config_dict["global_config"]["fraction_fit"],
+        fraction_evaluate=config_dict["global_config"]["fraction_evaluate"],
+        min_available_clients=config_dict["global_config"]["min_available_clients"],
+        min_fit_clients=config_dict["global_config"]["min_available_clients"],
+    )
+    server_config = ServerConfig(num_rounds=config_dict["global_config"]["rounds"])
 
     # Parse IP address
     parsed_address = parse_address(server_address)
@@ -141,10 +162,10 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
 
     # Initialize server and server config
     initialized_server, initialized_config = init_defaults(
-        server=server,
-        config=config,
+        server=None,
+        config=server_config,
         strategy=strategy,
-        client_manager=client_manager,
+        client_manager=None,
     )
     log(
         INFO,

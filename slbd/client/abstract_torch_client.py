@@ -1,27 +1,11 @@
-from typing import Dict
 from abc import ABC, abstractmethod
 
-from flwr.common import Config, Scalar
+from flwr.common import Config
 
 from slbd.client.model_trainer import ModelTrainer
 
 
 class AbstractTorchClient(ABC):
-
-    @abstractmethod
-    def get_properties(self) -> Dict[str, Scalar]:
-        """Called once the client is sampled for the very first time. The client is expected
-        to return its basic properties, such as the minimum number of layers it requires
-        to be trained locally. If no value is provided, the server uses a default value
-
-        Returns
-        -------
-        Dict[str, Scalar]
-           Dictionary with the client configuration. Keys are specified in
-           `slbd.common.constants.py`. Eventually, client configuration should be
-           read from a yaml file and not be overridden by the model owner
-        """
-        return {}
 
     @abstractmethod
     def fit(self, config: Config, model_trainer: ModelTrainer) -> None:

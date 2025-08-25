@@ -12,6 +12,7 @@ from flwr.client import NumPyClient as FlwrNumpyClient
 from slbd.client.abstract_torch_client import AbstractTorchClient
 from slbd.client.model_trainer import ModelTrainer
 from slbd.common.constants import CLIENT_LAST_LAYER_IDX_KEY, MIN_NUMBER_OF_CLIENT_LAYERS
+from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
 
 
 class FlowerNumpyClientAdapter(FlwrNumpyClient):
@@ -23,14 +24,19 @@ class FlowerNumpyClientAdapter(FlwrNumpyClient):
         client_id: str,
         torch_client_fn: AbstractTorchClient,
         whole_model: torch.nn.Sequential,
-        server_model_proxy
+        server_model_proxy: GrpcServerModelProxy,
+        config: Dict[str, Scalar]
     ):
         self.torch_client = torch_client_fn(client_id)
         self.whole_model = whole_model
         self.server_model_proxy = server_model_proxy
+        self.config = config
 
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
-        return {MIN_NUMBER_OF_CLIENT_LAYERS: 3}
+        _ = (config, )
+        return {
+            MIN_NUMBER_OF_CLIENT_LAYERS: self.config["min_layers"]
+        }
 
     def fit(
         self, parameters: NDArrays, config: Dict[str, Scalar]

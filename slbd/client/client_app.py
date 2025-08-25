@@ -1,6 +1,8 @@
+from typing import Dict
+
 from flwr.client.mod.utils import make_ffn
 from flwr.client.typing import ClientFn
-from flwr.common import Context, Message
+from flwr.common import Context, Message, Scalar
 
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.client.grpc.message_handler import handle_legacy_message_from_msgtype
@@ -45,6 +47,7 @@ class ClientApp:
         self,
         model,
         client_fn: ClientFn,
+        config: Dict[str, Scalar]
     ) -> None:
 
         def ffn(
@@ -58,6 +61,7 @@ class ClientApp:
                 message=message,
                 context=context,
                 server_model_stub=server_model_stub,
+                config=config
             )
             return out_message
 

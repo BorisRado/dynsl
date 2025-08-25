@@ -1,4 +1,6 @@
+import sys
 import time
+import yaml
 from logging import INFO, WARN, DEBUG, ERROR
 from typing import Optional, Union, Callable, Tuple
 
@@ -29,7 +31,7 @@ ClientFn = Callable[[str], Client]
 # pylint: disable=too-many-arguments
 def start_client(
     *,
-    server_address: str,
+    config_file: str,
     client_fn: Optional[ClientFn] = None,
     model: nn.Sequential,
     client: Optional[Client] = None,
@@ -46,7 +48,7 @@ def start_client(
 
     event(EventType.START_CLIENT_ENTER)
     _start_client_internal(
-        server_address=server_address,
+        config_file=config_file,
         load_client_app_fn=None,
         client_fn=client_fn,
         client=client,
@@ -65,7 +67,7 @@ def start_client(
 # pylint: disable=too-many-arguments,too-many-arguments,too-many-locals
 def _start_client_internal(
     *,
-    server_address: str,
+    config_file: str,
     load_client_app_fn: Optional[Callable[[], ClientApp]] = None,
     client_fn: Optional[ClientFn] = None,
     client: Optional[Client] = None,
@@ -111,6 +113,17 @@ def _start_client_internal(
         when False, using system certificates if `root_certificates` is None.
     """
     assert model is not None
+
+    try:
+        with open(config_file, 'r') as f:
+            config_dict = yaml.safe_load(f)
+    except FileNotFoundError:
+        log(ERROR, f"Config file not found: {config_file}")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        log(ERROR, f"Error parsing YAML config file: {e}")
+        sys.exit(1)
+
     if insecure is None:
         insecure = root_certificates is None
 
@@ -131,7 +144,7 @@ def _start_client_internal(
             client_fn = single_client_factory
 
         def _load_client_app() -> ClientApp:
-            return ClientApp(client_fn=client_fn, model=model)
+            return ClientApp(client_fn=client_fn, model=model, config=config_dict)
 
         load_client_app_fn = _load_client_app
 
@@ -140,7 +153,7 @@ def _start_client_internal(
 
     # Initialize connection context manager
     connection, address, connection_error_type = init_connection(
-        transport, server_address
+        transport, config_dict["server_address"]
     )
 
     app_state_tracker = _AppStateTracker()

@@ -1,3 +1,5 @@
+from typing import Dict
+
 import torch.nn as nn
 
 from flwr.client.client import (
@@ -7,7 +9,7 @@ from flwr.client.client import (
     maybe_call_get_properties,
 )
 from flwr.client.typing import ClientFn
-from flwr.common import Context, Message
+from flwr.common import Context, Message, Scalar
 from flwr.common.constant import MessageType, MessageTypeLegacy
 from flwr.common.recordset_compat import (
     evaluateres_to_recordset,
@@ -31,7 +33,8 @@ def handle_legacy_message_from_msgtype(
     model: nn.Sequential,
     message: Message,
     context: Context,
-    server_model_stub: ServerModelStub
+    server_model_stub: ServerModelStub,
+    config: Dict[str, Scalar],
 ) -> Message:
     """Handle legacy message in the inner most mod."""
     cid = str(message.metadata.partition_id)
@@ -49,6 +52,7 @@ def handle_legacy_message_from_msgtype(
         torch_client_fn=client_fn,
         whole_model=model,
         server_model_proxy=server_model_proxy,
+        config=config
     )
     client = client.to_client()
 

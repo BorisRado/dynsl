@@ -1,7 +1,5 @@
-import time
 from logging import DEBUG
 from collections import defaultdict
-from contextlib import contextmanager
 from typing import List, Optional
 
 import torch
@@ -20,6 +18,7 @@ import torch
 import torch.nn as nn
 from flwr.common import log
 
+from slbd.common.utils import measure_time
 from slbd.torch.model_utils import (
     extract_submodel,
     param_list_to_state_dict,
@@ -27,18 +26,6 @@ from slbd.torch.model_utils import (
     extract_submodel_weights,
     get_num_layers
 )
-
-
-@contextmanager
-def measure_time(time_list, use_cuda):
-    if use_cuda:
-        torch.cuda.synchronize()
-    start = time.time()
-    yield
-    if use_cuda:
-        torch.cuda.synchronize()
-    end = time.time()
-    time_list.append(end - start)
 
 
 class ModelTrainer:
@@ -85,8 +72,8 @@ class ModelTrainer:
         self._dataset_size = 0
         self._num_batches = 0
         self._per_parameter_data_points = defaultdict(int)
-        self._forward_times: List[float] = []
-        self._backward_times: List[float] = []
+        self._forward_time: float = -1.
+        self._backward_time: float = -1.
         self._removed_parameters: List[torch.Tensor] = []
 
         self._init_model(last_layer_idx, init_parameters)
@@ -149,29 +136,32 @@ class ModelTrainer:
         self._optimizer.zero_grad()
 
         # forward on client model
-        with measure_time(self._forward_times, self._use_cuda):
+        with measure_time(self._use_cuda) as timer:
             # if 5 < self._tmp_idx < 12:
             #     time.sleep(0.8)
             client_output = self._model(input_vars)
+        self._forward_time = timer.elapsed # perhaps could have a rolling average
 
         if self._model._is_complete:
             # if model is in its entirety on the client, compute the loss on the client
-            with measure_time(self._backward_times, self._use_cuda):
+            with measure_time(self._use_cuda) as timer:
                 loss = self._criterion(client_output, labels.to(self._device))
                 loss.backward()
                 self._optimizer.step()
+            self._backward_time = timer.elapsed
             control = None
         else:
             # request over network to the server -- SL step
             gradient, control = self._server_model_proxy(
                 embeddings=client_output,
                 labels=labels,
-                local_computation_time=-1 if len(self._backward_times) == 0 else \
-                    self._backward_times[-1] + self._forward_times[-1]
+                local_computation_time=-1 if self._backward_time < 0 else \
+                    self._backward_time + self._forward_time
             )
-            with measure_time(self._backward_times, self._use_cuda):
+            with measure_time(self._use_cuda) as timer:
                 client_output.backward(gradient.to(client_output.device))
                 self._optimizer.step()
+            self._backward_time = timer.elapsed
 
         for layer_idx in range(get_num_layers(self._model)):
             self._per_parameter_data_points[layer_idx] += input_vars.shape[0]
@@ -184,8 +174,9 @@ class ModelTrainer:
         input_vars = input_vars.to(self._device)
 
         with torch.no_grad():
-            with measure_time(self._forward_times, self._use_cuda):
+            with measure_time(self._use_cuda) as timer:
                 client_output = self._model(input_vars)
+            self._forward_time = timer.elapsed
 
         self._dataset_size += input_vars.shape[0]
         control = None
@@ -196,7 +187,7 @@ class ModelTrainer:
                 embeddings=client_output,
                 labels=None,
                 training=False,
-                local_computation_time=self._forward_times[-1],
+                local_computation_time=self._forward_time,
             )
         logits = logits.to(self._device)
         self._num_batches += 1

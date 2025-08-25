@@ -1,6 +1,8 @@
+import time
 import asyncio
 from functools import wraps
 from collections import OrderedDict
+from contextlib import contextmanager
 
 import torch
 
@@ -57,3 +59,21 @@ def weighted_average_state_dicts(weighted_state_dicts):
         result[key] = result[key] / total_weight
 
     return result
+
+
+class TimerResult:
+    def __init__(self):
+        self.elapsed = None
+
+
+@contextmanager
+def measure_time(use_cuda):
+    if use_cuda:
+        torch.cuda.synchronize()
+    start = time.time()
+    timer = TimerResult()
+    yield timer
+    if use_cuda:
+        torch.cuda.synchronize()
+    end = time.time()
+    timer.elapsed = end - start
