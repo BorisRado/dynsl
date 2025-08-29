@@ -1,18 +1,11 @@
-import torch
-
 from slbd.server.app import start_server
 
 from testing.model import Model
+from testing.utils import set_seed
 
-
-import random
-import numpy as np
-random.seed(10)
-np.random.seed(10)
-torch.manual_seed(10)
-
-
+set_seed()
 model = Model()
+
 start_server(
     model=model,
     config_file="testing/config.yaml",

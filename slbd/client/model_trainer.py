@@ -137,8 +137,6 @@ class ModelTrainer:
 
         # forward on client model
         with measure_time(self._use_cuda) as timer:
-            # if 5 < self._tmp_idx < 12:
-            #     time.sleep(0.8)
             client_output = self._model(input_vars)
         self._forward_time = timer.elapsed # perhaps could have a rolling average
 

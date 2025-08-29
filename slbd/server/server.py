@@ -20,7 +20,7 @@ from flwr.server.server import (
 )
 
 from slbd.server.strategy import Strategy
-from slbd.server.layer_allocator import LayerAllocator
+from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.server.server_model.manager.manager import ServerModelManager
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 
@@ -33,12 +33,13 @@ class Server(FlwrServer):
         *,
         server_model_manager: ServerModelManager,
         client_manager: ClientManager,
+        client_layer_allocator: ClientLayerAllocator,
         strategy: Strategy,
     ) -> None:
         super().__init__(client_manager=client_manager, strategy=strategy)
         self.server_model_manager: ServerModelManager = server_model_manager
         self.server_model_manager.set_strategy(strategy)
-        self.client_layer_allocator = LayerAllocator(max_client_layers=10)
+        self.client_layer_allocator = client_layer_allocator
 
     # pylint: disable=too-many-locals
     def fit(self, num_rounds: int, timeout: Optional[float]) -> History:
@@ -162,6 +163,7 @@ class Server(FlwrServer):
 
         loss_aggregated, metrics_aggregated = aggregated_result
         self.server_model_manager.end_round()
+        self.client_layer_allocator.finalize_epoch()
         return loss_aggregated, metrics_aggregated, (results, failures)
 
     def fit_round(

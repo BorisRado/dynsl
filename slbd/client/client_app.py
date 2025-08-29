@@ -1,7 +1,7 @@
-from typing import Dict
+from typing import Dict, Type
 
 from flwr.client.mod.utils import make_ffn
-from flwr.client.typing import ClientFn
+from flwr.client import NumPyClient, ClientFn
 from flwr.common import Context, Message, Scalar
 
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
@@ -47,7 +47,8 @@ class ClientApp:
         self,
         model,
         client_fn: ClientFn,
-        config: Dict[str, Scalar]
+        config: Dict[str, Scalar],
+        client_adapter_cls: Type[NumPyClient],
     ) -> None:
 
         def ffn(
@@ -61,7 +62,8 @@ class ClientApp:
                 message=message,
                 context=context,
                 server_model_stub=server_model_stub,
-                config=config
+                config=config,
+                client_adapter_cls=client_adapter_cls,
             )
             return out_message
 

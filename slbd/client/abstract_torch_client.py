@@ -43,3 +43,14 @@ class AbstractTorchClient(ABC):
             output data (e.g, target labels). All the rest is handled by the framework.
         """
         _ = (config, model_trainer)
+
+    @abstractmethod
+    def get_trainloader_size(self) -> int:
+        """Returns the number of batches in the client trainloader. Used by some algorithms
+        to determine how many layers should be trained on this device
+
+        Returns
+        -------
+        int
+            Number of batches, i.e., len(trainloader)
+        """

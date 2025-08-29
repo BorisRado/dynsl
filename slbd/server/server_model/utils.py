@@ -18,6 +18,7 @@ def split_numpy(data, split_sizes: Union[int, np.ndarray]):
     else:
         raise ValueError(f"Unsupported type {type(data)}")
 
+
 def _torch_to_numpy(tensor):
     return tensor.detach().cpu().numpy()
 
@@ -90,12 +91,13 @@ class ClientRequestGroup:
     A ClientRequestGroup is a collection of client requests that:
     1. are meant to be processed by the same server model
     2. trigger the same method on the server model (either all for training or for evaluation)
-    3. offload the same part of the computational graph to the server (i.e., have the same `offset`)
-    Thus, a ClientRequestGroup is a collection of requests that are meant to be processed together.
+    3. offload the same part of the computational graph to the server (i.e., have the
+    same `num_offloaded_layers`). Thus, a ClientRequestGroup is a collection of requests
+    that are meant to be processed together.
     """
-    def __init__(self, offset, server_id):
+    def __init__(self, num_offloaded_layers, server_id):
         self.server_id = server_id
-        self.offset = offset
+        self.num_offloaded_layers = num_offloaded_layers
         self.batches = []
         self.events = []
         self.client_ids = [] # required for sorting the batches

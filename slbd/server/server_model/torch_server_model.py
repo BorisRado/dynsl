@@ -1,11 +1,11 @@
-from collections import OrderedDict, defaultdict
 from typing import Tuple
+from collections import OrderedDict, defaultdict
 
 import torch
 
 from slbd.torch.model_utils import shift_state_dict
 from slbd.common.typing import ServerModelFitIns, ServerModelEvaluateIns, ServerModelFitRes
-from slbd.torch.model_utils import extract_submodel
+from slbd.torch.model_utils import extract_submodel, get_num_layers
 
 
 class TorchServerModel:
@@ -18,6 +18,7 @@ class TorchServerModel:
         self._model = model
         self.device = device
         self.first_server_layer = -1
+        self._num_model_layers = get_num_layers(model)
         self._optimizer = None
         self._criterion = torch.nn.CrossEntropyLoss()
         self._per_parameter_data_points = defaultdict(int)
@@ -66,7 +67,7 @@ class TorchServerModel:
     def train_and_compute_gradient(
         self,
         batches,
-        offset,
+        num_offloaded_layers,
     ):
         sizes = [b.shape[0] for b in batches["labels"]]
         embeddings = \
@@ -82,7 +83,7 @@ class TorchServerModel:
         embeddings.requires_grad_(True)
 
         self._optimizer.zero_grad(set_to_none=True)
-        logits = self._forward_sequence_of_layers(embeddings, offset)
+        logits = self._forward_sequence_of_layers(embeddings, num_offloaded_layers)
         loss = self._criterion(logits, labels)
         loss.backward()
         self._optimizer.step()
@@ -94,24 +95,21 @@ class TorchServerModel:
         gradients = [g.detach().cpu().numpy() for g in gradient.split(sizes, dim=0)]
         return gradients
 
-    def _forward_sequence_of_layers(self, data, start_idx, end_idx=None):
-        if end_idx is None:
-            remaining_layers = list(self._model.children())[start_idx:]
-        else:
-            remaining_layers = list(self._model.children())[start_idx:end_idx]
+    def _forward_sequence_of_layers(self, data, num_offloaded_layers):
+        layers = self._model[-num_offloaded_layers:].children()
 
         x = data
-        for idx, layer in enumerate(remaining_layers, start=start_idx+self.first_server_layer):
+        for idx, layer in enumerate(layers, start=self._num_model_layers - num_offloaded_layers):
             x = layer(x)
             self._per_parameter_data_points[idx] += x.shape[0]
         return x
 
-    def eval_get_logits(self, batches, offset):
+    def eval_get_logits(self, batches, num_offloaded_layers):
         sizes = [b.shape[0] for b in batches["embeddings"]]
         embeddings = torch.cat([torch.from_numpy(b) for b in batches["embeddings"]], dim=0)
 
         with torch.no_grad():
-            logits = self._forward_sequence_of_layers(embeddings.to(self.device), offset)
+            logits = self._forward_sequence_of_layers(embeddings.to(self.device), num_offloaded_layers)
 
         logits = [l.detach().cpu().numpy() for l in logits.split(sizes, dim=0)]
         return logits

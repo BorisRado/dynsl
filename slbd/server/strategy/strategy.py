@@ -2,6 +2,8 @@ from collections import OrderedDict
 from abc import abstractmethod
 from typing import Optional, List, Tuple, Dict, Union
 
+import torch.nn as nn
+
 from flwr.common import Scalar
 from flwr.common import EvaluateIns, EvaluateRes, FitIns, FitRes, Scalar
 from flwr.server.client_manager import ClientManager
@@ -12,7 +14,7 @@ from slbd.common import (
     ServerModelFitIns,
     ServerModelFitRes,
 )
-from slbd.server.layer_allocator import LayerAllocator
+from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 
 class Strategy:
@@ -26,7 +28,7 @@ class Strategy:
         server_round: int,
         model_state_dict: OrderedDict,
         client_manager: ClientManager,
-        client_layer_allocator: LayerAllocator
+        client_layer_allocator: ClientLayerAllocator
     ) -> Tuple[List[Tuple[ClientProxy, FitIns]], List[ServerModelFitIns]]:
         """Configure the next round of training.
 
@@ -93,7 +95,7 @@ class Strategy:
         server_round: int,
         model_state_dict: OrderedDict,
         client_manager: ClientManager,
-        client_layer_allocator: LayerAllocator
+        client_layer_allocator: ClientLayerAllocator
     ) -> Tuple[List[Tuple[ClientProxy, EvaluateIns]], List[ServerModelEvaluateIns]]:
         """Configure the next round of evaluation.
 
@@ -173,6 +175,21 @@ class Strategy:
         """
 
     @abstractmethod
-    def get_model_architecture(self):
+    def get_model_architecture(self) -> nn.Sequential:
+        """Returns a copy of the initial model
         """
+
+    @abstractmethod
+    def route_client_request_to_server_model(self, client_id: str) -> str:
+        """Determines which one of the available server models is supposed to process the client req
+
+        Parameters
+        ----------
+        client_id : str
+            ID of the client
+
+        Returns
+        -------
+        str
+            ID of the server model
         """

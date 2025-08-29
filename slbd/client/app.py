@@ -23,6 +23,11 @@ from slbd.client.client import Client
 from slbd.client.grpc.connection import init_connection
 from slbd.client.client_app import ClientApp
 
+# algorithm imports
+from slbd.algos.ares import ARESNumpyClientAdapter
+from slbd.algos.dynsl import DynSLClientAdapter
+from slbd.algos.fedavg import FedAvgNumpyClientAdapter
+
 
 ClientFn = Callable[[str], Client]
 
@@ -115,7 +120,7 @@ def _start_client_internal(
     assert model is not None
 
     try:
-        with open(config_file, 'r') as f:
+        with open(config_file, "r") as f:
             config_dict = yaml.safe_load(f)
     except FileNotFoundError:
         log(ERROR, f"Config file not found: {config_file}")
@@ -123,6 +128,12 @@ def _start_client_internal(
     except yaml.YAMLError as e:
         log(ERROR, f"Error parsing YAML config file: {e}")
         sys.exit(1)
+
+    client_adapter_cls = {
+        "ares": ARESNumpyClientAdapter,
+        "dynsl": DynSLClientAdapter,
+        "fedavg": FedAvgNumpyClientAdapter,
+    }[config_dict["algorithm"]]
 
     if insecure is None:
         insecure = root_certificates is None
@@ -144,7 +155,12 @@ def _start_client_internal(
             client_fn = single_client_factory
 
         def _load_client_app() -> ClientApp:
-            return ClientApp(client_fn=client_fn, model=model, config=config_dict)
+            return ClientApp(
+                client_fn=client_fn,
+                model=model,
+                config=config_dict,
+                client_adapter_cls=client_adapter_cls,
+            )
 
         load_client_app_fn = _load_client_app
 

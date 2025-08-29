@@ -20,15 +20,21 @@ from flwr.proto.transport_pb2_grpc import add_FlowerServiceServicer_to_server
 from flwr.server.client_manager import ClientManager, SimpleClientManager
 from flwr.server.superlink.fleet.grpc_bidi.grpc_server import valid_certificates
 
-from slbd.server.layer_allocator import LayerAllocator
+from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.server.grpc.flower_servicer import FlowerServiceServicer
 from slbd.server.server_model.manager import ServerModelManager, GrpcServerModelManager
 from slbd.server.strategy import Strategy
 from slbd.server.grpc.server_model_servicer import ServerModelServicer
 from slbd.server.server import Server
-from slbd.server.strategy import PlainSlStrategy
 from slbd.common.utils import run_async
 from slbd.proto import server_model_pb2_grpc
+from slbd.torch.model_utils import get_num_layers
+
+# import of algorithm components
+from slbd.common.profiling import measure_per_layer_time
+from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
+from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator
+from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 
 
 ADDRESS_DRIVER_API = "0.0.0.0:9091"
@@ -39,40 +45,114 @@ ADDRESS_FLEET_API_REST = "0.0.0.0:9093"
 DATABASE = ":flwr-in-memory-state:"
 
 
-def init_defaults(
-    server: Optional[Server],
-    config: Optional[ServerConfig],
-    strategy: Strategy,
-    client_manager: Optional[ClientManager],
-) -> Tuple[Server, ServerConfig]:
-    """Create server instance if none was given."""
+def init_dynsl_server(config, model):
+    client_manager = SimpleClientManager()
 
-    if server is None:
-        if client_manager is None:
-            client_manager = SimpleClientManager()
+    strategy = DynSLStrategy(
+        model=model,
+        fraction_fit=1.0,
+        fraction_evaluate=1.0,
+        config_client_fit_fn=None,
+        evaluate_metrics_aggregation_fn=None,
+        fit_metrics_aggregation_fn=None,
+        min_fit_clients=1,
+        min_evaluate_clients=1,
+        min_available_clients=1,
+    )
+    server_model_manager = GrpcServerModelManager(
+        model=strategy.get_model_architecture(),
+    )
 
-        server_model_manager = GrpcServerModelManager(
-            model=strategy.get_model_architecture(),
-        )
+    # profile the model on the server
+    client_layer_allocator = DynSLClientLayerAllocator(8, get_num_layers(model))
+    server = Server(
+        client_manager=client_manager,
+        strategy=strategy,
+        server_model_manager=server_model_manager,
+        client_layer_allocator=client_layer_allocator
+    )
 
-        server = Server(
-            client_manager=client_manager,
-            strategy=strategy,
-            server_model_manager=server_model_manager
-        )
-    elif strategy is not None:
-        log(WARN, "Both server and strategy were provided, ignoring strategy")
+    return server
 
-    if config is None:
-        config = ServerConfig()
 
-    return server, config
+def init_ares_server(config, model):
+
+    client_manager = SimpleClientManager()
+
+    strategy = ARESStrategy(
+        model=model,
+        fraction_fit=1.0,
+        fraction_evaluate=1.0,
+        config_client_fit_fn=None,
+        evaluate_metrics_aggregation_fn=None,
+        fit_metrics_aggregation_fn=None,
+        min_fit_clients=1,
+        min_evaluate_clients=1,
+        min_available_clients=1,
+    )
+    server_model_manager = GrpcServerModelManager(
+        model=strategy.get_model_architecture(),
+    )
+
+    # profile the model on the server
+    import torch
+    optimizer = torch.optim.SGD(model.parameters(), momentum=0.9)
+    forward_times, backward_times, activation_sizes = measure_per_layer_time(
+        model=model,
+        optimizer=optimizer,
+        input_shape=(64, 3, 32, 32), # TODO: it is hardcoded right now
+        iterations=20,
+        dry_runs=5,
+    )
+    client_layer_allocator = ARESClientLayerAllocator(
+        client_profiling_frequency=5,
+        server_fb_times=[fw+bw for fw, bw in zip(forward_times, backward_times)],
+        activation_sizes=activation_sizes,
+        client_throughputs_MBps=10, # TODO: it is hardcoded right now
+    )
+    server = Server(
+        client_manager=client_manager,
+        strategy=strategy,
+        server_model_manager=server_model_manager,
+        client_layer_allocator=client_layer_allocator
+    )
+
+    return server
+
+
+def init_fedavg_server(config, model):
+    client_manager = SimpleClientManager()
+
+    strategy = FedAvgStrategy(
+        model=model,
+        fraction_fit=1.0,
+        fraction_evaluate=1.0,
+        config_client_fit_fn=None,
+        evaluate_metrics_aggregation_fn=None,
+        fit_metrics_aggregation_fn=None,
+        min_fit_clients=1,
+        min_evaluate_clients=1,
+        min_available_clients=1,
+    )
+    server_model_manager = GrpcServerModelManager(
+        model=strategy.get_model_architecture(),
+    )
+
+    # profile the model on the server
+    client_layer_allocator = FedAvgClientLayerAllocator(num_model_layers=get_num_layers(model))
+    server = Server(
+        client_manager=client_manager,
+        strategy=strategy,
+        server_model_manager=server_model_manager,
+        client_layer_allocator=client_layer_allocator
+    )
+    return server
 
 
 async def start_grpc_server(  # pylint: disable=too-many-arguments
     client_manager: ClientManager,
     server_model_manager: ServerModelManager,
-    client_layer_allocator: LayerAllocator,
+    client_layer_allocator: ClientLayerAllocator,
     server_address: str,
     max_concurrent_workers: int = 1000,
     max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
@@ -135,8 +215,9 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
 
     # Read and parse the model owner's config file with all experiment configuration
     try:
-        with open(config_file, 'r') as f:
+        with open(config_file, "r") as f:
             config_dict = yaml.safe_load(f)
+        print(yaml.dump(config_dict, default_flow_style=False, indent=2))
     except FileNotFoundError:
         log(ERROR, f"Config file not found: {config_file}")
         sys.exit(1)
@@ -144,14 +225,16 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         log(ERROR, f"Error parsing YAML config file: {e}")
         sys.exit(1)
 
-    strategy = PlainSlStrategy(
-        model=model,
-        fraction_fit=config_dict["global_config"]["fraction_fit"],
-        fraction_evaluate=config_dict["global_config"]["fraction_evaluate"],
-        min_available_clients=config_dict["global_config"]["min_available_clients"],
-        min_fit_clients=config_dict["global_config"]["min_available_clients"],
-    )
-    server_config = ServerConfig(num_rounds=config_dict["global_config"]["rounds"])
+    algorithm = config_dict["algorithm"]
+    if algorithm == "dynsl":
+        initialized_server = init_dynsl_server(config_dict, model)
+    elif algorithm == "ares":
+        initialized_server = init_ares_server(config_dict, model)
+    elif algorithm == "fedavg":
+        initialized_server = init_fedavg_server(config_dict, model)
+    else:
+        raise Exception(f"Unknown algorithm {algorithm}")
+    initialized_config = ServerConfig(num_rounds=config_dict["global_config"]["rounds"])
 
     # Parse IP address
     parsed_address = parse_address(server_address)
@@ -160,13 +243,6 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     host, port, is_v6 = parsed_address
     address = f"[{host}]:{port}" if is_v6 else f"{host}:{port}"
 
-    # Initialize server and server config
-    initialized_server, initialized_config = init_defaults(
-        server=None,
-        config=server_config,
-        strategy=strategy,
-        client_manager=None,
-    )
     log(
         INFO,
         "Starting Flower server, config: %s",

@@ -3,6 +3,7 @@ import asyncio
 from logging import INFO
 from typing import AsyncIterable, Dict
 
+import torch
 from flwr.common import log
 
 from slbd.proto import server_model_pb2_grpc
@@ -12,7 +13,7 @@ from slbd.server.server_model.utils import ClientRequestGroup
 from slbd.common import BatchDataForward, BatchDataBackward, ControlCode, TimingMetrics
 from slbd.common.utils import measure_time
 from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, torch_list_to_bytes
-from slbd.server.layer_allocator import LayerAllocator
+from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.common.serde import (
     control_code_from_proto,
     control_code_to_proto,
@@ -20,6 +21,32 @@ from slbd.common.serde import (
     to_grpc_format,
     bytes_list_to_grpc_format
 )
+
+
+import functools
+import traceback
+# debugging --- remove when everything works smoothly
+def with_exception_logging(func):
+    @functools.wraps(func)
+    async def async_wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            traceback.print_exc()
+            raise
+
+    @functools.wraps(func)
+    def sync_wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            traceback.print_exc()
+            raise
+
+    if asyncio.iscoroutinefunction(func):
+        return async_wrapper
+    else:
+        return sync_wrapper
 
 
 class EventWithReturnValue(asyncio.Event):
@@ -40,13 +67,14 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
     def __init__(
         self,
         server_model_manager: ServerModelManager,
-        client_layer_allocator: LayerAllocator
+        client_layer_allocator: ClientLayerAllocator
     ) -> None:
         super().__init__()
         self.server_model_manager = server_model_manager
         self._lock = asyncio.Lock()
+        self._is_cuda_available = torch.cuda.is_available()
         self.request_queues = {}
-        self.client_layer_allocator: LayerAllocator = client_layer_allocator
+        self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
         self._outstanding_batches: Dict[int, ClientRequestGroup] = {}
 
     async def _compute_response(
@@ -63,15 +91,19 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         )
 
         # store training metrics
-        self.client_layer_allocator.update_metrics(client_id, timing_metrics)
-        offset = self.client_layer_allocator.get_client_offset_from_base(client_id)
+        self.client_layer_allocator.update_client_metrics(client_id, timing_metrics)
+        num_offloaded_layers = self.client_layer_allocator \
+            .get_client_offloaded_layer_count(client_id)
         event = EventWithReturnValue()
 
         is_new = False
         async with self._lock:
-            if (request_group := self._outstanding_batches.get(offset)) is None:
-                request_group = ClientRequestGroup(offset=offset, server_id="")
-                self._outstanding_batches[offset] = request_group
+            if (request_group := self._outstanding_batches.get(num_offloaded_layers)) is None:
+                request_group = ClientRequestGroup(
+                    num_offloaded_layers=num_offloaded_layers,
+                    server_id=self.server_model_manager.strategy.route_client_request_to_server_model(client_id)
+                )
+                self._outstanding_batches[num_offloaded_layers] = request_group
                 is_new = True
             request_group.add(data, event, client_id)
             if request_group.get_num_batches() == 2:
@@ -81,30 +113,37 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             await request_group._is_ready.wait()
             async with self._lock:
                 self._trigger_computation(request_group)
-                del self._outstanding_batches[offset]
+                del self._outstanding_batches[num_offloaded_layers]
 
         await event.wait()
 
         return event.get_result()
 
+    @with_exception_logging
     def _trigger_computation(self, request_group: ClientRequestGroup) -> None:
         batches, events, client_ids = request_group.get_data()
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
         kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
         server_model = self.server_model_manager.get_server_model(request_group.server_id)
-        with measure_time(True) as timer:
+        with measure_time(self._is_cuda_available) as timer:
             if request_group.is_training:
-                result = server_model.train_and_compute_gradient(kwargs, offset=request_group.offset)
+                result = server_model.train_and_compute_gradient(
+                    kwargs,
+                    num_offloaded_layers=request_group.num_offloaded_layers
+                )
             else:
-                result = server_model.eval_get_logits(kwargs, offset=request_group.offset)
+                result = server_model.eval_get_logits(
+                    kwargs,
+                    num_offloaded_layers=request_group.num_offloaded_layers
+                )
         computation_time = timer.elapsed
-        self.client_layer_allocator.update_server_metrics(request_group.offset, computation_time)
+        self.client_layer_allocator.update_server_metrics(request_group.num_offloaded_layers, computation_time)
 
         self.client_layer_allocator.trigger_reallocation(client_ids)
 
         for event, client_id, result_item in zip(events, client_ids, result):
-            diff_data = self.client_layer_allocator.get_layers_diff(client_id)
+            diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
             num_layers_diff, params = 0, None
             if diff_data is not None:
                 previous, num_layers_diff = diff_data

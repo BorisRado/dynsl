@@ -1,21 +1,17 @@
 from logging import INFO
-from typing import List, Dict
+from typing import List, Dict, Optional, Tuple
 
 from flwr.common import GetPropertiesIns, log
 from flwr.server.client_proxy import ClientProxy
+from flwr.server.client_manager import ClientManager
 
+from slbd.common.typing import TimingMetrics
 from slbd.common.constants import MIN_NUMBER_OF_CLIENT_LAYERS
 
 
-class LayerAllocator:
-    """
-    Manages dynamic allocation of model layers between clients and server.
+class DynSLClientLayerAllocator:
 
-    This class determines how many layers each client should train locally
-    versus on the server, based on client capabilities and performance metrics.
-    """
-
-    def __init__(self, max_client_layers: int):
+    def __init__(self, max_client_layers: int, num_model_layers: int):
         """
         Initialize the LayerAllocator.
 
@@ -24,25 +20,17 @@ class LayerAllocator:
         """
         self._per_client_min_layers: Dict[str, int] = {}
         self._max_client_layers = max_client_layers
+        self._num_model_layers = num_model_layers
 
         # Configuration for reallocation logic
         self._reallocation_config = {
-            'first_trigger_batch': 5,
-            'second_trigger_batch': 10,
-            'layers_to_add': 3,
-            'layers_to_remove': 3
+            "first_trigger_batch": 5,
+            "second_trigger_batch": 10,
+            "layers_to_add": 3,
+            "layers_to_remove": 3
         }
 
     def get_client_min_layers(self, client_proxy: ClientProxy) -> int:
-        """
-        Get the minimum number of layers required by a client.
-
-        Args:
-            client_proxy: The client proxy to query
-
-        Returns:
-            Minimum number of layers the client requires
-        """
         if client_proxy.cid not in self._per_client_min_layers:
             # Call get_properties on client to fetch requirements
             get_properties_instructions = GetPropertiesIns({})
@@ -54,27 +42,18 @@ class LayerAllocator:
             log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers")
         return self._per_client_min_layers[client_proxy.cid]
 
-    def get_num_init_client_layers(self, client_proxy: ClientProxy) -> int:
-        """
-        Get the initial number of layers to assign to a client.
-
-        Currently returns the minimum required layers. In future versions,
-        this could use historical performance data to make smarter decisions.
-
-        Args:
-            client_proxy: The client proxy to determine layers for
-
-        Returns:
-            Number of layers to initially assign to the client
-        """
+    def get_initial_layer_count(self, client_proxy: ClientProxy) -> int:
         # TODO: Use historical performance data for smarter allocation
         return self.get_client_min_layers(client_proxy)
 
     def initialize_epoch(
         self,
         epoch_clients: List[ClientProxy],
+        client_manager: ClientManager,
         is_training: bool,
     ):
+        print("Initializing epoch ...")
+        _ = (client_manager, )
         self.tmp_update_client = epoch_clients[0].cid
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]
         self._is_training = is_training
@@ -83,16 +62,6 @@ class LayerAllocator:
         # of clients
         self._client_layer_diff = {cid: 0 for cid in self._epoch_clients}
 
-        min_client_layers = min([
-            self.get_num_init_client_layers(client_proxy) for client_proxy in epoch_clients
-        ])
-
-        # _offsets_from_base stores how many layers should we skip on the server model
-        self._offsets_from_base = {
-            proxy.cid: self.get_num_init_client_layers(proxy) - min_client_layers
-            for proxy in epoch_clients
-        }
-
         # _per_client_processed_batches - not really useful. Just for debugging
         self._per_client_processed_batches = {proxy.cid: 0 for proxy in epoch_clients}
 
@@ -100,8 +69,9 @@ class LayerAllocator:
         # at the beginning of every epoch, the number of layers is equal to the suggested value
         # be the allocator
         self._client_allocated_layers = {
-            proxy.cid: self.get_num_init_client_layers(proxy) for proxy in epoch_clients
+            proxy.cid: self.get_initial_layer_count(proxy) for proxy in epoch_clients
         }
+        return [self._client_allocated_layers[proxy.cid]  for proxy in epoch_clients]
 
     def finalize_epoch(self):
         self._epoch_clients = None
@@ -121,31 +91,27 @@ class LayerAllocator:
             if client_id != self.tmp_update_client:
                 continue
             batches_processed = self._per_client_processed_batches[client_id]
-            if batches_processed == self._reallocation_config['first_trigger_batch']:
-                self._client_layer_diff[client_id] = self._reallocation_config['layers_to_add']
-            elif batches_processed == self._reallocation_config['second_trigger_batch']:
-                self._client_layer_diff[client_id] = -self._reallocation_config['layers_to_remove']
+            if batches_processed == self._reallocation_config["first_trigger_batch"]:
+                self._client_layer_diff[client_id] = self._reallocation_config["layers_to_add"]
+            elif batches_processed == self._reallocation_config["second_trigger_batch"]:
+                self._client_layer_diff[client_id] = -self._reallocation_config["layers_to_remove"]
 
-    def get_client_local_layers(self, client_id):
-        return self._client_allocated_layers[client_id]
+    def get_client_offloaded_layer_count(self, client_id):
+        return self._num_model_layers - self._client_allocated_layers[client_id]
 
-    def get_layers_diff(self, client_id):
+    def get_post_reallocation_layer_difference(self, client_id: str) -> Optional[Tuple[int, int]]:
         previous = self._client_allocated_layers[client_id]
         if self._client_layer_diff[client_id] != 0:
             diff = self._client_layer_diff[client_id]
             self._client_allocated_layers[client_id] += diff
-            self._offsets_from_base[client_id] += diff
             self._client_layer_diff[client_id] = 0
             return previous, diff
         else:
             return None
 
-    def update_metrics(self, client_id, metrics):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
         _ = (metrics, )
         self._per_client_processed_batches[client_id] += 1
 
-    def get_client_offset_from_base(self, client_id):
-        return self._offsets_from_base[client_id]
-
-    def update_server_metrics(self, offset, elapsed_time):
-        print(offset, elapsed_time)
+    def update_server_metrics(self, num_offloaded_layers: int, elapsed_time: float):
+        print(num_offloaded_layers, elapsed_time)

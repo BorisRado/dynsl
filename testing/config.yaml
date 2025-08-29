@@ -1,3 +1,4 @@
+algorithm: ares # currently supported options: ares, dynsl
 optimizer: # configuration for the optimizer
   name: sgd
   hyperparameters:

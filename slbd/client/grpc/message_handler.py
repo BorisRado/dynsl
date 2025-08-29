@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Type
 
 import torch.nn as nn
 
@@ -8,7 +8,7 @@ from flwr.client.client import (
     maybe_call_get_parameters,
     maybe_call_get_properties,
 )
-from flwr.client.typing import ClientFn
+from flwr.client import NumPyClient, ClientFn
 from flwr.common import Context, Message, Scalar
 from flwr.common.constant import MessageType, MessageTypeLegacy
 from flwr.common.recordset_compat import (
@@ -25,7 +25,6 @@ from flwr.common.recordset_compat import (
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
-from slbd.client.flower_numpy_client import FlowerNumpyClientAdapter
 
 
 def handle_legacy_message_from_msgtype(
@@ -35,6 +34,7 @@ def handle_legacy_message_from_msgtype(
     context: Context,
     server_model_stub: ServerModelStub,
     config: Dict[str, Scalar],
+    client_adapter_cls: Type[NumPyClient],
 ) -> Message:
     """Handle legacy message in the inner most mod."""
     cid = str(message.metadata.partition_id)
@@ -47,7 +47,7 @@ def handle_legacy_message_from_msgtype(
 
     server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
 
-    client = FlowerNumpyClientAdapter(
+    client = client_adapter_cls(
         client_id=cid,
         torch_client_fn=client_fn,
         whole_model=model,
