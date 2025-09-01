@@ -1,0 +1,3 @@
+strategy: step
+step_size: 10 # how often to decrease the learning rate
+gamma: 0.5 # how much to decrease every time

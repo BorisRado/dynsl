@@ -1,15 +1,15 @@
 import sys
-import yaml
 import asyncio
 import traceback
 import concurrent.futures
 from functools import partial
-from logging import INFO, WARN, ERROR
+from logging import INFO, ERROR
 from typing import Optional, Tuple
 
 import grpc
 import grpc.aio
 import torch.nn as nn
+from omegaconf import OmegaConf, DictConfig
 
 from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
 from flwr.common.address import parse_address
@@ -35,6 +35,7 @@ from slbd.common.profiling import measure_per_layer_time
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
 from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
+from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
 
 
 ADDRESS_DRIVER_API = "0.0.0.0:9091"
@@ -45,53 +46,21 @@ ADDRESS_FLEET_API_REST = "0.0.0.0:9093"
 DATABASE = ":flwr-in-memory-state:"
 
 
-def init_dynsl_server(config, model):
-    client_manager = SimpleClientManager()
-
+def init_dynsl_components(config, model):
     strategy = DynSLStrategy(
         model=model,
-        fraction_fit=1.0,
-        fraction_evaluate=1.0,
-        config_client_fit_fn=None,
-        evaluate_metrics_aggregation_fn=None,
-        fit_metrics_aggregation_fn=None,
-        min_fit_clients=1,
-        min_evaluate_clients=1,
-        min_available_clients=1,
+        **OmegaConf.to_container(config.strategy),
     )
-    server_model_manager = GrpcServerModelManager(
-        model=strategy.get_model_architecture(),
-    )
-
-    # profile the model on the server
     client_layer_allocator = DynSLClientLayerAllocator(8, get_num_layers(model))
-    server = Server(
-        client_manager=client_manager,
-        strategy=strategy,
-        server_model_manager=server_model_manager,
-        client_layer_allocator=client_layer_allocator
-    )
 
-    return server
+    return strategy, client_layer_allocator
 
 
-def init_ares_server(config, model):
-
-    client_manager = SimpleClientManager()
+def init_ares_components(config, model):
 
     strategy = ARESStrategy(
         model=model,
-        fraction_fit=1.0,
-        fraction_evaluate=1.0,
-        config_client_fit_fn=None,
-        evaluate_metrics_aggregation_fn=None,
-        fit_metrics_aggregation_fn=None,
-        min_fit_clients=1,
-        min_evaluate_clients=1,
-        min_available_clients=1,
-    )
-    server_model_manager = GrpcServerModelManager(
-        model=strategy.get_model_architecture(),
+        **OmegaConf.to_container(config.strategy),
     )
 
     # profile the model on the server
@@ -110,43 +79,36 @@ def init_ares_server(config, model):
         activation_sizes=activation_sizes,
         client_throughputs_MBps=10, # TODO: it is hardcoded right now
     )
-    server = Server(
-        client_manager=client_manager,
-        strategy=strategy,
-        server_model_manager=server_model_manager,
-        client_layer_allocator=client_layer_allocator
-    )
 
-    return server
+    return strategy, client_layer_allocator
 
 
-def init_fedavg_server(config, model):
-    client_manager = SimpleClientManager()
-
+def init_fedavg_components(config, model):
     strategy = FedAvgStrategy(
         model=model,
-        fraction_fit=1.0,
-        fraction_evaluate=1.0,
-        config_client_fit_fn=None,
-        evaluate_metrics_aggregation_fn=None,
-        fit_metrics_aggregation_fn=None,
-        min_fit_clients=1,
-        min_evaluate_clients=1,
-        min_available_clients=1,
+        **OmegaConf.to_container(config.strategy),
+        **OmegaConf.to_container(config.algorithm.strategy_init_args),
     )
-    server_model_manager = GrpcServerModelManager(
-        model=strategy.get_model_architecture(),
+    client_layer_allocator = FedAvgClientLayerAllocator(
+        num_model_layers=get_num_layers(model),
+        **OmegaConf.to_container(config.algorithm.layer_allocator_init_args),
+    )
+    return strategy, client_layer_allocator
+
+
+def init_splitfed_components(config, model):
+
+    strategy = SplitFedStrategy(
+        model=model,
+        **OmegaConf.to_container(config.strategy),
+        **OmegaConf.to_container(config.algorithm.strategy_init_args),
     )
 
-    # profile the model on the server
-    client_layer_allocator = FedAvgClientLayerAllocator(num_model_layers=get_num_layers(model))
-    server = Server(
-        client_manager=client_manager,
-        strategy=strategy,
-        server_model_manager=server_model_manager,
-        client_layer_allocator=client_layer_allocator
+    client_layer_allocator = SplitFedClientLayerAllocator(
+        **OmegaConf.to_container(config.algorithm.layer_allocator_init_args),
     )
-    return server
+
+    return strategy, client_layer_allocator
 
 
 async def start_grpc_server(  # pylint: disable=too-many-arguments
@@ -205,7 +167,8 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
 async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     *,
     model: nn.Sequential,
-    config_file: str,
+    config_file: Optional[str] = None,
+    config: Optional[DictConfig] = None,
     server_address: str = ADDRESS_FLEET_API_GRPC_BIDI,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     certificates: Optional[Tuple[bytes, bytes, bytes]] = None,
@@ -214,27 +177,28 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     event(EventType.START_SERVER_ENTER)
 
     # Read and parse the model owner's config file with all experiment configuration
-    try:
-        with open(config_file, "r") as f:
-            config_dict = yaml.safe_load(f)
-        print(yaml.dump(config_dict, default_flow_style=False, indent=2))
-    except FileNotFoundError:
-        log(ERROR, f"Config file not found: {config_file}")
-        sys.exit(1)
-    except yaml.YAMLError as e:
-        log(ERROR, f"Error parsing YAML config file: {e}")
-        sys.exit(1)
+    assert (config_file is None) != (config is None), "Either config or config file must be given"
+    if config_file is not None:
+        config = OmegaConf.load(config_file)
 
-    algorithm = config_dict["algorithm"]
-    if algorithm == "dynsl":
-        initialized_server = init_dynsl_server(config_dict, model)
-    elif algorithm == "ares":
-        initialized_server = init_ares_server(config_dict, model)
-    elif algorithm == "fedavg":
-        initialized_server = init_fedavg_server(config_dict, model)
-    else:
-        raise Exception(f"Unknown algorithm {algorithm}")
-    initialized_config = ServerConfig(num_rounds=config_dict["global_config"]["rounds"])
+    # initialize the server
+    strategy, client_layer_allocator = {
+        "dynsl": init_dynsl_components,
+        "ares": init_ares_components,
+        "fedavg": init_fedavg_components,
+        "splitfed": init_splitfed_components,
+    }[config.algorithm.name](config, model)
+    server_model_manager = GrpcServerModelManager(
+        model=strategy.get_model_architecture(),
+    )
+    initialized_server = Server(
+        client_manager=SimpleClientManager(),
+        strategy=strategy,
+        server_model_manager=server_model_manager,
+        client_layer_allocator=client_layer_allocator
+    )
+
+    server_config = ServerConfig(num_rounds=config.general.rounds)
 
     # Parse IP address
     parsed_address = parse_address(server_address)
@@ -246,7 +210,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     log(
         INFO,
         "Starting Flower server, config: %s",
-        initialized_config,
+        server_config,
     )
 
     # Start gRPC server
@@ -261,13 +225,13 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     log(
         INFO,
         "Flower ECE: gRPC server running (%s rounds), SSL is %s",
-        initialized_config.num_rounds,
+        server_config.num_rounds,
         "enabled" if certificates is not None else "disabled",
     )
 
     # Start training
     try:
-        run_fl_ = partial(run_fl, server=initialized_server, config=initialized_config)
+        run_fl_ = partial(run_fl, server=initialized_server, config=server_config)
         hist = await asyncio.to_thread(run_fl_)
 
     except Exception as e:  # pylint: disable=broad-except

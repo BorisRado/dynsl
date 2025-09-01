@@ -1,0 +1,10 @@
+name: mnist
+input_shape: [1, 28, 28]
+num_classes: 10
+transforms:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: torchvision.transforms.ToTensor
+    - _target_: torchvision.transforms.Normalize
+      mean: [0.1307,]
+      std: [0.3081]

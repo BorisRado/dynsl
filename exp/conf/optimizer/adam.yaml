@@ -1,0 +1,9 @@
+_target_: src.model.utils.OptimizerGenerator
+defaults:
+  - scheduler: constant
+  - warmup: no_warmup
+  - _self_
+optimizer:
+  optimizer_name: adam
+  lr: 0.001
+  weight_decay: 0.0005

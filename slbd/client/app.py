@@ -1,11 +1,10 @@
-import sys
 import time
-import yaml
 from logging import INFO, WARN, DEBUG, ERROR
 from typing import Optional, Union, Callable, Tuple
 
 from cryptography.hazmat.primitives.asymmetric import ec
 
+from omegaconf import DictConfig, OmegaConf
 import torch.nn as nn
 
 from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
@@ -27,16 +26,17 @@ from slbd.client.client_app import ClientApp
 from slbd.algos.ares import ARESNumpyClientAdapter
 from slbd.algos.dynsl import DynSLClientAdapter
 from slbd.algos.fedavg import FedAvgNumpyClientAdapter
+from slbd.algos.splitfed import SplitFedClientAdapter
 
 
 ClientFn = Callable[[str], Client]
 
 
-
 # pylint: disable=too-many-arguments
 def start_client(
     *,
-    config_file: str,
+    config_file: Optional[str]=None,
+    config: Optional[DictConfig] = None,
     client_fn: Optional[ClientFn] = None,
     model: nn.Sequential,
     client: Optional[Client] = None,
@@ -54,6 +54,7 @@ def start_client(
     event(EventType.START_CLIENT_ENTER)
     _start_client_internal(
         config_file=config_file,
+        config=config,
         load_client_app_fn=None,
         client_fn=client_fn,
         client=client,
@@ -72,7 +73,8 @@ def start_client(
 # pylint: disable=too-many-arguments,too-many-arguments,too-many-locals
 def _start_client_internal(
     *,
-    config_file: str,
+    config_file: Optional[str] = None,
+    config: Optional[DictConfig] = None,
     load_client_app_fn: Optional[Callable[[], ClientApp]] = None,
     client_fn: Optional[ClientFn] = None,
     client: Optional[Client] = None,
@@ -119,21 +121,17 @@ def _start_client_internal(
     """
     assert model is not None
 
-    try:
-        with open(config_file, "r") as f:
-            config_dict = yaml.safe_load(f)
-    except FileNotFoundError:
-        log(ERROR, f"Config file not found: {config_file}")
-        sys.exit(1)
-    except yaml.YAMLError as e:
-        log(ERROR, f"Error parsing YAML config file: {e}")
-        sys.exit(1)
+    assert (config_file is None) != (config is None), "Either config or config file must be given"
+    if config_file is not None:
+        config = OmegaConf.load(config_file)
+
 
     client_adapter_cls = {
         "ares": ARESNumpyClientAdapter,
         "dynsl": DynSLClientAdapter,
         "fedavg": FedAvgNumpyClientAdapter,
-    }[config_dict["algorithm"]]
+        "splitfed": SplitFedClientAdapter,
+    }[config.algorithm.name]
 
     if insecure is None:
         insecure = root_certificates is None
@@ -158,7 +156,7 @@ def _start_client_internal(
             return ClientApp(
                 client_fn=client_fn,
                 model=model,
-                config=config_dict,
+                config=OmegaConf.to_container(config.client.init_kwargs),
                 client_adapter_cls=client_adapter_cls,
             )
 
@@ -169,7 +167,7 @@ def _start_client_internal(
 
     # Initialize connection context manager
     connection, address, connection_error_type = init_connection(
-        transport, config_dict["server_address"]
+        transport, config.client.server_address
     )
 
     app_state_tracker = _AppStateTracker()

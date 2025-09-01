@@ -1,0 +1,2 @@
+strategy: cosine
+T_max: 200

@@ -1,0 +1,27 @@
+defaults:
+  - model: vgg9
+  - data: cifar10
+  - partitioning: iid
+  - optimizer: adam
+  - algorithm: ares
+  - _self_
+general:
+  seed: 10
+  rounds: 1
+server:
+  port: 8080
+client:
+  server_address: ... # should be set at runtime
+  init_kwargs:
+    client_id: ... # should be set at runtime
+    min_layers: 2
+    batch_size: 16
+strategy:
+  fraction_fit: 1.0
+  fraction_evaluate: 1.0
+  config_client_fit_fn: null
+  evaluate_metrics_aggregation_fn: null
+  fit_metrics_aggregation_fn: null
+  min_fit_clients: 1
+  min_evaluate_clients: 1
+  min_available_clients: 1

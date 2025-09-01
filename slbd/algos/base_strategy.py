@@ -68,6 +68,7 @@ class BaseStrategy(Strategy):
 
     def _setup_epoch_clients(
         self,
+        epoch_idx: int,
         clients: List[ClientProxy],
         num_client_layers: List[int],
         model_state_dict,
@@ -79,6 +80,7 @@ class BaseStrategy(Strategy):
         assert len(clients) == len(num_client_layers)
 
         config = copy.deepcopy(base_config)
+        config["epoch_idx"] = epoch_idx
 
         client_ins_cls = FitIns if is_training else EvaluateIns
         # divide the parameters into client and server part
@@ -137,7 +139,7 @@ class BaseStrategy(Strategy):
             .initialize_epoch(clients, client_manager, True)
 
         all_clients_fit_ins = self._setup_epoch_clients(
-            clients, num_initial_client_layers, model_state_dict, True, config
+            server_round, clients, num_initial_client_layers, model_state_dict, True, config
         )
         all_server_models_fit_ins = self._setup_epoch_server_models(
             [("", min(num_initial_client_layers), [proxy.cid for proxy in clients])],
@@ -175,7 +177,7 @@ class BaseStrategy(Strategy):
 
         num_initial_client_layers = client_layer_allocator.initialize_epoch(clients, client_manager, False)
         all_clients_eval_ins = self._setup_epoch_clients(
-            clients, num_initial_client_layers, model_state_dict, True, config
+            server_round, clients, num_initial_client_layers, model_state_dict, True, config
         )
         all_server_models_eval_ins = self._setup_epoch_server_models(
             [("", min(num_initial_client_layers), [proxy.cid for proxy in clients])],

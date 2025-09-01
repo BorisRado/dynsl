@@ -31,7 +31,9 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         server_model_proxy: GrpcServerModelProxy,
         config: Dict[str, Scalar]
     ):
-        self.torch_client = torch_client_fn(client_id)
+        _ = (client_id, )
+        self.client_id = config["client_id"]
+        self.torch_client = torch_client_fn(self.client_id)
         self.whole_model = whole_model
         self.server_model_proxy = server_model_proxy
         self.config = config

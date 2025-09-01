@@ -1,0 +1,34 @@
+from slbd.client.abstract_torch_client import AbstractTorchClient
+
+from exp.src.common.stochasticity import set_seed
+from exp.src.data.loading import load_client_trainset
+from exp.src.data.utils import get_dataloader
+
+
+class MOTorchClient(AbstractTorchClient):
+
+    def __init__(self, cid, dataset_config, partitioning_config, seed):
+        self.cid = int(cid)
+        self.seed = seed
+        self.trainset = load_client_trainset(
+            client_idx=self.cid,
+            dataset_config=dataset_config,
+            partitioning_config=partitioning_config,
+            seed=seed
+        )
+
+    def fit(self, config, model_trainer):
+        batch_size = 16
+        trainloader = get_dataloader(self.trainset, batch_size=batch_size)
+
+        set_seed(self.seed + config["epoch_idx"])
+        for batch in trainloader:
+            model_trainer(batch["img"], batch["label"])
+
+    def evaluate(self, config, model_trainer):
+        valloader = get_dataloader(self.trainset, batch_size=32, shuffle=False)
+        for batch in valloader:
+            model_trainer.evaluate(batch["img"], batch["label"])
+
+    def get_trainloader_size(self):
+        return len(self.trainset)

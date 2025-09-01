@@ -1,0 +1,2 @@
+_target_: exp.src.model.architectures.vgg9.VGG9
+num_classes: ${data.num_classes}

@@ -1,0 +1,4 @@
+_target_: flwr_datasets.partitioner.PathologicalPartitioner
+num_partitions: 250
+partition_by: "label"
+num_classes_per_partition: 3

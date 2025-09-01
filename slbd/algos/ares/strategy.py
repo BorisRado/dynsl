@@ -13,6 +13,7 @@ class ARESStrategy(BaseStrategy):
 
     def _ares_configure_epoch(
         self,
+        server_round: int,
         client_manager,
         client_layer_allocator,
         model_state_dict,
@@ -24,7 +25,7 @@ class ARESStrategy(BaseStrategy):
             .initialize_epoch(clients, client_manager, is_training)
 
         all_clients_fit_ins = self._setup_epoch_clients(
-            clients, num_initial_client_layers, model_state_dict, is_training, config
+            server_round, clients, num_initial_client_layers, model_state_dict, is_training, config
         )
         all_server_models_fit_ins = self._setup_epoch_server_models(
             [(
@@ -48,6 +49,7 @@ class ARESStrategy(BaseStrategy):
         if self.config_client_fit_fn:
             config = self.config_client_fit_fn(server_round)
         return self._ares_configure_epoch(
+            server_round=server_round,
             client_manager=client_manager,
             client_layer_allocator=client_layer_allocator,
             model_state_dict=model_state_dict,
@@ -66,6 +68,7 @@ class ARESStrategy(BaseStrategy):
         _ = (server_round, )
         config = {}
         return self._ares_configure_epoch(
+            server_round=server_round,
             client_manager=client_manager,
             client_layer_allocator=client_layer_allocator,
             model_state_dict=model_state_dict,

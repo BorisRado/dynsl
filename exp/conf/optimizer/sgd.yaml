@@ -1,0 +1,10 @@
+_target_: src.model.utils.OptimizerGenerator
+defaults:
+  - scheduler: constant
+  - warmup: no_warmup
+  - _self_
+optimizer:
+  optimizer_name: sgd
+  lr: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
