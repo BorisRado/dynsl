@@ -130,7 +130,8 @@ def _start_client_internal(
         "ares": ARESNumpyClientAdapter,
         "dynsl": DynSLClientAdapter,
         "fedavg": FedAvgNumpyClientAdapter,
-        "splitfed": SplitFedClientAdapter,
+        "splitfed_v1": SplitFedClientAdapter,
+        "splitfed_v2": SplitFedClientAdapter,
     }[config.algorithm.name]
 
     if insecure is None:

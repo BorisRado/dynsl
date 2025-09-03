@@ -23,7 +23,7 @@ class TorchServerModel:
         self._criterion = torch.nn.CrossEntropyLoss()
         self._per_parameter_data_points = defaultdict(int)
         self._metrics_dict = {}
-        self._mix_before_model = True
+        self._mix_before_model = False
 
     def get_train_results(self):
         state_dict = shift_state_dict(

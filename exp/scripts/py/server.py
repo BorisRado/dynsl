@@ -5,6 +5,7 @@ from omegaconf import OmegaConf, DictConfig
 from slbd.server.app import start_server
 
 from exp.src.common.stochasticity import set_seed
+from exp.src.common.other import set_torch_flags
 
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
@@ -27,4 +28,5 @@ def run(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    set_torch_flags()
     run()

@@ -11,9 +11,11 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
 
     def __init__(
         self,
+        num_model_layers,
         num_client_layers,
     ):
         self._num_client_layers = num_client_layers
+        self._num_offloaded_layers = num_model_layers - num_client_layers
 
     def initialize_epoch(
         self,
@@ -34,7 +36,7 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         return
 
     def get_client_offloaded_layer_count(self, client_id):
-        return
+        return self._num_offloaded_layers
 
     def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
         return

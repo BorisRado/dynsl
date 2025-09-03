@@ -70,7 +70,7 @@ class ModelTrainer:
         # Collected metrics
         self._metrics = {"loss": 0., "accuracy": 0.}
         self._dataset_size = 0
-        self._num_batches = 0
+        self._num_processed_data_points = 0
         self._per_parameter_data_points = defaultdict(int)
         self._forward_time: float = -1.
         self._backward_time: float = -1.
@@ -166,7 +166,7 @@ class ModelTrainer:
         self._update_model(control)
 
         self._dataset_size += input_vars.shape[0]
-        self._num_batches += 1
+        self._num_processed_data_points += labels.shape[0]
 
     def evaluate(self, input_vars, output_vars):
         input_vars = input_vars.to(self._device)
@@ -188,14 +188,14 @@ class ModelTrainer:
                 local_computation_time=self._forward_time,
             )
         logits = logits.to(self._device)
-        self._num_batches += 1
-        self._metrics["loss"] += self._criterion(logits, output_vars)
-        self._metrics["accuracy"] += (logits.argmax(dim=1) == output_vars).sum() / logits.shape[0]
+        self._num_processed_data_points += output_vars.shape[0]
+        self._metrics["loss"] += self._criterion(logits, output_vars) * output_vars.shape[0]
+        self._metrics["accuracy"] += (logits.argmax(dim=1) == output_vars).sum()
         self._update_model(control)
 
     def get_evaluation_metrics(self):
         return {
-            k: v.item() / self._num_batches for k, v in self._metrics.items()
+            k: v.item() / self._num_processed_data_points for k, v in self._metrics.items()
         }
 
     def get_fit_results(self):

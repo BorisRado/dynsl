@@ -26,7 +26,7 @@ class MOTorchClient(AbstractTorchClient):
             model_trainer(batch["img"], batch["label"])
 
     def evaluate(self, config, model_trainer):
-        valloader = get_dataloader(self.trainset, batch_size=32, shuffle=False)
+        valloader = get_dataloader(self.trainset, batch_size=16, shuffle=False)
         for batch in valloader:
             model_trainer.evaluate(batch["img"], batch["label"])
 

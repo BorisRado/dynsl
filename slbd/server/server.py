@@ -215,6 +215,7 @@ class Server(FlwrServer):
             len(failures),
         )
         server_fit_res = self.server_model_manager.collect_server_fit_results()
+        self.server_model_manager.end_round()
 
         # Aggregate training results
         aggregated_result: Tuple[

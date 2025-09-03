@@ -66,18 +66,20 @@ def init_ares_components(config, model):
     # profile the model on the server
     import torch
     optimizer = torch.optim.SGD(model.parameters(), momentum=0.9)
+    log(INFO, "Profiling training time on the server")
     forward_times, backward_times, activation_sizes = measure_per_layer_time(
         model=model,
         optimizer=optimizer,
-        input_shape=(64, 3, 32, 32), # TODO: it is hardcoded right now
-        iterations=20,
-        dry_runs=5,
+        input_shape=(16, 3, 32, 32), # TODO: it is hardcoded right now
+        iterations=10,
+        dry_runs=0,
     )
+    log(INFO, "Server profiling completed")
     client_layer_allocator = ARESClientLayerAllocator(
         client_profiling_frequency=5,
         server_fb_times=[fw+bw for fw, bw in zip(forward_times, backward_times)],
         activation_sizes=activation_sizes,
-        client_throughputs_MBps=10, # TODO: it is hardcoded right now
+        client_throughputs_MBps=1000, # TODO: it is hardcoded right now
     )
 
     return strategy, client_layer_allocator
@@ -105,6 +107,7 @@ def init_splitfed_components(config, model):
     )
 
     client_layer_allocator = SplitFedClientLayerAllocator(
+        num_model_layers=get_num_layers(model),
         **OmegaConf.to_container(config.algorithm.layer_allocator_init_args),
     )
 
@@ -115,6 +118,7 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     client_manager: ClientManager,
     server_model_manager: ServerModelManager,
     client_layer_allocator: ClientLayerAllocator,
+    server_model_servicer_config,
     server_address: str,
     max_concurrent_workers: int = 1000,
     max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
@@ -152,7 +156,7 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     else:
         server.add_insecure_port(server_address)
 
-    slbd_servicer = ServerModelServicer(server_model_manager, client_layer_allocator)
+    slbd_servicer = ServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
     server_model_pb2_grpc.add_ServerModelServicer_to_server(slbd_servicer, server)
 
     flwr_servicer = FlowerServiceServicer(client_manager)
@@ -186,7 +190,8 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         "dynsl": init_dynsl_components,
         "ares": init_ares_components,
         "fedavg": init_fedavg_components,
-        "splitfed": init_splitfed_components,
+        "splitfed_v1": init_splitfed_components,
+        "splitfed_v2": init_splitfed_components,
     }[config.algorithm.name](config, model)
     server_model_manager = GrpcServerModelManager(
         model=strategy.get_model_architecture(),
@@ -217,6 +222,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     grpc_server = await start_grpc_server(
         client_manager=initialized_server.client_manager(),
         server_model_manager=initialized_server.server_model_manager,
+        server_model_servicer_config=config.server_model_servicer,
         client_layer_allocator=initialized_server.get_client_layer_allocator(),
         server_address=address,
         max_message_length=grpc_max_message_length,

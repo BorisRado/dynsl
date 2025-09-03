@@ -5,6 +5,7 @@ from omegaconf import OmegaConf
 from flwr_datasets import FederatedDataset
 from datasets.utils.logging import disable_progress_bar
 
+from exp.src.common.stochasticity import set_seed
 
 disable_progress_bar()
 
@@ -58,5 +59,15 @@ dataset:
 """
     cfg = OmegaConf.create(config_string)
     print(OmegaConf.to_yaml(cfg))
-    dataset = load_client_trainset(0, cfg.dataset, cfg.partitioning, 10)
-    assert len(dataset) == 50_000 // 20
+    ds1 = load_client_trainset(0, cfg.dataset, cfg.partitioning, 10)
+    ds2 = load_client_trainset(0, cfg.dataset, cfg.partitioning, 10)
+
+    set_seed(123)
+    ds3 = load_client_trainset(0, cfg.dataset, cfg.partitioning, 10)
+    assert len(ds1) == len(ds2) == len(ds3) == 50_000 // 20
+
+    lbs1 = [d["label"] for d in ds1]
+    lbs2 = [d["label"] for d in ds2]
+    lbs3 = [d["label"] for d in ds3]
+
+    assert lbs1 == lbs2 == lbs3

@@ -95,7 +95,7 @@ class ClientRequestGroup:
     same `num_offloaded_layers`). Thus, a ClientRequestGroup is a collection of requests
     that are meant to be processed together.
     """
-    def __init__(self, num_offloaded_layers, server_id):
+    def __init__(self, num_offloaded_layers, server_id, timeout):
         self.server_id = server_id
         self.num_offloaded_layers = num_offloaded_layers
         self.batches = []
@@ -103,7 +103,7 @@ class ClientRequestGroup:
         self.client_ids = [] # required for sorting the batches
         self.is_training = None
         self._is_ready = asyncio.Event()
-        self._background_task = asyncio.create_task(set_event_after(self._is_ready, 0.5))
+        self._background_task = asyncio.create_task(set_event_after(self._is_ready, timeout))
 
     def add(self, batch_data: BatchDataForward, event, client_id: str):
         if self.is_training is not None:

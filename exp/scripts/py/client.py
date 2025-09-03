@@ -7,6 +7,7 @@ from omegaconf import DictConfig, OmegaConf
 from slbd.client.app import start_client
 
 from exp.src.sl.mo_client import MOTorchClient
+from exp.src.common.other import set_torch_flags
 
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
@@ -32,4 +33,5 @@ def run(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    set_torch_flags()
     run()

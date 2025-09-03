@@ -9,7 +9,7 @@ general:
   seed: 10
   rounds: 1
 server:
-  port: 8080
+  port: ...
 client:
   server_address: ... # should be set at runtime
   init_kwargs:
@@ -25,3 +25,6 @@ strategy:
   min_fit_clients: 1
   min_evaluate_clients: 1
   min_available_clients: 1
+server_model_servicer:
+  num_concat_batches: 1 # how many batches need to be received before sending the data to the model
+  request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model

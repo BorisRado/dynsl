@@ -177,11 +177,11 @@ class BaseStrategy(Strategy):
 
         num_initial_client_layers = client_layer_allocator.initialize_epoch(clients, client_manager, False)
         all_clients_eval_ins = self._setup_epoch_clients(
-            server_round, clients, num_initial_client_layers, model_state_dict, True, config
+            server_round, clients, num_initial_client_layers, model_state_dict, False, config
         )
         all_server_models_eval_ins = self._setup_epoch_server_models(
             [("", min(num_initial_client_layers), [proxy.cid for proxy in clients])],
-            model_state_dict, True, config
+            model_state_dict, False, config
         )
 
         return all_clients_eval_ins, all_server_models_eval_ins

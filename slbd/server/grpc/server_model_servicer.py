@@ -67,7 +67,9 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
     def __init__(
         self,
         server_model_manager: ServerModelManager,
-        client_layer_allocator: ClientLayerAllocator
+        client_layer_allocator: ClientLayerAllocator,
+        request_group_timeout: float,
+        num_concat_batches: int,
     ) -> None:
         super().__init__()
         self.server_model_manager = server_model_manager
@@ -76,6 +78,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         self.request_queues = {}
         self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
         self._outstanding_batches: Dict[int, ClientRequestGroup] = {}
+        self._num_concat_batches = num_concat_batches
+        self._requeset_group_timeout = request_group_timeout
 
     async def _compute_response(
         self,
@@ -101,12 +105,13 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             if (request_group := self._outstanding_batches.get(num_offloaded_layers)) is None:
                 request_group = ClientRequestGroup(
                     num_offloaded_layers=num_offloaded_layers,
-                    server_id=self.server_model_manager.strategy.route_client_request_to_server_model(client_id)
+                    server_id=self.server_model_manager.strategy.route_client_request_to_server_model(client_id),
+                    timeout=self._requeset_group_timeout,
                 )
                 self._outstanding_batches[num_offloaded_layers] = request_group
                 is_new = True
             request_group.add(data, event, client_id)
-            if request_group.get_num_batches() == 2:
+            if request_group.get_num_batches() == self._num_concat_batches:
                 request_group.mark_as_ready()
 
         if is_new:

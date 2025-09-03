@@ -59,14 +59,14 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
                 # extract the time from the result, which is a dictionary
                 client_fb_times = [result[f"f+b{idx}"] for idx in range(len(result))]
 
-                self._client_allocated_layers[client_proxy.cid] = ares_compute_optimal_split_layer(
+                tmp = ares_compute_optimal_split_layer(
                     client_fb_times,
                     self._server_fb_times,
                     self._activation_sizes,
                     self._client_throughputs_MBps,
                 )[0]
-
-                self._client_allocated_layers[client_proxy.cid] = 5
+                # enforce at least one layer on the client -- don't send raw data
+                self._client_allocated_layers[client_proxy.cid] = max(tmp, 1)
 
             log(INFO, "Re-allocation completed!")
             log(INFO, "New client layer allocations: %s", str(self._client_allocated_layers))
