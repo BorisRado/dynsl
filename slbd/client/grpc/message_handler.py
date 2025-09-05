@@ -33,11 +33,9 @@ def handle_legacy_message_from_msgtype(
     message: Message,
     context: Context,
     server_model_stub: ServerModelStub,
-    config: Dict[str, Scalar],
     client_adapter_cls: Type[NumPyClient],
 ) -> Message:
     """Handle legacy message in the inner most mod."""
-    cid = str(message.metadata.partition_id)
     assert len(message.content.configs_records) == 1
     config_record = next(iter(message.content.configs_records.values()))
 
@@ -48,11 +46,9 @@ def handle_legacy_message_from_msgtype(
     server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
 
     client = client_adapter_cls(
-        client_id=cid,
-        torch_client_fn=client_fn,
+        torch_client=client_fn(),
         whole_model=model,
         server_model_proxy=server_model_proxy,
-        config=config
     )
     client = client.to_client()
 

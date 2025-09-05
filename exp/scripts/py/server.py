@@ -11,7 +11,7 @@ from exp.src.common.other import set_torch_flags
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
     # remove configuration that does not pertain to the server
-    del cfg.client
+    # del cfg.client # cannot remove it as we need batch size
     del cfg.partitioning
 
     print(OmegaConf.to_yaml(cfg))

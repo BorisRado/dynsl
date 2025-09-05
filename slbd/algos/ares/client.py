@@ -9,6 +9,7 @@ from slbd.common.constants import CLIENT_DATASET_SIZE
 
 from slbd.algos.base_numpy_client import BaseNumpyClientAdapter
 from slbd.common.profiling import measure_per_layer_time
+from slbd.torch.utils import init_optimizer
 
 
 class ARESNumpyClientAdapter(BaseNumpyClientAdapter):
@@ -16,13 +17,16 @@ class ARESNumpyClientAdapter(BaseNumpyClientAdapter):
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         # locally profile the model forward and backward time for every layer in the model
         log(INFO, "Profiling model on device...")
-        optimizer = torch.optim.SGD(self.whole_model.parameters(), momentum=0.9)
+        iterations = config.pop("iterations")
+        dry_runs = config.pop("dry_runs")
+
+        optimizer = init_optimizer(self.whole_model.parameters(), **config)
         forward_times, backward_times, _ = measure_per_layer_time(
             model=self.whole_model,
             optimizer=optimizer,
-            input_shape=(64, 3, 32, 32),
-            iterations=config["iterations"],
-            dry_runs=config["dry_runs"]
+            input_shape=(self.torch_client.batch_size, 3, 32, 32), # TODO: img size still hardcoded
+            iterations=iterations,
+            dry_runs=dry_runs,
         )
         del optimizer
 

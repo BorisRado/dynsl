@@ -18,16 +18,20 @@ def run(cfg: DictConfig):
     del cfg.optimizer
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
-    client_fn = partial(
-        MOTorchClient,
+
+    client = MOTorchClient(
+        **OmegaConf.to_container(cfg.client.init_kwargs),
         dataset_config=cfg.data,
         partitioning_config=cfg.partitioning,
         seed=cfg.general.seed
     )
 
+    # NOTE!!! if passing `client` the same client will be used
+    # if passing client_fn instead, the client will be re-initialized every the client
+    # is selected for training or evaluation
     start_client(
         config=cfg,
-        client_fn=client_fn,
+        client=client,
         model=instantiate(cfg.model),
     )
 

@@ -19,6 +19,7 @@ import torch.nn as nn
 from flwr.common import log
 
 from slbd.common.utils import measure_time
+from slbd.torch.utils import init_optimizer
 from slbd.torch.model_utils import (
     extract_submodel,
     param_list_to_state_dict,
@@ -43,6 +44,7 @@ class ModelTrainer:
         last_layer_idx: int,
         init_parameters,
         server_model_proxy,
+        optimizer_config=None,
         is_training: bool = True,
     ):
         """
@@ -76,11 +78,11 @@ class ModelTrainer:
         self._backward_time: float = -1.
         self._removed_parameters: List[torch.Tensor] = []
 
-        self._init_model(last_layer_idx, init_parameters)
+        self._init_model(last_layer_idx, init_parameters, optimizer_config)
 
         self._tmp_idx = 0  # TODO: Remove this debugging variable
 
-    def _init_model(self, last_layer_idx: int, init_parameters) -> None:
+    def _init_model(self, last_layer_idx: int, init_parameters, optimizer_config) -> None:
         """
         Initialize the client-side model.
 
@@ -95,12 +97,9 @@ class ModelTrainer:
 
         if self._is_training:
             self._model.train()
-            self._optimizer = torch.optim.SGD(
-                self._model.parameters(),
-                lr=0.01,
-                momentum=0.9
-            )
+            self._optimizer = init_optimizer(self._model.parameters(), **optimizer_config)
         else:
+            assert optimizer_config is None
             self._optimizer = None
             self._model.eval()
 

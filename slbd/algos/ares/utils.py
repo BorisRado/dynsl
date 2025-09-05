@@ -55,18 +55,15 @@ def ares_compute_optimal_split_layer(
             forward_tensor_size_bytes = tensor_sizes[split_layer - 1] * 4  # 4B per float32
             # simplify -- assume that network speed is symmetrical => * 2
             communication_time = 2 * forward_tensor_size_bytes / network_throughput_Bps
-            print(client_compute_time, server_compute_time, communication_time)
 
             # Total training time for this split configuration
             total_time = client_compute_time + server_compute_time + communication_time
-            print(total_time)
 
         split_options.append({
             "split_layer": split_layer,
             "total_time": total_time
         })
 
-    print(split_options)
     # Find the split configuration with minimum training time
     optimal_config = min(split_options, key=lambda x: x["total_time"])
 

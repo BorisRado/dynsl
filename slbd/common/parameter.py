@@ -32,6 +32,8 @@ def bytes_to_torch(bytes_data):
     out = bytes_to_ndarray_dict(bytes_data)
     if isinstance(out, np.ndarray):
         return torch.from_numpy(out)
+    if isinstance(out, list):
+        return [torch.from_numpy(o) for o in out]
 
     torch_out = {}
     for key, val in out.items():

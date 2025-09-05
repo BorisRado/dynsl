@@ -4,6 +4,7 @@ from collections import OrderedDict, defaultdict
 import torch
 
 from slbd.torch.model_utils import shift_state_dict
+from slbd.torch.utils import init_optimizer
 from slbd.common.typing import ServerModelFitIns, ServerModelEvaluateIns, ServerModelFitRes
 from slbd.torch.model_utils import extract_submodel, get_num_layers
 
@@ -43,7 +44,7 @@ class TorchServerModel:
         model.load_state_dict(state_dict)
         return model
 
-    def get_fit_result(self) -> Tuple[OrderedDict]:
+    def get_fit_result(self) -> ServerModelFitRes:
         return self.get_train_results()
 
     def configure_fit(
@@ -53,7 +54,8 @@ class TorchServerModel:
         self._model = self._get_model_from_ins(instructions)
         self._model.train()
         self._model.to(self.device)
-        self._optimizer = torch.optim.SGD(self._model.parameters(), momentum=0.9, lr=0.01)
+        optim_config = {k: v for k, v in instructions.config.items() if k.startswith("optim.")}
+        self._optimizer = init_optimizer(self._model.parameters(), **optim_config)
 
     def configure_evaluate(
         self,
@@ -116,3 +118,6 @@ class TorchServerModel:
 
     def get_model(self):
         return self._model
+
+    def get_layer_processed_data_points(self, layer_idx):
+        return self._per_parameter_data_points[layer_idx]

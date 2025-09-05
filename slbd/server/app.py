@@ -23,12 +23,12 @@ from flwr.server.superlink.fleet.grpc_bidi.grpc_server import valid_certificates
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.server.grpc.flower_servicer import FlowerServiceServicer
 from slbd.server.server_model.manager import ServerModelManager, GrpcServerModelManager
-from slbd.server.strategy import Strategy
 from slbd.server.grpc.server_model_servicer import ServerModelServicer
 from slbd.server.server import Server
 from slbd.common.utils import run_async
 from slbd.proto import server_model_pb2_grpc
 from slbd.torch.model_utils import get_num_layers
+from slbd.torch.utils import init_optimizer, OptimizerGenerator
 
 # import of algorithm components
 from slbd.common.profiling import measure_per_layer_time
@@ -49,6 +49,7 @@ DATABASE = ":flwr-in-memory-state:"
 def init_dynsl_components(config, model):
     strategy = DynSLStrategy(
         model=model,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy),
     )
     client_layer_allocator = DynSLClientLayerAllocator(8, get_num_layers(model))
@@ -60,17 +61,20 @@ def init_ares_components(config, model):
 
     strategy = ARESStrategy(
         model=model,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy),
     )
 
     # profile the model on the server
-    import torch
-    optimizer = torch.optim.SGD(model.parameters(), momentum=0.9)
+    optimizer = init_optimizer(
+        model.parameters(),
+        **OptimizerGenerator(config.optimizer.optimizer, {"strategy": "constant"}).get_optimizer_config()
+    )
     log(INFO, "Profiling training time on the server")
     forward_times, backward_times, activation_sizes = measure_per_layer_time(
         model=model,
         optimizer=optimizer,
-        input_shape=(16, 3, 32, 32), # TODO: it is hardcoded right now
+        input_shape=(config.client.init_kwargs.batch_size,) + tuple(config.data.input_shape),
         iterations=10,
         dry_runs=0,
     )
@@ -88,6 +92,7 @@ def init_ares_components(config, model):
 def init_fedavg_components(config, model):
     strategy = FedAvgStrategy(
         model=model,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy),
         **OmegaConf.to_container(config.algorithm.strategy_init_args),
     )
@@ -102,6 +107,7 @@ def init_splitfed_components(config, model):
 
     strategy = SplitFedStrategy(
         model=model,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy),
         **OmegaConf.to_container(config.algorithm.strategy_init_args),
     )

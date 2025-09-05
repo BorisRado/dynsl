@@ -22,7 +22,10 @@ class ARESStrategy(BaseStrategy):
     ):
         clients = self.sample_epoch_clients(client_manager, is_training)
         num_initial_client_layers = client_layer_allocator \
-            .initialize_epoch(clients, client_manager, is_training)
+            .initialize_epoch(
+                clients, client_manager, is_training,
+                optimizer_config=self.optimizer_config_generator.get_optimizer_config()
+            )
 
         all_clients_fit_ins = self._setup_epoch_clients(
             server_round, clients, num_initial_client_layers, model_state_dict, is_training, config
@@ -45,9 +48,9 @@ class ARESStrategy(BaseStrategy):
         client_layer_allocator: ClientLayerAllocator
     ) -> List[Tuple[ClientProxy, FitIns]]:
         # In ARES every client gets its own private classification head
-        config = {}
+        config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
-            config = self.config_client_fit_fn(server_round)
+            config |= self.config_client_fit_fn(server_round)
         return self._ares_configure_epoch(
             server_round=server_round,
             client_manager=client_manager,

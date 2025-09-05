@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Union, List, Optional
+from typing import Dict, Union, List, Optional, Tuple
 
 import torch
 
@@ -85,6 +85,7 @@ class ServerModelFitRes:
     metrics: Dict[str, float]
     config: Config = None
     sid: Optional[str] = None
+    forking_data: Optional[Dict[int, Tuple[List[str], int]]] = None
 
     def __post_init__(self):
         # user should not set the sid, as it is automatically set by the framework

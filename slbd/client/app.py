@@ -142,9 +142,7 @@ def _start_client_internal(
 
         if client_fn is None:
             # Wrap `Client` instance in `client_fn`
-            def single_client_factory(
-                cid: str,  # pylint: disable=unused-argument
-            ) -> Client:
+            def single_client_factory() -> Client:
                 if client is None:  # Added this to keep mypy happy
                     raise ValueError(
                         "Both `client_fn` and `client` are `None`, but one is required"
@@ -157,7 +155,6 @@ def _start_client_internal(
             return ClientApp(
                 client_fn=client_fn,
                 model=model,
-                config=OmegaConf.to_container(config.client.init_kwargs),
                 client_adapter_cls=client_adapter_cls,
             )
 

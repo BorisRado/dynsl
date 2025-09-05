@@ -5,6 +5,8 @@ import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig
 
+from slbd.torch.utils import OptimizerGenerator, init_optimizer
+
 from exp.src.data.loading import load_client_trainset
 from exp.src.data.utils import get_dataloader
 from exp.src.common.stochasticity import set_seed
@@ -23,11 +25,16 @@ def run(cfg: DictConfig):
     valloader = get_dataloader(dataset, batch_size=16, shuffle=False)
     criterion = torch.nn.CrossEntropyLoss()
 
+    optimizer_config_generator = OptimizerGenerator(cfg.optimizer.optimizer, cfg.optimizer.scheduler)
     start_time = time.time()
+
     for epoch in range(1, cfg.general.rounds + 1):
         set_seed(cfg.general.seed+epoch)
 
-        optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+        optimizer = init_optimizer(
+            model.parameters(),
+            **optimizer_config_generator.get_optimizer_config()
+        )
         model.train()
         for batch in trainloader:
             img, label = batch["img"].to(device), batch["label"].to(device)
@@ -53,6 +60,7 @@ def run(cfg: DictConfig):
                 total += label.size(0)
             accuracy = correct / total
             avg_loss = total_loss / total
+        optimizer_config_generator.end_epoch_callback()
         print(f"Train Accuracy: {accuracy:.6f}, Train Loss: {avg_loss:.6f}")
 
     print(f"Runtime {time.time() - start_time:.2f}")

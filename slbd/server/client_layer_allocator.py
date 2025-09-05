@@ -27,6 +27,7 @@ class ClientLayerAllocator(ABC):
         epoch_clients: List[ClientProxy],
         client_manager: ClientManager,
         is_training: bool,
+        **kwargs
     ) -> List[int]:
         """Gets called at the beginning of every training/evaluation epoch, so the allocator
         can execute all the necessary setup procedures

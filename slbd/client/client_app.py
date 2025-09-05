@@ -47,7 +47,6 @@ class ClientApp:
         self,
         model,
         client_fn: ClientFn,
-        config: Dict[str, Scalar],
         client_adapter_cls: Type[NumPyClient],
     ) -> None:
 
@@ -62,7 +61,6 @@ class ClientApp:
                 message=message,
                 context=context,
                 server_model_stub=server_model_stub,
-                config=config,
                 client_adapter_cls=client_adapter_cls,
             )
             return out_message

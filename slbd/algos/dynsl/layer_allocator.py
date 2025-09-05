@@ -25,9 +25,9 @@ class DynSLClientLayerAllocator:
         # Configuration for reallocation logic
         self._reallocation_config = {
             "first_trigger_batch": 5,
-            "second_trigger_batch": 10,
-            "layers_to_add": 3,
-            "layers_to_remove": 3
+            # "second_trigger_batch": 10,
+            "layers_to_add": 2,
+            # "layers_to_remove": 3
         }
 
     def get_client_min_layers(self, client_proxy: ClientProxy) -> int:
@@ -52,7 +52,6 @@ class DynSLClientLayerAllocator:
         client_manager: ClientManager,
         is_training: bool,
     ):
-        print("Initializing epoch ...")
         _ = (client_manager, )
         self.tmp_update_client = epoch_clients[0].cid
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]
@@ -93,8 +92,8 @@ class DynSLClientLayerAllocator:
             batches_processed = self._per_client_processed_batches[client_id]
             if batches_processed == self._reallocation_config["first_trigger_batch"]:
                 self._client_layer_diff[client_id] = self._reallocation_config["layers_to_add"]
-            elif batches_processed == self._reallocation_config["second_trigger_batch"]:
-                self._client_layer_diff[client_id] = -self._reallocation_config["layers_to_remove"]
+            # elif batches_processed == self._reallocation_config["second_trigger_batch"]:
+            #     self._client_layer_diff[client_id] = -self._reallocation_config["layers_to_remove"]
 
     def get_client_offloaded_layer_count(self, client_id):
         return self._num_model_layers - self._client_allocated_layers[client_id]
@@ -114,4 +113,5 @@ class DynSLClientLayerAllocator:
         self._per_client_processed_batches[client_id] += 1
 
     def update_server_metrics(self, num_offloaded_layers: int, elapsed_time: float):
-        print(num_offloaded_layers, elapsed_time)
+        # print(num_offloaded_layers, elapsed_time)
+        pass

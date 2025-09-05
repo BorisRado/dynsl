@@ -9,9 +9,9 @@ class SplitFedStrategy(BaseStrategy):
 
     def configure_fit(self, server_round, model_state_dict, client_manager, client_layer_allocator):
 
-        config = {}
+        config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
-            config = self.config_client_fit_fn(server_round)
+            config |= self.config_client_fit_fn(server_round)
 
         clients = self.sample_epoch_clients(client_manager, True)
         num_initial_client_layers = client_layer_allocator \

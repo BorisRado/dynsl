@@ -39,6 +39,7 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         epoch_clients: List[ClientProxy],
         client_manager: ClientManager,
         is_training: bool,
+        optimizer_config,
     ) -> None:
 
         if is_training and self._epoch % self._client_profiling_frequency == 0:
@@ -46,7 +47,8 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
             # profile clients
             get_properties_instructions = GetPropertiesIns({
                 "iterations": 10,
-                "dry_runs": 4
+                "dry_runs": 4,
+                **optimizer_config,
             })
             for client_proxy in client_manager.all().values():
                 result = client_proxy.get_properties(

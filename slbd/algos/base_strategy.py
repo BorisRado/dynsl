@@ -28,6 +28,7 @@ from slbd.common import (
 from slbd.server.strategy import Strategy
 from slbd.torch.model_utils import get_model_layer_keys, get_num_layers
 from slbd.server.client_layer_allocator import ClientLayerAllocator
+from slbd.torch.utils import OptimizerGenerator
 
 
 class BaseStrategy(Strategy):
@@ -37,6 +38,7 @@ class BaseStrategy(Strategy):
         self,
         *,
         model: torch.nn.Sequential,
+        optimizer_config,
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,
         config_client_fit_fn: Optional[Callable[[str], Dict[str, Scalar]]] = None,
@@ -57,6 +59,10 @@ class BaseStrategy(Strategy):
         self.min_evaluate_clients = min_evaluate_clients
         self.min_available_clients = min_available_clients
         self._cid_to_sid_mapping = {}
+        self.optimizer_config_generator = OptimizerGenerator(
+            optimizer_cfg=optimizer_config["optimizer"],
+            scheduler_cfg=optimizer_config["scheduler"],
+        )
 
     def evaluate(
         self,
@@ -130,9 +136,9 @@ class BaseStrategy(Strategy):
         client_manager: ClientManager,
         client_layer_allocator: ClientLayerAllocator
     ) -> List[Tuple[ClientProxy, FitIns]]:
-        config = {}
+        config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
-            config = self.config_client_fit_fn(server_round)
+            config |= self.config_client_fit_fn(server_round)
 
         clients = self.sample_epoch_clients(client_manager, True)
         num_initial_client_layers = client_layer_allocator \
@@ -199,6 +205,7 @@ class BaseStrategy(Strategy):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )
+        self.optimizer_config_generator.end_epoch_callback()
         for failure in failures:
             log(ERROR, str(failure))
 
@@ -225,6 +232,8 @@ class BaseStrategy(Strategy):
                 per_parameter_trained_values[key].append(tensor)
 
         for res in server_results:
+            # method that employ plain aggregation must not have forking
+            assert all(len(v) == 0 for v in res.forking_data.values())
             processed_data_points_per_layer = res.per_layer_training_examples
             for key, tensor in res.model_state_dict.items():
                 per_parameter_trained_values[key].append(

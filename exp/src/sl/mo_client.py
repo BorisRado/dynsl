@@ -7,8 +7,18 @@ from exp.src.data.utils import get_dataloader
 
 class MOTorchClient(AbstractTorchClient):
 
-    def __init__(self, cid, dataset_config, partitioning_config, seed):
+    def __init__(
+        self,
+        cid,
+        min_layers,
+        batch_size,
+        dataset_config,
+        partitioning_config,
+        seed,
+    ):
         self.cid = int(cid)
+        self.min_layers = min_layers
+        self.batch_size = batch_size
         self.seed = seed
         self.trainset = load_client_trainset(
             client_idx=self.cid,
@@ -18,15 +28,14 @@ class MOTorchClient(AbstractTorchClient):
         )
 
     def fit(self, config, model_trainer):
-        batch_size = 16
-        trainloader = get_dataloader(self.trainset, batch_size=batch_size)
+        trainloader = get_dataloader(self.trainset, batch_size=self.batch_size)
 
         set_seed(self.seed + config["epoch_idx"])
         for batch in trainloader:
             model_trainer(batch["img"], batch["label"])
 
     def evaluate(self, config, model_trainer):
-        valloader = get_dataloader(self.trainset, batch_size=16, shuffle=False)
+        valloader = get_dataloader(self.trainset, batch_size=self.batch_size, shuffle=False)
         for batch in valloader:
             model_trainer.evaluate(batch["img"], batch["label"])
 

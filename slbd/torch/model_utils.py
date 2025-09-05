@@ -131,8 +131,7 @@ def attach_layers(whole_model, current_model, num_new_layers, params_list, optim
     end_idx = num_current_layers + num_new_layers
     attach_model = extract_submodel(whole_model, num_current_layers, end_idx)
     state_dict = param_list_to_state_dict(params_list, attach_model)
-    state_dict = shift_state_dict(state_dict, num_current_layers)
-    attach_model.load_state_dict(state_dict, strict=False)
+    attach_model.load_state_dict(state_dict, strict=True)
     concat_model = concat_sequential_models(current_model, attach_model, optimizer)
     concat_model._is_complete = end_idx == get_num_layers(whole_model)
     return concat_model
@@ -143,3 +142,52 @@ def get_state_dict_keys_between_limits(model, start_idx, end_idx):
         key for key in model.state_dict().keys()
         if start_idx <= int(key.split('.')[0]) < end_idx
     ]
+
+
+if __name__ == "__main__":
+    from exp.src.model.architectures.cnn import SimpleCNN
+
+    model = SimpleCNN(10)
+    assert get_state_dict_keys_between_limits(model, 0, 3) == ["0.weight", "0.bias"]
+    assert get_state_dict_keys_between_limits(model, 0, 4) == ["0.weight", "0.bias", "3.weight", "3.bias"]
+
+    print(shift_state_dict(model.state_dict(), offset=2).keys())
+    assert list(shift_state_dict(model.state_dict(), offset=2).keys()) == [
+        "2.weight", "2.bias",
+        "5.weight", "5.bias",
+        "8.weight", "8.bias",
+        "12.weight", "12.bias",
+        "14.weight", "14.bias"
+    ]
+
+    assert get_num_layers(model) == 13
+
+    submodel = extract_submodel(model, 0, 5)
+    assert all(
+        (v1 == v2).all() for v1, v2 in zip(model.state_dict().values(), submodel.state_dict().values())
+    )
+
+    # reinitialize the weights of submodel
+    for layer in submodel:
+        if hasattr(layer, 'weight') and layer.weight is not None:
+            nn.init.normal_(layer.weight)
+        if hasattr(layer, 'bias') and layer.bias is not None:
+            nn.init.normal_(layer.bias)
+    # make sure that there is no longer any dependency between the two models
+    assert all(
+        (v1 != v2).all() for v1, v2 in zip(model.state_dict().values(), submodel.state_dict().values())
+    )
+
+    # check attacking of layers to existing model
+    # ... let's attach 3 more layers to `submodel`
+    optimizer = torch.optim.SGD(submodel.parameters())
+
+    to_be_attached_model_weights = [
+        torch.randn_like(v).numpy() for v in extract_submodel_weights(model, 5, 8)
+    ]
+    new_model = attach_layers(model, submodel, 3, to_be_attached_model_weights, optimizer)
+    assert (new_model[6].weight == to_be_attached_model_weights[0]).all()
+    assert (new_model[6].bias == to_be_attached_model_weights[1]).all()
+
+    print(new_model)
+    print("All tests run all right")

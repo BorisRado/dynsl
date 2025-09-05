@@ -56,7 +56,7 @@ class GrpcServerModelProxy(ServerModelProxy):
         return bytes_to_torch(from_grpc_format(res.data)), LayerChangeInfo(
             layers_diff=num_layers_diff,
             additional_layers_parameters=None if num_layers_diff <= 0 \
-                else [v.numpy() for v in bytes_to_torch(from_grpc_format(res.data))]
+                else [v.numpy() for v in bytes_to_torch({"": list(res.additional_layers_parameters.tensors)})]
         )
 
     def close_stream(self):

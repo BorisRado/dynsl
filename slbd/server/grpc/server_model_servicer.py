@@ -147,6 +147,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         self.client_layer_allocator.trigger_reallocation(client_ids)
 
+        forking_data = {}
         for event, client_id, result_item in zip(events, client_ids, result):
             diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
             num_layers_diff, params = 0, None
@@ -155,6 +156,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
                     client_id, num_layers_diff)
                 if num_layers_diff > 0:
+                    forking_data[client_id] = list(range(previous, previous+num_layers_diff))
                     params = self.server_model_manager \
                         .extract_layer_weights(previous, previous+num_layers_diff)
 
@@ -164,6 +166,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 layers_diff=num_layers_diff,
                 additional_layers_parameters=torch_list_to_bytes(params)
             ))
+        self.server_model_manager.create_fork(forking_data)
 
     def _to_grpc(self, data: BatchDataBackward) -> server_model_pb2.BatchDataBackward:
 
