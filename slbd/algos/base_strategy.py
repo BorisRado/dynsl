@@ -109,13 +109,14 @@ class BaseStrategy(Strategy):
         # divide the parameters into client and server part
         all_clients_fit_ins = []
         for client_split_layer, client in zip(num_client_layers, clients):
+            client_config = copy.deepcopy(config)
             client_parameters = ndarrays_to_parameters([
                 model_state_dict[key].numpy()
                 for layer_idx in range(client_split_layer)
                 for key in get_model_layer_keys(self.model)[layer_idx]
             ])
-            config[CLIENT_LAST_LAYER_IDX_KEY] = client_split_layer
-            client_fit_ins = client_ins_cls(client_parameters, config)
+            client_config[CLIENT_LAST_LAYER_IDX_KEY] = client_split_layer
+            client_fit_ins = client_ins_cls(client_parameters, client_config)
             all_clients_fit_ins.append((client, client_fit_ins))
         return all_clients_fit_ins
 
@@ -153,6 +154,7 @@ class BaseStrategy(Strategy):
         client_manager: ClientManager,
         client_layer_allocator: ClientLayerAllocator
     ) -> List[Tuple[ClientProxy, FitIns]]:
+        client_manager.wait_for(self.min_available_clients)
         config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
             config |= self.config_client_fit_fn(server_round)

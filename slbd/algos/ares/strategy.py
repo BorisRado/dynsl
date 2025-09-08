@@ -51,6 +51,7 @@ class ARESStrategy(BaseStrategy):
         client_layer_allocator: ClientLayerAllocator
     ) -> List[Tuple[ClientProxy, FitIns]]:
         # In ARES every client gets its own private classification head
+        client_manager.wait_for(self.min_available_clients)
         config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
             config |= self.config_client_fit_fn(server_round)

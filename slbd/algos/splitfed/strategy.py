@@ -8,7 +8,7 @@ class SplitFedStrategy(BaseStrategy):
         self._common_server_model = version == "v2"
 
     def configure_fit(self, server_round, model_state_dict, client_manager, client_layer_allocator):
-
+        client_manager.wait_for(self.min_available_clients)
         config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
             config |= self.config_client_fit_fn(server_round)

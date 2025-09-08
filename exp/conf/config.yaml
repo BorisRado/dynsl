@@ -27,3 +27,4 @@ server_model_servicer:
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
   request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model
 wandb: false
+experiment_name: ... # helper to search experiments in wandb database
