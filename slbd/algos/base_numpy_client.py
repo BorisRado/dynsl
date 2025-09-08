@@ -60,8 +60,8 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         self.torch_client.fit(config, model_trainer)
 
         # extract trained parameters
-        trained_parameters, processed_data_points_dict = model_trainer.get_fit_results()
-        return trained_parameters, model_trainer._dataset_size, processed_data_points_dict
+        trained_parameters, processed_data_points_dict, metrics = model_trainer.get_fit_results()
+        return trained_parameters, model_trainer._dataset_size, processed_data_points_dict | metrics
 
     def evaluate(
         self,

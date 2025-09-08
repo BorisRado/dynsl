@@ -3,6 +3,7 @@ from collections import OrderedDict, defaultdict
 from logging import ERROR
 from typing import Optional, List, Tuple, Union, Dict, Callable
 
+import wandb
 from flwr.common import (
     FitIns,
     EvaluateIns,
@@ -31,6 +32,22 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.torch.utils import OptimizerGenerator
 
 
+def weighted_average(metrics: List[Tuple[int, Dict[str, float]]]):
+    total_examples = sum(num_examples for num_examples, _ in metrics)
+    if total_examples == 0:
+        return {key: -1.0 for key in metrics[0][1].keys() if not key.startswith("_")}
+
+    weighted_metrics = {}
+    for key in metrics[0][1].keys():
+        if key.startswith("_"):
+            continue
+        weighted_sum = sum(num_examples * metric[key] for num_examples, metric in metrics)
+        weighted_metrics[key] = weighted_sum / total_examples
+    if wandb.run is not None:
+        wandb.log(weighted_metrics)
+    return weighted_metrics
+
+
 class BaseStrategy(Strategy):
 
     # pylint: disable=too-many-arguments
@@ -42,8 +59,8 @@ class BaseStrategy(Strategy):
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,
         config_client_fit_fn: Optional[Callable[[str], Dict[str, Scalar]]] = None,
-        evaluate_metrics_aggregation_fn = None,
-        fit_metrics_aggregation_fn = None,
+        evaluate_metrics_aggregation_fn = weighted_average,
+        fit_metrics_aggregation_fn = weighted_average,
         min_fit_clients: int = 1,
         min_evaluate_clients: int = 1,
         min_available_clients: int = 1,
@@ -141,6 +158,8 @@ class BaseStrategy(Strategy):
             config |= self.config_client_fit_fn(server_round)
 
         clients = self.sample_epoch_clients(client_manager, True)
+        if len(clients) == 0:
+            return [], []
         num_initial_client_layers = client_layer_allocator \
             .initialize_epoch(clients, client_manager, True)
 
@@ -180,6 +199,8 @@ class BaseStrategy(Strategy):
         _ = (server_round, )
         config = {}
         clients = self.sample_epoch_clients(client_manager, False)
+        if len(clients) == 0:
+            return [], []
 
         num_initial_client_layers = client_layer_allocator.initialize_epoch(clients, client_manager, False)
         all_clients_eval_ins = self._setup_epoch_clients(

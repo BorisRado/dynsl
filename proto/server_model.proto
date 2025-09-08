@@ -31,6 +31,7 @@ message BatchDataBackward {
   ControlCode control_code = 2;
   int32 layers_diff = 3;
   optional TensorList additional_layers_parameters = 4;
+  float training_loss = 5;
 }
 
 enum ControlCode {

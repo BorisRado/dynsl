@@ -1,5 +1,4 @@
-from typing import Tuple
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 
 import torch
 
@@ -94,7 +93,9 @@ class TorchServerModel:
         if self._mix_before_model:
             inverse_permutation = torch.argsort(permutation)
             gradient = gradient[inverse_permutation]
-        gradients = [g.detach().cpu().numpy() for g in gradient.split(sizes, dim=0)]
+
+        # all clients get assigned the same loss
+        gradients = [(g.detach().cpu().numpy(), loss.item()) for g in gradient.split(sizes, dim=0)]
         return gradients
 
     def _forward_sequence_of_layers(self, data, num_offloaded_layers):
@@ -113,7 +114,7 @@ class TorchServerModel:
         with torch.no_grad():
             logits = self._forward_sequence_of_layers(embeddings.to(self.device), num_offloaded_layers)
 
-        logits = [l.detach().cpu().numpy() for l in logits.split(sizes, dim=0)]
+        logits = [(l.detach().cpu().numpy(), -1) for l in logits.split(sizes, dim=0)]
         return logits
 
     def get_model(self):

@@ -146,10 +146,11 @@ class ModelTrainer:
                 loss.backward()
                 self._optimizer.step()
             self._backward_time = timer.elapsed
+            loss = loss.item()
             control = None
         else:
             # request over network to the server -- SL step
-            gradient, control = self._server_model_proxy(
+            gradient, control, loss = self._server_model_proxy(
                 embeddings=client_output,
                 labels=labels,
                 local_computation_time=-1 if self._backward_time < 0 else \
@@ -160,6 +161,7 @@ class ModelTrainer:
                 self._optimizer.step()
             self._backward_time = timer.elapsed
 
+        self._metrics["loss"] += loss * labels.shape[0]
         for layer_idx in range(get_num_layers(self._model)):
             self._per_parameter_data_points[layer_idx] += input_vars.shape[0]
         self._update_model(control)
@@ -180,7 +182,7 @@ class ModelTrainer:
         if self._model._is_complete:
             logits = client_output
         else:
-            logits, control = self._server_model_proxy(
+            logits, control, _ = self._server_model_proxy(
                 embeddings=client_output,
                 labels=None,
                 training=False,
@@ -197,8 +199,16 @@ class ModelTrainer:
             k: v.item() / self._num_processed_data_points for k, v in self._metrics.items()
         }
 
+    def get_training_metrics(self):
+        print({"training_loss": self._metrics["loss"] / self._num_processed_data_points})
+        return {"training_loss": self._metrics["loss"] / self._num_processed_data_points}
+
     def get_fit_results(self):
         params = [
             v.cpu().numpy() for v in self._model.state_dict().values()
         ] + self._removed_parameters
-        return params, {f"_proc{k}": v for k, v in self._per_parameter_data_points.items()}
+        return (
+            params,
+            {f"_proc{k}": v for k, v in self._per_parameter_data_points.items()},
+            self.get_training_metrics()
+        )

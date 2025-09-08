@@ -42,7 +42,7 @@ class BatchDataForward(_message.Message):
     def __init__(self, training: bool = ..., data: _Optional[_Mapping[str, ByteTensor]] = ..., control_code: _Optional[_Union[ControlCode, str]] = ..., cid: _Optional[str] = ..., local_computation_time: _Optional[float] = ...) -> None: ...
 
 class BatchDataBackward(_message.Message):
-    __slots__ = ("data", "control_code", "layers_diff", "additional_layers_parameters")
+    __slots__ = ("data", "control_code", "layers_diff", "additional_layers_parameters", "training_loss")
     class DataEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -54,11 +54,13 @@ class BatchDataBackward(_message.Message):
     CONTROL_CODE_FIELD_NUMBER: _ClassVar[int]
     LAYERS_DIFF_FIELD_NUMBER: _ClassVar[int]
     ADDITIONAL_LAYERS_PARAMETERS_FIELD_NUMBER: _ClassVar[int]
+    TRAINING_LOSS_FIELD_NUMBER: _ClassVar[int]
     data: _containers.MessageMap[str, ByteTensor]
     control_code: ControlCode
     layers_diff: int
     additional_layers_parameters: TensorList
-    def __init__(self, data: _Optional[_Mapping[str, ByteTensor]] = ..., control_code: _Optional[_Union[ControlCode, str]] = ..., layers_diff: _Optional[int] = ..., additional_layers_parameters: _Optional[_Union[TensorList, _Mapping]] = ...) -> None: ...
+    training_loss: float
+    def __init__(self, data: _Optional[_Mapping[str, ByteTensor]] = ..., control_code: _Optional[_Union[ControlCode, str]] = ..., layers_diff: _Optional[int] = ..., additional_layers_parameters: _Optional[_Union[TensorList, _Mapping]] = ..., training_loss: _Optional[float] = ...) -> None: ...
 
 class ByteTensor(_message.Message):
     __slots__ = ("single_tensor", "tensors")

@@ -24,6 +24,8 @@ class FedAvgStrategy(BaseStrategy):
             config |= self.config_client_fit_fn(server_round)
 
         clients = self.sample_epoch_clients(client_manager, True)
+        if len(clients) == 0:
+            return [], []
         num_initial_client_layers = client_layer_allocator \
             .initialize_epoch(clients, client_manager, True)
 
@@ -42,6 +44,8 @@ class FedAvgStrategy(BaseStrategy):
         _ = (server_round, )
         config = {}
         clients = self.sample_epoch_clients(client_manager, False)
+        if len(clients) == 0:
+            return [], []
 
         num_initial_client_layers = client_layer_allocator.initialize_epoch(clients, client_manager, False)
         all_clients_eval_ins = self._setup_epoch_clients(

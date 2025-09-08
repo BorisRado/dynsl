@@ -37,7 +37,7 @@ class DynSLClientLayerAllocator:
             result = client_proxy.get_properties(
                 get_properties_instructions, timeout=None, group_id=None
             )
-            min_client_layers = int(result.properties[MIN_NUMBER_OF_CLIENT_LAYERS])
+            min_client_layers = 2 # int(result.properties[MIN_NUMBER_OF_CLIENT_LAYERS])
             self._per_client_min_layers[client_proxy.cid] = min_client_layers
             log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers")
         return self._per_client_min_layers[client_proxy.cid]

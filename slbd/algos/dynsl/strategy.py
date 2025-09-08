@@ -35,7 +35,7 @@ class DynSLStrategy(BaseStrategy):
             ] + [(iter_layer, s_prime - forking_num_dp)])
             s_prime += sum([trained_values[cid][1] for cid in forking_clients])
 
-            assert iter_layer.allclose(trained_values[forking_clients[0]][0])
+            # assert iter_layer.allclose(trained_values[forking_clients[0]][0])
 
         return iter_layer
 

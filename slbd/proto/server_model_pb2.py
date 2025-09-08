@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12server_model.proto\x12\x0cserver_model\"\x81\x02\n\x10\x42\x61tchDataForward\x12\x10\n\x08training\x18\x01 \x01(\x08\x12\x36\n\x04\x64\x61ta\x18\x02 \x03(\x0b\x32(.server_model.BatchDataForward.DataEntry\x12/\n\x0c\x63ontrol_code\x18\x03 \x01(\x0e\x32\x19.server_model.ControlCode\x12\x0b\n\x03\x63id\x18\x04 \x01(\t\x12\x1e\n\x16local_computation_time\x18\x05 \x01(\x02\x1a\x45\n\tDataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\'\n\x05value\x18\x02 \x01(\x0b\x32\x18.server_model.ByteTensor:\x02\x38\x01\"\xbf\x02\n\x11\x42\x61tchDataBackward\x12\x37\n\x04\x64\x61ta\x18\x01 \x03(\x0b\x32).server_model.BatchDataBackward.DataEntry\x12/\n\x0c\x63ontrol_code\x18\x02 \x01(\x0e\x32\x19.server_model.ControlCode\x12\x13\n\x0blayers_diff\x18\x03 \x01(\x05\x12\x43\n\x1c\x61\x64\x64itional_layers_parameters\x18\x04 \x01(\x0b\x32\x18.server_model.TensorListH\x00\x88\x01\x01\x1a\x45\n\tDataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\'\n\x05value\x18\x02 \x01(\x0b\x32\x18.server_model.ByteTensor:\x02\x38\x01\x42\x1f\n\x1d_additional_layers_parameters\"Z\n\nByteTensor\x12\x17\n\rsingle_tensor\x18\x01 \x01(\x0cH\x00\x12+\n\x07tensors\x18\x02 \x01(\x0b\x32\x18.server_model.TensorListH\x00\x42\x06\n\x04\x64\x61ta\"\x1d\n\nTensorList\x12\x0f\n\x07tensors\x18\x01 \x03(\x0c*n\n\x0b\x43ontrolCode\x12\x06\n\x02OK\x10\x00\x12\x13\n\x0f\x44O_CLOSE_STREAM\x10\x01\x12\x14\n\x10STREAM_CLOSED_OK\x10\x02\x12\x1b\n\x17\x45RROR_PROCESSING_STREAM\x10\x03\x12\x0f\n\x0bINIT_STREAM\x10\x04\x32\xb8\x01\n\x0bServerModel\x12Q\n\x0cUnaryRequest\x12\x1e.server_model.BatchDataForward\x1a\x1f.server_model.BatchDataBackward\"\x00\x12V\n\rStreamRequest\x12\x1e.server_model.BatchDataForward\x1a\x1f.server_model.BatchDataBackward\"\x00(\x01\x30\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x12server_model.proto\x12\x0cserver_model\"\x81\x02\n\x10\x42\x61tchDataForward\x12\x10\n\x08training\x18\x01 \x01(\x08\x12\x36\n\x04\x64\x61ta\x18\x02 \x03(\x0b\x32(.server_model.BatchDataForward.DataEntry\x12/\n\x0c\x63ontrol_code\x18\x03 \x01(\x0e\x32\x19.server_model.ControlCode\x12\x0b\n\x03\x63id\x18\x04 \x01(\t\x12\x1e\n\x16local_computation_time\x18\x05 \x01(\x02\x1a\x45\n\tDataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\'\n\x05value\x18\x02 \x01(\x0b\x32\x18.server_model.ByteTensor:\x02\x38\x01\"\xd6\x02\n\x11\x42\x61tchDataBackward\x12\x37\n\x04\x64\x61ta\x18\x01 \x03(\x0b\x32).server_model.BatchDataBackward.DataEntry\x12/\n\x0c\x63ontrol_code\x18\x02 \x01(\x0e\x32\x19.server_model.ControlCode\x12\x13\n\x0blayers_diff\x18\x03 \x01(\x05\x12\x43\n\x1c\x61\x64\x64itional_layers_parameters\x18\x04 \x01(\x0b\x32\x18.server_model.TensorListH\x00\x88\x01\x01\x12\x15\n\rtraining_loss\x18\x05 \x01(\x02\x1a\x45\n\tDataEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\'\n\x05value\x18\x02 \x01(\x0b\x32\x18.server_model.ByteTensor:\x02\x38\x01\x42\x1f\n\x1d_additional_layers_parameters\"Z\n\nByteTensor\x12\x17\n\rsingle_tensor\x18\x01 \x01(\x0cH\x00\x12+\n\x07tensors\x18\x02 \x01(\x0b\x32\x18.server_model.TensorListH\x00\x42\x06\n\x04\x64\x61ta\"\x1d\n\nTensorList\x12\x0f\n\x07tensors\x18\x01 \x03(\x0c*n\n\x0b\x43ontrolCode\x12\x06\n\x02OK\x10\x00\x12\x13\n\x0f\x44O_CLOSE_STREAM\x10\x01\x12\x14\n\x10STREAM_CLOSED_OK\x10\x02\x12\x1b\n\x17\x45RROR_PROCESSING_STREAM\x10\x03\x12\x0f\n\x0bINIT_STREAM\x10\x04\x32\xb8\x01\n\x0bServerModel\x12Q\n\x0cUnaryRequest\x12\x1e.server_model.BatchDataForward\x1a\x1f.server_model.BatchDataBackward\"\x00\x12V\n\rStreamRequest\x12\x1e.server_model.BatchDataForward\x1a\x1f.server_model.BatchDataBackward\"\x00(\x01\x30\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -35,20 +35,20 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_BATCHDATAFORWARD_DATAENTRY']._serialized_options = b'8\001'
   _globals['_BATCHDATABACKWARD_DATAENTRY']._loaded_options = None
   _globals['_BATCHDATABACKWARD_DATAENTRY']._serialized_options = b'8\001'
-  _globals['_CONTROLCODE']._serialized_start=741
-  _globals['_CONTROLCODE']._serialized_end=851
+  _globals['_CONTROLCODE']._serialized_start=764
+  _globals['_CONTROLCODE']._serialized_end=874
   _globals['_BATCHDATAFORWARD']._serialized_start=37
   _globals['_BATCHDATAFORWARD']._serialized_end=294
   _globals['_BATCHDATAFORWARD_DATAENTRY']._serialized_start=225
   _globals['_BATCHDATAFORWARD_DATAENTRY']._serialized_end=294
   _globals['_BATCHDATABACKWARD']._serialized_start=297
-  _globals['_BATCHDATABACKWARD']._serialized_end=616
+  _globals['_BATCHDATABACKWARD']._serialized_end=639
   _globals['_BATCHDATABACKWARD_DATAENTRY']._serialized_start=225
   _globals['_BATCHDATABACKWARD_DATAENTRY']._serialized_end=294
-  _globals['_BYTETENSOR']._serialized_start=618
-  _globals['_BYTETENSOR']._serialized_end=708
-  _globals['_TENSORLIST']._serialized_start=710
-  _globals['_TENSORLIST']._serialized_end=739
-  _globals['_SERVERMODEL']._serialized_start=854
-  _globals['_SERVERMODEL']._serialized_end=1038
+  _globals['_BYTETENSOR']._serialized_start=641
+  _globals['_BYTETENSOR']._serialized_end=731
+  _globals['_TENSORLIST']._serialized_start=733
+  _globals['_TENSORLIST']._serialized_end=762
+  _globals['_SERVERMODEL']._serialized_start=877
+  _globals['_SERVERMODEL']._serialized_end=1061
 # @@protoc_insertion_point(module_scope)

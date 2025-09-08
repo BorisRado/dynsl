@@ -1,5 +1,3 @@
-from functools import partial
-
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf

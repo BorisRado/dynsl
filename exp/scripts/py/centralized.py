@@ -21,8 +21,8 @@ def run(cfg: DictConfig):
     model = instantiate(cfg.model).to(device)
 
     dataset = load_client_trainset(0, cfg.data, cfg.partitioning, cfg.general.seed)
-    trainloader = get_dataloader(dataset, batch_size=16)
-    valloader = get_dataloader(dataset, batch_size=16, shuffle=False)
+    trainloader = get_dataloader(dataset, batch_size=cfg.client.init_kwargs.batch_size)
+    valloader = get_dataloader(dataset, batch_size=cfg.client.init_kwargs.batch_size, shuffle=False)
     criterion = torch.nn.CrossEntropyLoss()
 
     optimizer_config_generator = OptimizerGenerator(cfg.optimizer.optimizer, cfg.optimizer.scheduler)

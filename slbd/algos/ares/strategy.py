@@ -21,6 +21,9 @@ class ARESStrategy(BaseStrategy):
         is_training,
     ):
         clients = self.sample_epoch_clients(client_manager, is_training)
+        if len(clients) == 0:
+            return [], []
+
         num_initial_client_layers = client_layer_allocator \
             .initialize_epoch(
                 clients, client_manager, is_training,

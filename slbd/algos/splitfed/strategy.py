@@ -14,6 +14,9 @@ class SplitFedStrategy(BaseStrategy):
             config |= self.config_client_fit_fn(server_round)
 
         clients = self.sample_epoch_clients(client_manager, True)
+        if len(clients) == 0:
+            return [], []
+
         num_initial_client_layers = client_layer_allocator \
             .initialize_epoch(clients, client_manager, True)
 
@@ -36,6 +39,9 @@ class SplitFedStrategy(BaseStrategy):
         config = {}
 
         clients = self.sample_epoch_clients(client_manager, False)
+        if len(clients) == 0:
+            return [], []
+
         num_initial_client_layers = client_layer_allocator \
             .initialize_epoch(clients, client_manager, False)
 

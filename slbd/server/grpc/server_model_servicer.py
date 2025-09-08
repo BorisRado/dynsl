@@ -149,6 +149,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         forking_data = {}
         for event, client_id, result_item in zip(events, client_ids, result):
+            gradient, training_loss = result_item
             diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
             num_layers_diff, params = 0, None
             if diff_data is not None:
@@ -161,10 +162,11 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                         .extract_layer_weights(previous, previous+num_layers_diff)
 
             event.set_result(BatchDataBackward(
-                data=ndarray_dict_to_bytes(result_item),
+                data=ndarray_dict_to_bytes(gradient),
                 control_code=ControlCode.OK,
                 layers_diff=num_layers_diff,
-                additional_layers_parameters=torch_list_to_bytes(params)
+                additional_layers_parameters=torch_list_to_bytes(params),
+                training_loss=training_loss,
             ))
         self.server_model_manager.create_fork(forking_data)
 
@@ -177,6 +179,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             control_code=control_code_to_proto(data.control_code),
             layers_diff=data.layers_diff,
             additional_layers_parameters=layer_params,
+            training_loss=data.training_loss,
         )
 
     async def StreamRequest(

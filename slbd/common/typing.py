@@ -35,6 +35,7 @@ class BatchDataBackward:
     data: Dict[str, Union[bytes, List[bytes]]]
     control_code: ControlCode
     layers_diff: int
+    training_loss: float
     additional_layers_parameters: List[bytes] = None
 
 

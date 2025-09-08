@@ -18,13 +18,12 @@ client:
     batch_size: 16
 strategy:
   fraction_fit: 1.0
-  fraction_evaluate: 1.0
+  fraction_evaluate: 0.0
   config_client_fit_fn: null
-  evaluate_metrics_aggregation_fn: null
-  fit_metrics_aggregation_fn: null
   min_fit_clients: 1
-  min_evaluate_clients: 1
+  min_evaluate_clients: 0
   min_available_clients: 1
 server_model_servicer:
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
   request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model
+wandb: false
