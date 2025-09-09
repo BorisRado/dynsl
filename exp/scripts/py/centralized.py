@@ -3,7 +3,7 @@ import time
 import torch
 import hydra
 from hydra.utils import instantiate
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 from slbd.torch.utils import OptimizerGenerator, init_optimizer
 
@@ -15,12 +15,24 @@ from exp.src.common.other import set_torch_flags
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
+    print(OmegaConf.to_yaml(cfg))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     set_seed(cfg.general.seed)
     model = instantiate(cfg.model).to(device)
 
+    # for idx in range(14):
+    #     dataset = load_client_trainset(idx, cfg.data, cfg.partitioning, cfg.general.seed)
+    #     # Compute distribution over target labels
+
+    #     labels = [dp["label"] for dp in dataset]
+    #     unique_labels, counts = torch.unique(torch.tensor(labels), return_counts=True)
+    #     distribution = dict(zip(unique_labels.tolist(), counts.tolist()))
+    #     print(f"Client {idx} label distribution [{len(dataset)}]: {distribution}")
+    # return
+
     dataset = load_client_trainset(0, cfg.data, cfg.partitioning, cfg.general.seed)
+    print("Centralized dataset size", len(dataset))
     trainloader = get_dataloader(dataset, batch_size=cfg.client.init_kwargs.batch_size)
     valloader = get_dataloader(dataset, batch_size=cfg.client.init_kwargs.batch_size, shuffle=False)
     criterion = torch.nn.CrossEntropyLoss()

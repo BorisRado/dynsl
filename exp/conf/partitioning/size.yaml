@@ -1,0 +1,16 @@
+_target_: flwr_datasets.partitioner.SizePartitioner
+partition_sizes:
+- 1000
+- 10_000
+- 1000
+- 1000
+- 1000
+- 1000
+- 1000
+- 1000
+- 1000
+- 1000
+- 1000
+- 10_000
+- 10_000
+- 10_000

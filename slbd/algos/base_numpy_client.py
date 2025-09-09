@@ -36,7 +36,7 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         _ = (config, )
         return {
-            # MIN_NUMBER_OF_CLIENT_LAYERS: self.config["min_layers"],
+            MIN_NUMBER_OF_CLIENT_LAYERS: 2,
             CLIENT_DATASET_SIZE: self.torch_client.get_trainloader_size()
         }
 

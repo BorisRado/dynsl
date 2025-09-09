@@ -1,4 +1,4 @@
-name: splitfed_v1
+name: splitfed_v2
 layer_allocator_init_args:
   num_client_layers: 4
 strategy_init_args:

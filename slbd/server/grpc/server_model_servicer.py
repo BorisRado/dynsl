@@ -124,7 +124,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         return event.get_result()
 
-    @with_exception_logging
+    # @with_exception_logging
     def _trigger_computation(self, request_group: ClientRequestGroup) -> None:
         batches, events, client_ids = request_group.get_data()
 
@@ -210,8 +210,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             if res is not None:
                 yield self._to_grpc(res)
 
-        # async with self._lock:
-        #     self.server_model_manager.strategy.mark_client_as_done(client_id)
         yield server_model_pb2.BatchDataBackward(
             control_code=control_code_to_proto(ControlCode.STREAM_CLOSED_OK)
         )

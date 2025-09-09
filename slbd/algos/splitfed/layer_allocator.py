@@ -1,5 +1,7 @@
 from typing import List, Optional, Tuple
 
+import wandb
+import numpy as np
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
@@ -16,6 +18,7 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
     ):
         self._num_client_layers = num_client_layers
         self._num_offloaded_layers = num_model_layers - num_client_layers
+        self._metrics = []
 
     def initialize_epoch(
         self,
@@ -27,6 +30,9 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         return [self._num_client_layers] * len(epoch_clients)
 
     def finalize_epoch(self):
+        if wandb.run is not None:
+            wandb.log({"gpu_compute_time": np.mean(self._metrics)})
+        print("Average GPU time:", np.mean(self._metrics))
         return
 
     def trigger_reallocation(self, client_ids) -> None:
@@ -42,4 +48,5 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         return
 
     def update_server_metrics(self, num_offloaded_layers: int, elapsed_time: float):
+        self._metrics.append(elapsed_time)
         return

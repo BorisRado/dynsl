@@ -12,7 +12,7 @@ class ResNet18(nn.Sequential):
         super().__init__(
             model.conv1,
             model.bn1,
-            model.relu,
+            nn.ReLU(), # replace the default relu as it is inplace
             model.maxpool,
             model.layer1,
             model.layer2,
