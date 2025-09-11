@@ -74,6 +74,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         super().__init__()
         self.server_model_manager = server_model_manager
         self._lock = asyncio.Lock()
+        self._model_lock = asyncio.Lock()
+        self._allocator_loc = asyncio.Lock()
         self._is_cuda_available = torch.cuda.is_available()
         self.request_queues = {}
         self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
@@ -116,16 +118,15 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         if is_new:
             await request_group._is_ready.wait()
-            async with self._lock:
-                self._trigger_computation(request_group)
-                del self._outstanding_batches[num_offloaded_layers]
+            await self._trigger_computation(request_group)
+            del self._outstanding_batches[num_offloaded_layers]
 
         await event.wait()
 
         return event.get_result()
 
     # @with_exception_logging
-    def _trigger_computation(self, request_group: ClientRequestGroup) -> None:
+    async def _trigger_computation(self, request_group: ClientRequestGroup) -> None:
         batches, events, client_ids = request_group.get_data()
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
@@ -133,19 +134,20 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         server_model = self.server_model_manager.get_server_model(request_group.server_id)
         with measure_time(self._is_cuda_available) as timer:
             if request_group.is_training:
-                result = server_model.train_and_compute_gradient(
-                    kwargs,
-                    num_offloaded_layers=request_group.num_offloaded_layers
-                )
+                async with self._model_lock:
+                    result = server_model.train_and_compute_gradient(
+                        kwargs,
+                        num_offloaded_layers=request_group.num_offloaded_layers
+                    )
             else:
                 result = server_model.eval_get_logits(
                     kwargs,
                     num_offloaded_layers=request_group.num_offloaded_layers
                 )
         computation_time = timer.elapsed
-        self.client_layer_allocator.update_server_metrics(request_group.num_offloaded_layers, computation_time)
-
-        self.client_layer_allocator.trigger_reallocation(client_ids)
+        async with self._allocator_loc:
+            self.client_layer_allocator.update_server_metrics(request_group.num_offloaded_layers, computation_time)
+            self.client_layer_allocator.trigger_reallocation(client_ids)
 
         forking_data = {}
         for event, client_id, result_item in zip(events, client_ids, result):
