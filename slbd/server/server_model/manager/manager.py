@@ -13,8 +13,16 @@ class ServerModelManager(ABC):
         self.strategy = None
 
     @abstractmethod
-    def get_server_model(self, sid) -> ServerModelProxy:
-        """Create a brand new server trainer proxy to which clients can connect"""
+    def marshall_train_request(
+        self, model_id,  embeddings, labels, num_offloaded_layers
+    ) -> List[ServerModelFitRes]:
+        """Get all the necessary data for server side model aggregation"""
+
+    @abstractmethod
+    def marshall_evaluation_request(
+        self, model_id,  embeddings, num_offloaded_layers
+    ) -> List[ServerModelFitRes]:
+        """Get all the necessary data for server side model aggregation"""
 
     @abstractmethod
     def collect_server_fit_results(
@@ -34,10 +42,6 @@ class ServerModelManager(ABC):
         """Initialize the server models"""
 
     @abstractmethod
-    def get_server_model_ids(self):
-        """Get all the server model ids"""
-
-    @abstractmethod
     def get_global_model_params(self) -> OrderedDict:
         """Get the initial weights of the global model"""
 
@@ -45,3 +49,15 @@ class ServerModelManager(ABC):
     def extract_layer_weights(self, layer_from, layer_to):
         # returns a copy of the model weights
         ""
+
+    @abstractmethod
+    def shutdown(self):
+        """Nicely stop all the resources
+        """
+        pass
+
+    @abstractmethod
+    def clean_resources(self):
+        """Forcefully clean the resources (e.g., kill spanned processes in case of exceptions)
+        """
+        pass

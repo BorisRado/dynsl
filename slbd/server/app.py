@@ -1,4 +1,5 @@
 import sys
+import signal
 import asyncio
 import traceback
 import concurrent.futures
@@ -173,6 +174,16 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     return server
 
 
+def setup_signal_handlers(worker_manager):
+    def handle_exit(sig, frame):
+        print(f"\n[Main] Caught signal {sig}, cleaning up workers...")
+        worker_manager.clean_resources()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_exit)   # Ctrl+C
+    signal.signal(signal.SIGTERM, handle_exit)  # kill <pid>
+
+
 @run_async
 async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     *,
@@ -201,6 +212,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     }[config.algorithm.name](config, model)
     server_model_manager = GrpcServerModelManager(
         model=strategy.get_model_architecture(),
+        strategy=config.server_model_manager.strategy,
     )
     initialized_server = Server(
         client_manager=SimpleClientManager(),
@@ -223,6 +235,8 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         "Starting Flower server, config: %s",
         server_config,
     )
+
+    setup_signal_handlers(initialized_server.server_model_manager)
 
     # Start gRPC server
     grpc_server = await start_grpc_server(
@@ -252,6 +266,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         hist = None
 
     finally:
+        initialized_server.server_model_manager.clean_resources()
         await grpc_server.stop(grace=1)
 
     event(EventType.START_SERVER_LEAVE)

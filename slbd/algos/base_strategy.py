@@ -41,8 +41,15 @@ def weighted_average(metrics: List[Tuple[int, Dict[str, float]]]):
     for key in metrics[0][1].keys():
         if key.startswith("_"):
             continue
-        weighted_sum = sum(num_examples * metric[key] for num_examples, metric in metrics)
-        weighted_metrics[key] = weighted_sum / total_examples
+        if key != "local_train_time":
+            weighted_sum = sum(num_examples * metric[key] for num_examples, metric in metrics)
+            weighted_metrics[key] = weighted_sum / total_examples
+        else:
+            weighted_metrics[key] = [
+                (num_examples, metric[key]) for num_examples, metric in metrics
+            ]
+
+    print(weighted_metrics)
     if wandb.run is not None:
         wandb.log(weighted_metrics)
     return weighted_metrics

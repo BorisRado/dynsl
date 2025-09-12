@@ -39,7 +39,27 @@ class GrpcServerModelProxy(ServerModelProxy):
             cid=self.cid,
         ))
 
+    def unary_request(self, embeddings, labels, local_computation_time, training):
+        batch_data = torch_to_bytes(embeddings=embeddings, labels=labels)
+        ins = server_model_pb2.BatchDataForward(
+            data=to_grpc_format(batch_data),
+            control_code=control_code_to_proto(ControlCode.OK),
+            training=training,
+            local_computation_time=local_computation_time,
+            cid=self.cid,
+        )
+        res = self.stub.UnaryRequest(ins)
+        num_layers_diff = res.layers_diff
+        gradient = bytes_to_torch(from_grpc_format(res.data))
+        layer_change_info = LayerChangeInfo(
+            layers_diff=num_layers_diff,
+            additional_layers_parameters=None if num_layers_diff <= 0 \
+                else [v.numpy() for v in bytes_to_torch({"": list(res.additional_layers_parameters.tensors)})]
+        )
+        return gradient, layer_change_info, res.training_loss
+
     def __call__(self, embeddings, labels, local_computation_time, training=True):
+        # return self.unary_request(embeddings, labels, local_computation_time, training)
         batch_data = torch_to_bytes(embeddings=embeddings, labels=labels)
         if self.request_queue is None:
             self._initialize_stream()

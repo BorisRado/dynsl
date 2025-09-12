@@ -102,6 +102,8 @@ class Server(FlwrServer):
         # Bookkeeping
         end_time = timeit.default_timer()
         elapsed = end_time - start_time
+        self.server_model_manager.shutdown()
+        self.server_model_manager.clean_resources()
         log(INFO, "FL finished in %s", elapsed)
         return history, elapsed
 

@@ -1,3 +1,4 @@
+import time
 from typing import Dict, Tuple
 
 import torch
@@ -56,12 +57,15 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
             optimizer_config=optimizer_config
         )
 
-        # call the model-owner training logic
+        # call the model-owner training logic, and measure the time it takes
+        start_time = time.time()
         self.torch_client.fit(config, model_trainer)
+        runtime = time.time() - start_time
 
         # extract trained parameters
         trained_parameters, processed_data_points_dict, metrics = model_trainer.get_fit_results()
-        return trained_parameters, model_trainer._dataset_size, processed_data_points_dict | metrics
+        combined_metrics = processed_data_points_dict | metrics | {"local_train_time": runtime}
+        return trained_parameters, model_trainer._dataset_size, combined_metrics
 
     def evaluate(
         self,

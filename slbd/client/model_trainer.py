@@ -77,6 +77,7 @@ class ModelTrainer:
         self._forward_time: float = -1.
         self._backward_time: float = -1.
         self._removed_parameters: List[torch.Tensor] = []
+        self._tot_local_computation_time = 0.
 
         self._init_model(last_layer_idx, init_parameters, optimizer_config)
 
@@ -138,6 +139,7 @@ class ModelTrainer:
         with measure_time(self._use_cuda) as timer:
             client_output = self._model(input_vars)
         self._forward_time = timer.elapsed # perhaps could have a rolling average
+        self._tot_local_computation_time += self._forward_time
 
         if self._model._is_complete:
             # if model is in its entirety on the client, compute the loss on the client
@@ -160,6 +162,7 @@ class ModelTrainer:
                 client_output.backward(gradient.to(client_output.device))
                 self._optimizer.step()
             self._backward_time = timer.elapsed
+        self._tot_local_computation_time += self._backward_time
 
         self._metrics["loss"] += loss * labels.shape[0]
         for layer_idx in range(get_num_layers(self._model)):
@@ -200,6 +203,7 @@ class ModelTrainer:
         }
 
     def get_training_metrics(self):
+        print("Total local computation time", self._tot_local_computation_time)
         print({"training_loss": self._metrics["loss"] / self._num_processed_data_points})
         return {"training_loss": self._metrics["loss"] / self._num_processed_data_points}
 

@@ -3,17 +3,17 @@ defaults:
   - data: cifar10
   - partitioning: iid
   - optimizer: sgd
-  - algorithm: ares
+  - algorithm: splitfed_v2
   - _self_
 general:
   seed: 10
   rounds: 1
 server:
-  port: ...
+  port: 8089 # default port
 client:
-  server_address: ... # should be set at runtime
+  server_address: 0.0.0.0:8089 # should be set at runtime
   init_kwargs: # kwargs that are passed to the model owner client
-    cid: ... # should be set at runtime
+    cid: 0 # should be set at runtime
     min_layers: 2
     batch_size: 16
 strategy:
@@ -23,6 +23,8 @@ strategy:
   min_fit_clients: 1
   min_evaluate_clients: 0
   min_available_clients: 1
+server_model_manager:
+  strategy: multithreading # options: multithreading, mp_pipe, mp_queue
 server_model_servicer:
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
   request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model

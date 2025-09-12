@@ -74,10 +74,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         super().__init__()
         self.server_model_manager = server_model_manager
         self._lock = asyncio.Lock()
-        self._model_lock = asyncio.Lock()
         self._allocator_loc = asyncio.Lock()
-        self._is_cuda_available = torch.cuda.is_available()
-        self.request_queues = {}
         self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
         self._outstanding_batches: Dict[int, ClientRequestGroup] = {}
         self._num_concat_batches = num_concat_batches
@@ -101,13 +98,14 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         num_offloaded_layers = self.client_layer_allocator \
             .get_client_offloaded_layer_count(client_id)
         event = EventWithReturnValue()
+        server_id = self.server_model_manager.strategy.route_client_request_to_server_model(client_id)
 
         is_new = False
         async with self._lock:
             if (request_group := self._outstanding_batches.get(num_offloaded_layers)) is None:
                 request_group = ClientRequestGroup(
                     num_offloaded_layers=num_offloaded_layers,
-                    server_id=self.server_model_manager.strategy.route_client_request_to_server_model(client_id),
+                    server_id=server_id,
                     timeout=self._requeset_group_timeout,
                 )
                 self._outstanding_batches[num_offloaded_layers] = request_group
@@ -118,8 +116,9 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         if is_new:
             await request_group._is_ready.wait()
-            await self._trigger_computation(request_group)
+            request_group = self._outstanding_batches[num_offloaded_layers]
             del self._outstanding_batches[num_offloaded_layers]
+            await self._trigger_computation(request_group)
 
         await event.wait()
 
@@ -131,25 +130,23 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
         kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
-        server_model = self.server_model_manager.get_server_model(request_group.server_id)
-        with measure_time(self._is_cuda_available) as timer:
-            if request_group.is_training:
-                async with self._model_lock:
-                    result = server_model.train_and_compute_gradient(
-                        kwargs,
-                        num_offloaded_layers=request_group.num_offloaded_layers
-                    )
-            else:
-                result = server_model.eval_get_logits(
-                    kwargs,
-                    num_offloaded_layers=request_group.num_offloaded_layers
-                )
-        computation_time = timer.elapsed
-        async with self._allocator_loc:
-            self.client_layer_allocator.update_server_metrics(request_group.num_offloaded_layers, computation_time)
-            self.client_layer_allocator.trigger_reallocation(client_ids)
+        if request_group.is_training:
+            result = self.server_model_manager.marshall_train_request(
+                model_id=request_group.server_id,
+                num_offloaded_layers=request_group.num_offloaded_layers,
+                **kwargs
+            )
+        else:
+            result = self.server_model_manager.marshall_evaluation_request(
+                model_id=request_group.server_id,
+                num_offloaded_layers=request_group.num_offloaded_layers,
+                **kwargs
+            )
+        # async with self._allocator_loc:
+        #     self.client_layer_allocator.update_server_metrics(request_group.num_offloaded_layers, computation_time)
+        #     self.client_layer_allocator.trigger_reallocation(client_ids)
 
-        forking_data = {}
+        # forking_data = {}
         for event, client_id, result_item in zip(events, client_ids, result):
             gradient, training_loss = result_item
             diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
@@ -158,10 +155,10 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 previous, num_layers_diff = diff_data
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
                     client_id, num_layers_diff)
-                if num_layers_diff > 0:
-                    forking_data[client_id] = list(range(previous, previous+num_layers_diff))
-                    params = self.server_model_manager \
-                        .extract_layer_weights(previous, previous+num_layers_diff)
+                # if num_layers_diff > 0:
+                #     forking_data[client_id] = list(range(previous, previous+num_layers_diff))
+                #     params = self.server_model_manager \
+                #         .extract_layer_weights(previous, previous+num_layers_diff)
 
             event.set_result(BatchDataBackward(
                 data=ndarray_dict_to_bytes(gradient),
@@ -170,7 +167,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 additional_layers_parameters=torch_list_to_bytes(params),
                 training_loss=training_loss,
             ))
-        self.server_model_manager.create_fork(forking_data)
+        # self.server_model_manager.create_fork(forking_data)
 
     def _to_grpc(self, data: BatchDataBackward) -> server_model_pb2.BatchDataBackward:
 

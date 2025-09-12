@@ -15,7 +15,9 @@ class TorchServerModel:
         model: torch.nn.Sequential,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ):
-        self._model = model
+        self._whole_model = model
+        self._model = None
+
         self.device = device
         self.first_server_layer = -1
         self._num_model_layers = get_num_layers(model)
@@ -38,7 +40,7 @@ class TorchServerModel:
 
     def _get_model_from_ins(self, instructions):
         self.first_server_layer = instructions.first_server_model_layer
-        model = extract_submodel(self._model, instructions.first_server_model_layer, -1)
+        model = extract_submodel(self._whole_model, instructions.first_server_model_layer, -1)
         state_dict = shift_state_dict(instructions.model_state_dict, -self.first_server_layer)
         model.load_state_dict(state_dict)
         return model
@@ -67,20 +69,10 @@ class TorchServerModel:
 
     def train_and_compute_gradient(
         self,
-        batches,
+        embeddings,
+        labels,
         num_offloaded_layers,
     ):
-        sizes = [b.shape[0] for b in batches["labels"]]
-        embeddings = \
-            torch.cat([torch.from_numpy(b) for b in batches["embeddings"]], dim=0).to(self.device)
-        labels = torch.cat([torch.from_numpy(b) for b in batches["labels"]], dim=0).to(self.device)
-
-        permutation = None
-        if self._mix_before_model:
-            permutation = torch.randperm(embeddings.shape[0])
-            embeddings = embeddings[permutation]
-            labels = labels[permutation]
-
         embeddings.requires_grad_(True)
 
         self._optimizer.zero_grad(set_to_none=True)
@@ -90,13 +82,9 @@ class TorchServerModel:
         self._optimizer.step()
 
         gradient = embeddings.grad
-        if self._mix_before_model:
-            inverse_permutation = torch.argsort(permutation)
-            gradient = gradient[inverse_permutation]
 
         # all clients get assigned the same loss
-        gradients = [(g.detach().cpu().numpy(), loss.item()) for g in gradient.split(sizes, dim=0)]
-        return gradients
+        return gradient.detach().cpu(), loss.item()
 
     def _forward_sequence_of_layers(self, data, num_offloaded_layers):
         layers = self._model[-num_offloaded_layers:].children()
