@@ -10,6 +10,7 @@ from typing import Optional, Tuple
 import grpc
 import grpc.aio
 import torch.nn as nn
+from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
 
 from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
@@ -23,7 +24,7 @@ from flwr.server.superlink.fleet.grpc_bidi.grpc_server import valid_certificates
 
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.server.grpc.flower_servicer import FlowerServiceServicer
-from slbd.server.server_model.manager import ServerModelManager, GrpcServerModelManager
+from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.grpc.server_model_servicer import ServerModelServicer
 from slbd.server.server import Server
 from slbd.common.utils import run_async
@@ -210,9 +211,10 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         "splitfed_v1": init_splitfed_components,
         "splitfed_v2": init_splitfed_components,
     }[config.algorithm.name](config, model)
-    server_model_manager = GrpcServerModelManager(
-        model=strategy.get_model_architecture(),
-        strategy=config.server_model_manager.strategy,
+
+    server_model_manager = instantiate(
+        config.server_model_manager,
+        model=strategy.get_model_architecture()
     )
     initialized_server = Server(
         client_manager=SimpleClientManager(),

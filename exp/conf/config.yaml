@@ -4,6 +4,7 @@ defaults:
   - partitioning: iid
   - optimizer: sgd
   - algorithm: splitfed_v2
+  - server_model_manager: multiprocessing
   - _self_
 general:
   seed: 10
@@ -23,8 +24,6 @@ strategy:
   min_fit_clients: 1
   min_evaluate_clients: 0
   min_available_clients: 1
-server_model_manager:
-  strategy: multithreading # options: multithreading, mp_pipe, mp_queue
 server_model_servicer:
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
   request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model

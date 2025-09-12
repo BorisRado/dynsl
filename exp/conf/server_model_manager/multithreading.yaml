@@ -1,0 +1,2 @@
+_target_: slbd.server.server_model.manager.multithreading_server_model_manager.MultithreadingServerModelManager
+shuffle_data: false

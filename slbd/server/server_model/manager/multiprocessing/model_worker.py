@@ -17,7 +17,7 @@ class TaskType(Enum):
     SHUTDOWN = 6
 
 
-class ComputeWorker(mp.Process):
+class ModelWorker(mp.Process):
     def __init__(
         self,
         model: nn.Sequential,

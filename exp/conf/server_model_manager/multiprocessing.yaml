@@ -1,0 +1,4 @@
+_target_: slbd.server.server_model.manager.mp_server_model_manager.MpServerModelManager
+communication_channel: pipe
+reuse_procesess: true
+shuffle_data: false
