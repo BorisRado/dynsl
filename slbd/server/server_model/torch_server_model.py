@@ -74,6 +74,7 @@ class TorchServerModel:
         num_offloaded_layers,
     ):
         embeddings.requires_grad_(True)
+        embeddings.grad = None # required because otherwise the gradient may be accumulated
 
         self._optimizer.zero_grad(set_to_none=True)
         logits = self._forward_sequence_of_layers(embeddings, num_offloaded_layers)

@@ -109,3 +109,48 @@ class ModelProcessPoolWQueue(ModelProcessPool):
         _, request_queue, response_queue = self._sid_to_active_process_mapping[sid]
         request_queue.put(request)
         return response_queue.get()
+
+
+class ModelProcessPoolWPipeShareMemory(ModelProcessPool):
+    def __init__(self, model, tensor_metadata):
+        super().__init__(model)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self._shared_tensors = {
+            name: torch.empty(tensor_shape, dtype=tensor_dtype, device=device).share_memory_()
+            for name, tensor_shape, tensor_dtype in tensor_metadata
+        }
+
+    def _start_new_process(self):
+        parent_conn, child_conn = mp.Pipe()
+        worker = ModelWorker(
+            model=self._model,
+            connection=child_conn,
+            device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+            shared_tensors=self._shared_tensors,
+        )
+        return (worker, parent_conn)
+
+    def _stop_running_process(self, process_components):
+        process_components[1].send((TaskType.SHUTDOWN, None))
+
+    def marshall_request(self, sid, request):
+        _, connection = self._sid_to_active_process_mapping[sid]
+
+        # Example: if train or evaluation request, we treat the request in a separate way
+        # to avoid multiple data copies
+        if request[0] == TaskType.TRAIN:
+            control, payload = request
+            # Copy input data into shared tensors
+            self._shared_tensors["embeddings"].copy_(payload[0])
+            self._shared_tensors["labels"].copy_(payload[1])
+            num_offloaded_layers = payload[2]
+
+            connection.send((control, num_offloaded_layers))
+            loss = connection.recv()
+
+            grad = self._shared_tensors["gradient"].cpu()
+            return grad, loss
+
+        else:
+            connection.send(request)
+            return connection.recv()

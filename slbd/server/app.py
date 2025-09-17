@@ -26,6 +26,7 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.server.grpc.flower_servicer import FlowerServiceServicer
 from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.grpc.server_model_servicer import ServerModelServicer
+from slbd.server.grpc.queue_server_model_servicer import ServerModelServicer as QueueServerModelServicer
 from slbd.server.server import Server
 from slbd.common.utils import run_async
 from slbd.proto import server_model_pb2_grpc
@@ -164,7 +165,12 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     else:
         server.add_insecure_port(server_address)
 
-    slbd_servicer = ServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
+    if server_model_servicer_config.pop("queue_servicer", False):
+        print("Using queue servicer")
+        slbd_servicer = QueueServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
+    else:
+        print("Using usual servicer")
+        slbd_servicer = ServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
     server_model_pb2_grpc.add_ServerModelServicer_to_server(slbd_servicer, server)
 
     flwr_servicer = FlowerServiceServicer(client_manager)
@@ -214,7 +220,9 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
 
     server_model_manager = instantiate(
         config.server_model_manager,
-        model=strategy.get_model_architecture()
+        model=strategy.get_model_architecture(),
+        exp_config=OmegaConf.to_container(config.copy()),
+        _recursive_=False
     )
     initialized_server = Server(
         client_manager=SimpleClientManager(),
@@ -244,7 +252,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     grpc_server = await start_grpc_server(
         client_manager=initialized_server.client_manager(),
         server_model_manager=initialized_server.server_model_manager,
-        server_model_servicer_config=config.server_model_servicer,
+        server_model_servicer_config=OmegaConf.to_container(config.server_model_servicer),
         client_layer_allocator=initialized_server.get_client_layer_allocator(),
         server_address=address,
         max_message_length=grpc_max_message_length,

@@ -1,13 +1,16 @@
 import copy
 from typing import Union, List
 
+import torch
 import torch.nn as nn
 
 from slbd.server.server_model.manager.multiprocessing.model_process_pool import (
     ModelProcessPoolWPipe,
     ModelProcessPoolWQueue,
-    ModelProcessPool
+    ModelProcessPool,
+    ModelProcessPoolWPipeShareMemory
 )
+from slbd.torch.model_utils import extract_submodel
 from slbd.server.server_model.manager.multiprocessing.model_worker import TaskType
 from slbd.server.server_model.manager import BaseServerModelManager
 from slbd.common.typing import ServerModelEvaluateIns, ServerModelFitIns, ServerModelFitRes
@@ -21,15 +24,38 @@ class MpServerModelManager(BaseServerModelManager):
         communication_channel: str,
         reuse_procesess: bool,
         shuffle_data: bool,
+        share_memory: bool,
+        exp_config,
     ) -> None:
         super().__init__(model, shuffle_data)
+        torch.multiprocessing.set_start_method("spawn")
         self.reuse_processes = reuse_procesess
 
         assert communication_channel in {"queue", "pipe"}
+
+        if share_memory:
+            assert communication_channel == "pipe"
+
         if communication_channel == "queue":
             self._worker_pool: ModelProcessPool = ModelProcessPoolWQueue(model)
         elif communication_channel == "pipe":
-            self._worker_pool: ModelProcessPool = ModelProcessPoolWPipe(model)
+            if share_memory:
+                m = extract_submodel(model, 0, exp_config.algorithm.layer_allocator_init_args.num_client_layers)
+                embeddings_shape = tuple(m(torch.randn(2, 3, 32, 32)).shape[1:])
+                batch_size = exp_config.client.init_kwargs.batch_size * exp_config.server_model_servicer.num_concat_batches
+                embeddings_shape = (batch_size,) + embeddings_shape
+                print("embeddings shape", embeddings_shape)
+                shared_tensor_metadata = [
+                    ("embeddings", embeddings_shape, torch.float32),
+                    ("gradient", embeddings_shape, torch.float32),
+                    ("labels", (batch_size,), torch.long),
+                ]
+                print("Tensor data", shared_tensor_metadata)
+                self._worker_pool: ModelProcessPool = ModelProcessPoolWPipeShareMemory(
+                    model, shared_tensor_metadata
+                )
+            else:
+                self._worker_pool: ModelProcessPool = ModelProcessPoolWPipe(model)
 
     def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)

@@ -9,5 +9,5 @@ def get_dataloader(dataset, batch_size, num_workers=2, shuffle=True):
         shuffle=shuffle,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
-        drop_last=False
+        drop_last=True
     )

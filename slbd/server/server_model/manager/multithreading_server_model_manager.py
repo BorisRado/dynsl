@@ -2,6 +2,7 @@ import copy
 import collections
 from typing import Union, List
 
+import torch
 import torch.nn as nn
 
 from slbd.server.server_model.torch_server_model import TorchServerModel
@@ -16,14 +17,17 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         self,
         model: nn.Sequential,
         shuffle_data: bool,
+        exp_config,
     ) -> None:
         super().__init__(model, shuffle_data)
+        _ = (exp_config,)
         self.spanned_server_models = {}
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
         gradient, loss = self.spanned_server_models[model_id].train_and_compute_gradient(
-            embeddings, labels, num_offloaded_layers
+            embeddings.to(self.device), labels.to(self.device), num_offloaded_layers
         )
         return self._split_and_unshuffle_data(loss, gradient, control)
 
@@ -66,7 +70,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             return
 
         for config in configs:
-            sm = TorchServerModel(self.base_model)
+            sm = TorchServerModel(self.base_model, device=self.device)
             if is_training:
                 sm.configure_fit(config)
             else:

@@ -80,12 +80,6 @@ def single_client_format(func):
     return wrapper
 
 
-async def set_event_after(event: asyncio.Event, delay: float):
-    await asyncio.sleep(delay)
-    if not event.is_set():
-        event.set()
-
-
 class ClientRequestGroup:
     """Container class that contains all the multiple requests from one or more clients.
     A ClientRequestGroup is a collection of client requests that:
@@ -95,7 +89,7 @@ class ClientRequestGroup:
     same `num_offloaded_layers`). Thus, a ClientRequestGroup is a collection of requests
     that are meant to be processed together.
     """
-    def __init__(self, num_offloaded_layers, server_id, timeout):
+    def __init__(self, num_offloaded_layers, server_id):
         self.server_id = server_id
         self.num_offloaded_layers = num_offloaded_layers
         self.batches = []
@@ -103,7 +97,6 @@ class ClientRequestGroup:
         self.client_ids = [] # required for sorting the batches
         self.is_training = None
         self._is_ready = asyncio.Event()
-        self._background_task = asyncio.create_task(set_event_after(self._is_ready, timeout))
 
     def add(self, batch_data: BatchDataForward, event, client_id: str):
         if self.is_training is not None:
@@ -122,9 +115,6 @@ class ClientRequestGroup:
         return len(self.client_ids)
 
     def get_data(self):
-        if not self._background_task.done():
-            self._background_task.cancel()
-        # sort by client_id to get consistent order
         sorted_indices = sorted(range(len(self.client_ids)), key=lambda k: self.client_ids[k])
         batches = [self.batches[idx] for idx in sorted_indices]
         events = [self.events[idx] for idx in sorted_indices]
