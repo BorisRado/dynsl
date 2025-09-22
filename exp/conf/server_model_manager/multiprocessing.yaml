@@ -2,3 +2,4 @@ _target_: slbd.server.server_model.manager.mp_server_model_manager.MpServerModel
 communication_channel: pipe
 reuse_procesess: true
 shuffle_data: false
+share_memory: true

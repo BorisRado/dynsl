@@ -56,6 +56,7 @@ class Strategy:
         server_round: int,
         client_results: List[Tuple[ClientProxy, FitRes]],
         server_results: List[ServerModelFitRes],
+        layer_allocator: ClientLayerAllocator,
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         """Aggregate training results.

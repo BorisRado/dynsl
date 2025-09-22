@@ -1,6 +1,5 @@
 from abc import ABC, abstractmethod
-
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
@@ -108,7 +107,13 @@ class ClientLayerAllocator(ABC):
         """
 
     @abstractmethod
-    def update_server_metrics(self, num_offloaded_layers: int, elapsed_time: float):
+    def update_server_metrics(
+        self,
+        num_offloaded_layers: int,
+        elapsed_time: float,
+        wait_time_in_ready_state: float,
+        batch_preparation_time: float
+    ):
         """The layer allocator is given the time for processing a batch of data on the server
 
         Parameters
@@ -117,4 +122,14 @@ class ClientLayerAllocator(ABC):
             Nuber of layers that have been processed on the server
         elapsed_time : float
             Training time
+        """
+
+    @abstractmethod
+    def collect_epoch_metrics(self) -> Dict[str, float]:
+        """Returns the metrics that need to be saved for this epoch
+
+        Returns
+        -------
+        Dict[str, float]
+            Metrics
         """

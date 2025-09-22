@@ -27,6 +27,7 @@ from slbd.server.grpc.flower_servicer import FlowerServiceServicer
 from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.grpc.server_model_servicer import ServerModelServicer
 from slbd.server.grpc.queue_server_model_servicer import ServerModelServicer as QueueServerModelServicer
+from slbd.server.grpc.ping_pong_servicer import ServerModelServicer as PPServerModelServicer
 from slbd.server.server import Server
 from slbd.common.utils import run_async
 from slbd.proto import server_model_pb2_grpc
@@ -37,6 +38,7 @@ from slbd.torch.utils import init_optimizer, OptimizerGenerator
 from slbd.common.profiling import measure_per_layer_time
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
 from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator
+from slbd.algos.dynsl.layer_allocator import DynSLClientLayerAllocatorTest
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
 
@@ -55,7 +57,9 @@ def init_dynsl_components(config, model):
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy),
     )
-    client_layer_allocator = DynSLClientLayerAllocator(8, get_num_layers(model))
+    # client_layer_allocator = DynSLClientLayerAllocator(8, get_num_layers(model))
+    client_layer_allocator = DynSLClientLayerAllocatorTest(8, get_num_layers(model))
+
 
     return strategy, client_layer_allocator
 
@@ -165,9 +169,12 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     else:
         server.add_insecure_port(server_address)
 
-    if server_model_servicer_config.pop("queue_servicer", False):
+    server_model_servicer_name = server_model_servicer_config.pop("servicer_name")
+    if server_model_servicer_name == "queue":
         print("Using queue servicer")
         slbd_servicer = QueueServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
+    elif server_model_servicer_name == "ping_pong":
+        slbd_servicer = PPServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
     else:
         print("Using usual servicer")
         slbd_servicer = ServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)

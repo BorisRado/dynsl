@@ -1,6 +1,7 @@
 from slbd.client.abstract_torch_client import AbstractTorchClient
 
 from exp.src.common.stochasticity import set_seed
+from exp.src.common.background_process_manager import BackgroundProcessManager
 from exp.src.data.loading import load_client_trainset
 from exp.src.data.utils import get_dataloader
 
@@ -15,6 +16,9 @@ class MOTorchClient(AbstractTorchClient):
         dataset_config,
         partitioning_config,
         seed,
+        bg_proc_delay=0.,
+        bg_proc_duration=0.,
+        bg_num_procs=0,
     ):
         self.cid = int(cid)
         self.min_layers = min_layers
@@ -26,13 +30,25 @@ class MOTorchClient(AbstractTorchClient):
             partitioning_config=partitioning_config,
             seed=seed
         )
+        self.bg_proc_delay = bg_proc_delay
+        self.bg_proc_duration = bg_proc_duration
+        self.bg_num_procs = bg_num_procs
+        print(bg_num_procs, bg_proc_delay, bg_proc_duration)
+        self.bg_proc_mng = BackgroundProcessManager(
+            num_processes=self.bg_num_procs
+        )
 
     def fit(self, config, model_trainer):
         trainloader = get_dataloader(self.trainset, batch_size=self.batch_size)
 
+        self.bg_proc_mng.resume_processes(
+            delay=self.bg_proc_delay,
+            duration=self.bg_proc_duration,
+        )
         set_seed(self.seed + config["epoch_idx"])
         for batch in trainloader:
             model_trainer(batch["img"], batch["label"])
+        self.bg_proc_mng.pause_processes()
 
     def evaluate(self, config, model_trainer):
         valloader = get_dataloader(self.trainset, batch_size=self.batch_size, shuffle=False)

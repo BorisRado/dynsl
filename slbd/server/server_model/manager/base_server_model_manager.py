@@ -53,7 +53,7 @@ class BaseServerModelManager(ServerModelManager):
         )
 
     def create_fork(self, forking_clients_and_layers):
-        raise Exception("")
+        return
         # forking_clients_and_layers contains for every client idx a set of layers that
         # were sent to that client. For instance,
         # {1: [2,3], 2: [2]} means that client 1 was sent layer 2 and 3

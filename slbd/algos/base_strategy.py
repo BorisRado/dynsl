@@ -1,7 +1,7 @@
 import copy
 from collections import OrderedDict, defaultdict
 from logging import ERROR
-from typing import Optional, List, Tuple, Union, Dict, Callable
+from typing import Optional, List, Tuple, Union, Dict, Callable, Any
 
 import wandb
 from flwr.common import (
@@ -50,8 +50,6 @@ def weighted_average(metrics: List[Tuple[int, Dict[str, float]]]):
             ]
 
     print(weighted_metrics)
-    if wandb.run is not None:
-        wandb.log(weighted_metrics)
     return weighted_metrics
 
 
@@ -225,6 +223,8 @@ class BaseStrategy(Strategy):
     def _aggregate_layer_parameters(self, trained_values: List[Tuple[torch.tensor, int]]):
         assert len(trained_values) > 0
         total_weights = sum(weight for _, weight in trained_values)
+        if total_weights == 0:
+            return None
         return sum(tensor * (weight / total_weights) for tensor, weight in trained_values)
 
     def aggregate_fit(
@@ -232,6 +232,7 @@ class BaseStrategy(Strategy):
         server_round: int,
         client_results: List[Tuple[ClientProxy, FitRes]],
         server_results: List[ServerModelFitRes],
+        layer_allocator: ClientLayerAllocator,
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )
@@ -273,11 +274,16 @@ class BaseStrategy(Strategy):
             (key, self._aggregate_layer_parameters(per_parameter_trained_values[key]))
             for key in self.model.state_dict().keys()
         ])
+        # Remove entries with None values
+        out_state_dict = OrderedDict([(k, v) for k, v in out_state_dict.items() if v is not None])
 
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:
             fit_metrics = [(res.num_examples, res.metrics) for _, res in client_results]
-            aggregated_metrics = self.fit_metrics_aggregation_fn(fit_metrics)
+            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics)
+
+        if wandb.run is not None:
+            wandb.log(aggregated_metrics | layer_allocator.collect_epoch_metrics())
         return out_state_dict, aggregated_metrics
 
     def aggregate_evaluate(

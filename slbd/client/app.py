@@ -339,3 +339,4 @@ def _start_client_internal(
             sleep_duration,
         )
         time.sleep(sleep_duration)
+    client.bg_proc_mng.terminate_processes()

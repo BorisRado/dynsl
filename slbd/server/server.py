@@ -223,7 +223,13 @@ class Server(FlwrServer):
         aggregated_result: Tuple[
             OrderedDict,
             Dict[str, Scalar],
-        ] = self.strategy.aggregate_fit(server_round, results, server_fit_res, failures)
+        ] = self.strategy.aggregate_fit(
+            server_round=server_round,
+            client_results=results,
+            server_results=server_fit_res,
+            layer_allocator=self.client_layer_allocator,
+            failures=failures
+        )
 
         parameters_aggregated, metrics_aggregated = aggregated_result
         self.client_layer_allocator.finalize_epoch()

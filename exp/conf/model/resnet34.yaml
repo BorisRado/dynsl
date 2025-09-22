@@ -1,0 +1,2 @@
+_target_: exp.src.model.architectures.resnet34.ResNet34
+num_classes: ${data.num_classes}

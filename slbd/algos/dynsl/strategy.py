@@ -14,6 +14,7 @@ import torch
 
 from slbd.common import ServerModelFitRes
 from slbd.algos.base_strategy import BaseStrategy
+from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 
 class DynSLStrategy(BaseStrategy):
@@ -44,6 +45,7 @@ class DynSLStrategy(BaseStrategy):
         server_round: int,
         client_results: List[Tuple[ClientProxy, FitRes]],
         server_results: List[ServerModelFitRes],
+        layer_allocator: ClientLayerAllocator,
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )

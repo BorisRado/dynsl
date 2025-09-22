@@ -38,7 +38,11 @@ def finish_wandb():
 
 def run_exists_already(config):
     def dict_to_consistent_string(d):
-        return json.dumps(d, sort_keys=True)
+        # Replace None values with empty strings
+        processed_dict = {}
+        for k, v in d.items():
+            processed_dict[k] = float(v) if isinstance(v, int) else v
+        return json.dumps(processed_dict, sort_keys=True)
 
     if not config.wandb:
         return False  # as we are debugging

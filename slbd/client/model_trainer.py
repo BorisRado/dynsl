@@ -216,3 +216,17 @@ class ModelTrainer:
             {f"_proc{k}": v for k, v in self._per_parameter_data_points.items()},
             self.get_training_metrics()
         )
+
+    def stupid_forward(self, x, y):
+        # for testing the server... just send the data to the server
+        # without any local computation
+        _ = self._server_model_proxy(
+            embeddings=x,
+            labels=y,
+            local_computation_time=-1
+        )
+        # dummy values
+        self._dataset_size += 1
+        self._num_processed_data_points += 1
+        for layer_idx in range(get_num_layers(self._model)):
+            self._per_parameter_data_points[layer_idx] += 1

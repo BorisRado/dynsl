@@ -1,4 +1,3 @@
-_target_: src.model.utils.OptimizerGenerator
 defaults:
   - scheduler: constant
   - _self_

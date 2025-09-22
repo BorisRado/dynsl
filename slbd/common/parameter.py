@@ -1,9 +1,19 @@
+import pickle
 from typing import Union, Dict, List
 
 import numpy as np
 import torch
 
 from flwr.common import ndarray_to_bytes, bytes_to_ndarray, NDArray, NDArrays
+
+
+# def ndarray_to_bytes(ndarray: NDArray) -> bytes:
+#     return pickle.dumps(ndarray)
+
+
+# def bytes_to_ndarray(tensor: bytes) -> NDArray:
+#     return pickle.loads(tensor)
+
 
 
 def ndarray_dict_to_bytes(

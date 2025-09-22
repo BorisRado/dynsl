@@ -1,8 +1,6 @@
-import os
-import json
 import time
 import asyncio
-from logging import INFO
+from logging import INFO, WARNING
 from collections import defaultdict
 from typing import AsyncIterable, Dict, Tuple
 
@@ -12,6 +10,7 @@ from flwr.common import log
 from slbd.proto import server_model_pb2_grpc
 from slbd.proto import server_model_pb2
 from slbd.server.server_model.manager import ServerModelManager
+from slbd.common.utils import measure_time
 from slbd.common import BatchDataForward, BatchDataBackward, ControlCode, TimingMetrics
 from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, torch_list_to_bytes
 from slbd.server.client_layer_allocator import ClientLayerAllocator
@@ -66,7 +65,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
         self._request_queues: Dict[Tuple[int, str], asyncio.Queue] = defaultdict(asyncio.Queue)
         self._workers = {}
-        self._model_locks = {}
+        self._layer_allocator_lock = asyncio.Lock()
 
         self._num_concat_batches = num_concat_batches
         self._loop = asyncio.get_running_loop()
@@ -85,8 +84,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         )
         future = self._loop.create_future()
         server_id = self.server_model_manager.strategy.route_client_request_to_server_model(client_id)
-        if server_id not in self._model_locks:
-            self._model_locks[server_id] = asyncio.Lock()
 
         self.client_layer_allocator.update_client_metrics(client_id, timing_metrics)
         num_offloaded_layers = self.client_layer_allocator.get_client_offloaded_layer_count(client_id)
@@ -95,55 +92,101 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         if key not in self._workers or self._workers[key].done():
             # start the consumer process
             self._workers[key] = asyncio.create_task(self.batching_worker(*key))
-        await self._request_queues[key].put((data, future))
+        await self._request_queues[key].put((data, future, client_id))
 
         return await future
 
     async def batching_worker(self, num_offloaded_layers: int, server_id: str):
         q = self._request_queues[(num_offloaded_layers, server_id)]
+        computation_tasks = []
+
         while True:
-            batches, futures = [], []
+            batches, futures, client_ids = [], [], []
 
             # collect up to num_concat_batches (with timeout)
-            start_time = asyncio.get_event_loop().time()
             try:
+                start_time = asyncio.get_event_loop().time()
                 for _ in range(self._num_concat_batches):
                     remaining_time = self.request_group_timeout - (
                         asyncio.get_event_loop().time() - start_time
                     )
                     if remaining_time <= 0:
                         break
-                    data, future = await asyncio.wait_for(q.get(), remaining_time)
+                    data, future, client_id = await asyncio.wait_for(q.get(), remaining_time)
+                    if len(batches) == 0:
+                        batch_preparation_start_time = asyncio.get_event_loop().time()
                     batches.append(data)
                     futures.append(future)
+                    client_ids.append(client_id)
+
+                batch_preparation_time = asyncio.get_event_loop().time() - batch_preparation_start_time
+
             except asyncio.TimeoutError:
                 if len(batches) == 0:
-                    del self._request_queues[(num_offloaded_layers, server_id)]
-                    return
-                pass  # process what we have
+                    continue
+                log(WARNING, f"Did not attain sufficient number of batches. Processing {len(batches)}...")
 
-            # run computation (in executor so loop isn’t blocked)
-            result = await self._run_computation(batches, num_offloaded_layers, server_id)
+            # Start computation as a separate task and continue immediately
+            computation_task = asyncio.create_task(
+                self._run_computation_and_distribute_results(
+                    batches, futures, client_ids, num_offloaded_layers, server_id, batch_preparation_time
+                )
+            )
+            computation_tasks.append(computation_task)
 
+            # Clean up completed tasks to prevent memory leaks
+            computation_tasks = [task for task in computation_tasks if not task.done()]
+
+    async def _run_computation_and_distribute_results(
+        self, batches, futures, client_ids, num_offloaded_layers, server_id, batch_preparation_time
+    ):
+        """Run computation and distribute results back to futures"""
+        try:
+            result = await self._run_computation(
+                batches, client_ids, num_offloaded_layers, server_id, batch_preparation_time
+            )
             # distribute results back to futures
             for fut, res in zip(futures, result):
-                fut.set_result(res)
+                if not fut.done():  # Check if future wasn't cancelled
+                    fut.set_result(res)
+        except Exception as e:
+            # Set exception on all futures
+            for fut in futures:
+                if not fut.done():
+                    fut.set_exception(e)
 
-    async def _run_computation(self, batches, num_offloaded_layers, server_id) -> None:
+    async def _run_computation(self, batches, client_ids, num_offloaded_layers, server_id, batch_preparation_time):
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
         kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
-        with self._model_locks[server_id]:
-            grad_results = self.server_model_manager.marshall_train_request(
+
+        with measure_time(self._is_cuda_available) as timer:
+            grad_results = await self.server_model_manager.marshall_train_request(
                 model_id=server_id,
                 num_offloaded_layers=num_offloaded_layers,
                 **kwargs
             )
 
+        async with self._layer_allocator_lock:
+            self.client_layer_allocator.update_server_metrics(num_offloaded_layers, timer.elapsed, 0., batch_preparation_time)
+            self.client_layer_allocator.trigger_reallocation(client_ids)
+
         results = []
-        for result_item in grad_results:
+        forking_data = {}
+        for result_item, client_id in zip(grad_results, client_ids):
             gradient, training_loss = result_item
+
+            diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
+
             num_layers_diff, params = 0, None
+            if diff_data is not None:
+                previous, num_layers_diff = diff_data
+                log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
+                    client_id, num_layers_diff)
+                if num_layers_diff > 0:
+                    forking_data[client_id] = list(range(previous, previous+num_layers_diff))
+                    params = self.server_model_manager \
+                        .extract_layer_weights(previous, previous+num_layers_diff)
 
             results.append(BatchDataBackward(
                 data=ndarray_dict_to_bytes(gradient),
@@ -152,6 +195,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 additional_layers_parameters=torch_list_to_bytes(params),
                 training_loss=training_loss,
             ))
+
+        self.server_model_manager.create_fork(forking_data)
         return results
 
     def _to_grpc(self, data: BatchDataBackward) -> server_model_pb2.BatchDataBackward:
@@ -176,19 +221,15 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         req = await request_iterator.__anext__()
         assert control_code_from_proto(req.control_code) == ControlCode.INIT_STREAM
         client_id = req.cid
-        data_sending_time, data_received_time, client_round_time = -1, -1, -1
-        req_count = 0
+        data_sending_time, data_received_time = -1, -1
         async for req in request_iterator:
             if control_code_from_proto(req.control_code) == ControlCode.DO_CLOSE_STREAM:
                 break
             data_received_time = time.time()
-            if data_sending_time > 0:
-                client_round_time = data_received_time - data_sending_time
             timing_metrics = TimingMetrics(
                 client_local_computation_time=req.local_computation_time,
-                client_round_time=client_round_time,
-            )
-            req_count += 1
+                client_round_time=data_received_time - data_sending_time,
+            ) if data_sending_time > 0 else None
             res = await self._compute_response(client_id, req, timing_metrics)
 
             data_sending_time = time.time()
@@ -197,7 +238,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 yield tmp
 
         stream_end = time.time()
-        log(INFO, f"[Server Profiling] StreamRequest client_id={client_id} total_time={stream_end-stream_start:.4f}s requests={req_count}")
+        log(INFO, f"[Server Profiling] StreamRequest client_id={client_id} total_time={stream_end-stream_start:.4f}s")
 
         yield server_model_pb2.BatchDataBackward(
             control_code=control_code_to_proto(ControlCode.STREAM_CLOSED_OK)

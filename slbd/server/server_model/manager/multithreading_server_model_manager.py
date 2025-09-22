@@ -1,5 +1,5 @@
 import copy
-import collections
+import asyncio
 from typing import Union, List
 
 import torch
@@ -9,6 +9,7 @@ from slbd.server.server_model.torch_server_model import TorchServerModel
 from slbd.server.server_model.manager.multiprocessing.model_worker import TaskType
 from slbd.server.server_model.manager import BaseServerModelManager
 from slbd.common.typing import ServerModelEvaluateIns, ServerModelFitIns, ServerModelFitRes
+from slbd.torch.model_utils import extract_submodel_weights
 
 
 class MultithreadingServerModelManager(BaseServerModelManager):
@@ -22,13 +23,18 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         super().__init__(model, shuffle_data)
         _ = (exp_config,)
         self.spanned_server_models = {}
+        self._model_locks = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
+    async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
-        gradient, loss = self.spanned_server_models[model_id].train_and_compute_gradient(
-            embeddings.to(self.device), labels.to(self.device), num_offloaded_layers
-        )
+        embeddings, labels = \
+            embeddings.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
+        # possible::TODO: implement CUDA graphs and ring buffer
+        async with self._model_locks[model_id]:
+            gradient, loss = self.spanned_server_models[model_id].train_and_compute_gradient(
+                embeddings, labels, num_offloaded_layers
+            )
         return self._split_and_unshuffle_data(loss, gradient, control)
 
     def marshall_evaluation_request(self, model_id, embeddings, num_offloaded_layers):
@@ -76,13 +82,13 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             else:
                 sm.configure_evaluate(config)
             self.spanned_server_models[config.sid] = sm
+            self._model_locks[config.sid] = asyncio.Lock()
 
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
 
     def extract_layer_weights(self, layer_from, layer_to):
         # returns a copy of the model weights
-        raise Exception("TO-DO")
         assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
         model = self.spanned_server_models[""]
         shift = model.first_server_layer

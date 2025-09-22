@@ -1,2 +1,2 @@
 _target_: flwr_datasets.partitioner.IidPartitioner
-num_partitions: 20
+num_partitions: 50
