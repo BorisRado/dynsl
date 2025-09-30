@@ -57,8 +57,12 @@ def init_dynsl_components(config, model):
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy),
     )
-    # client_layer_allocator = DynSLClientLayerAllocator(8, get_num_layers(model))
-    client_layer_allocator = DynSLClientLayerAllocatorTest(8, get_num_layers(model))
+    client_layer_allocator = DynSLClientLayerAllocator(
+        num_model_layers=get_num_layers(model),
+        meaningful_split_points=model.meaningful_split_points,
+        **OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True),
+    )
+    # client_layer_allocator = DynSLClientLayerAllocatorTest(8, get_num_layers(model))
 
 
     return strategy, client_layer_allocator

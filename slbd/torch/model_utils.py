@@ -54,6 +54,21 @@ def extract_submodel_weights(model: nn.Sequential, start_idx: int, end_idx: int)
     return [v.detach().cpu() for _, v in submodel.state_dict().items()]
 
 
+def extract_submodel_state_dict(model: nn.Sequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
+    """
+    Extract weights from a submodel defined by layer indices.
+
+    Args:
+        model: The source model
+        start_idx: Starting layer index
+        end_idx: Ending layer index
+
+    Returns:
+        List of tensors containing the model weights
+    """
+    return shift_state_dict(extract_submodel(model, start_idx, end_idx).state_dict(), start_idx)
+
+
 def load_submodel(
     model: nn.Sequential,
     start_idx: int,
@@ -131,7 +146,12 @@ def attach_layers(whole_model, current_model, num_new_layers, params_list, optim
     end_idx = num_current_layers + num_new_layers
     attach_model = extract_submodel(whole_model, num_current_layers, end_idx)
     state_dict = param_list_to_state_dict(params_list, attach_model)
+
+    # Get the device where current_model is located
+    device = next(current_model.parameters()).device
+
     attach_model.load_state_dict(state_dict, strict=True)
+    attach_model.to(device)
     concat_model = concat_sequential_models(current_model, attach_model, optimizer)
     concat_model._is_complete = end_idx == get_num_layers(whole_model)
     return concat_model

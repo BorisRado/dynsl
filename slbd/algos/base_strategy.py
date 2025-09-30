@@ -41,7 +41,7 @@ def weighted_average(metrics: List[Tuple[int, Dict[str, float]]]):
     for key in metrics[0][1].keys():
         if key.startswith("_"):
             continue
-        if key != "local_train_time":
+        if key not in {"local_train_time", "local_computation_time"}:
             weighted_sum = sum(num_examples * metric[key] for num_examples, metric in metrics)
             weighted_metrics[key] = weighted_sum / total_examples
         else:
@@ -283,7 +283,11 @@ class BaseStrategy(Strategy):
             aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics)
 
         if wandb.run is not None:
-            wandb.log(aggregated_metrics | layer_allocator.collect_epoch_metrics())
+            wandb.log(
+                aggregated_metrics |
+                layer_allocator.collect_epoch_metrics() |
+                {"fit_round_time": self._fit_epoch_duration}
+            )
         return out_state_dict, aggregated_metrics
 
     def aggregate_evaluate(

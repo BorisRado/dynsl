@@ -1,1 +1,6 @@
 name: dynsl
+layer_allocator_init_args:
+  reallocation_frequency: 8.0
+  max_client_layers: 8
+  num_concat_batches: ${server_model_servicer.num_concat_batches}
+  cache_client_configuration: true

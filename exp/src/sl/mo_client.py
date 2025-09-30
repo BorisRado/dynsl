@@ -1,3 +1,5 @@
+import torch
+
 from slbd.client.abstract_torch_client import AbstractTorchClient
 
 from exp.src.common.stochasticity import set_seed
@@ -19,6 +21,7 @@ class MOTorchClient(AbstractTorchClient):
         bg_proc_delay=0.,
         bg_proc_duration=0.,
         bg_num_procs=0,
+        bg_device="cpu"
     ):
         self.cid = int(cid)
         self.min_layers = min_layers
@@ -33,9 +36,11 @@ class MOTorchClient(AbstractTorchClient):
         self.bg_proc_delay = bg_proc_delay
         self.bg_proc_duration = bg_proc_duration
         self.bg_num_procs = bg_num_procs
-        print(bg_num_procs, bg_proc_delay, bg_proc_duration)
+        assert bg_device in {"cpu", "cuda"}
+        bg_device = torch.device("cuda" if torch.cuda.is_available() and bg_device == "cuda" else "cpu")
+        print(bg_num_procs, bg_proc_delay, bg_proc_duration, bg_device)
         self.bg_proc_mng = BackgroundProcessManager(
-            num_processes=self.bg_num_procs
+            num_processes=self.bg_num_procs, bg_device=bg_device
         )
 
     def fit(self, config, model_trainer):
@@ -56,4 +61,4 @@ class MOTorchClient(AbstractTorchClient):
             model_trainer.evaluate(batch["img"], batch["label"])
 
     def get_trainloader_size(self):
-        return len(self.trainset)
+        return len(self.trainset) // self.batch_size

@@ -1,3 +1,6 @@
+import time
+import random
+
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
@@ -22,6 +25,7 @@ class StupidTorchClient(AbstractTorchClient):
         dataset_config,
         partitioning_config,
         seed,
+        simulated_compute_time=0.0
     ):
         # client for testing - it just sends random data to the server, performs no training
         _ = (dataset_config, partitioning_config, seed, )
@@ -32,6 +36,7 @@ class StupidTorchClient(AbstractTorchClient):
         print(self.shape)
         self.iterations = iterations
         self.num_classes = dataset_config.num_classes
+        self.simulated_compute_time = simulated_compute_time
 
     def fit(self, config, model_trainer):
 
@@ -42,6 +47,10 @@ class StupidTorchClient(AbstractTorchClient):
         y = torch.randint(0, self.num_classes, (self.batch_size,))
         for _ in range(self.iterations):
             model_trainer.stupid_forward(x, y)
+            if self.simulated_compute_time > 0.005:
+                time.sleep(self.simulated_compute_time + random.uniform(-0.005, 0.005))
+            elif self.simulated_compute_time > 0.:
+                time.sleep(self.simulated_compute_time)
 
     def evaluate(self, config, model_trainer):
         raise Exception

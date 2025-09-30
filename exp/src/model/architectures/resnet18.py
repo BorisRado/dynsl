@@ -22,11 +22,13 @@ class ResNet18(nn.Sequential):
             nn.Flatten(),
             model.fc,
         )
+        self.meaningful_split_points = [4, 5, 6, 7, 11]
 
 
 if __name__ == "__main__":
     set_seed(10)
     model = models.resnet18(weights=None, num_classes=10)
+    print(sum(p.numel() for p in model.parameters()))
     set_seed(10)
     seq_model = ResNet18(num_classes=10)
 

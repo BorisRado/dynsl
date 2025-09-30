@@ -30,9 +30,6 @@ class FedAvgClientLayerAllocator(ClientLayerAllocator):
     def raise_exception(self):
         raise Exception("Should not be called because no batch is ever to be sent to the server")
 
-    def trigger_reallocation(self, client_ids) -> None:
-        self.raise_exception()
-
     def get_post_reallocation_layer_difference(self, client_id: str) -> Optional[Tuple[int, int]]:
         self.raise_exception()
 

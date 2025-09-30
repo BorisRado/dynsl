@@ -1,22 +1,24 @@
 import threading
 import multiprocessing
 import multiprocessing.synchronize
-import numpy as np
+import torch
 import time
 
 
 def cpu_intensive_task(
     pause_event: multiprocessing.synchronize.Event,
+    device: torch.device
 ):
-    a = np.random.rand(500, 500)
+    random_tensor = torch.randn(100, 100).to(device)
+    print(f"Starting process on {device}")
     while True:
         # wait until "running" (pause_event is set)
         pause_event.wait()
-        _ = a @ a  # heavy compute
+        _ = random_tensor @ random_tensor  # heavy compute
 
 
 class BackgroundProcessManager:
-    def __init__(self, num_processes: int):
+    def __init__(self, num_processes: int, bg_device: torch.device):
         """
         Start `num_processes` worker processes in paused state.
         Computation begins only after calling `resume_processes(delay, duration)`.
@@ -33,7 +35,7 @@ class BackgroundProcessManager:
         for _ in range(num_processes):
             p = multiprocessing.Process(
                 target=cpu_intensive_task,
-                args=(self.pause_event,)
+                args=(self.pause_event, bg_device)
             )
             p.start()
             self.processes.append(p)

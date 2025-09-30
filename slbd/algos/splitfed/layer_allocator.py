@@ -41,9 +41,6 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         # print("Average GPU time:", np.mean(self._metrics))
         return
 
-    def trigger_reallocation(self, client_ids) -> None:
-        return
-
     def get_post_reallocation_layer_difference(self, client_id: str) -> Optional[Tuple[int, int]]:
         return
 

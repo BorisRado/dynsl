@@ -32,6 +32,7 @@ def run(cfg: DictConfig):
         client=client,
         model=instantiate(cfg.model),
     )
+    client.bg_proc_mng.terminate_processes()
 
 
 if __name__ == "__main__":

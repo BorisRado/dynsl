@@ -27,12 +27,15 @@ class ResNet34(nn.Sequential):
 if __name__ == "__main__":
     set_seed(10)
     model = models.resnet34(weights=None, num_classes=10)
+    print(sum(p.numel() for p in model.parameters()))
     set_seed(10)
     seq_model = ResNet34(num_classes=10)
 
+    import timeit
+    start_time = timeit.default_timer()
     for _ in range(10):
-        x = torch.randn(10, 3, 224, 224)
+        x = torch.randn(10, 3, 32, 32)
         model.eval()
         seq_model.eval()
         assert model(x).allclose(seq_model(x))
-    print("Testing completed, alles gut")
+    print("Testing completed, alles gut", timeit.default_timer() - start_time)

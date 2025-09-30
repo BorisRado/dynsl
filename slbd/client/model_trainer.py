@@ -1,5 +1,5 @@
 from logging import DEBUG
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from typing import List, Optional
 
 import torch
@@ -24,8 +24,8 @@ from slbd.torch.model_utils import (
     extract_submodel,
     param_list_to_state_dict,
     attach_layers,
-    extract_submodel_weights,
-    get_num_layers
+    get_num_layers,
+    extract_submodel_state_dict,
 )
 
 
@@ -76,7 +76,7 @@ class ModelTrainer:
         self._per_parameter_data_points = defaultdict(int)
         self._forward_time: float = -1.
         self._backward_time: float = -1.
-        self._removed_parameters: List[torch.Tensor] = []
+        self._removed_parameters: List[OrderedDict] = []
         self._tot_local_computation_time = 0.
 
         self._init_model(last_layer_idx, init_parameters, optimizer_config)
@@ -119,15 +119,19 @@ class ModelTrainer:
                 control.additional_layers_parameters,
                 self._optimizer,
             )
+            print("Increased model size", self._model)
         else:
             # need to better think how to properly handle this. For now, we store the
             # weights locally and upload to the server at the end of the training round
             # along with the other layers
             log(DEBUG, "Removing %d layers from client model" % -control.layers_diff)
-            params = extract_submodel_weights(self._model, -control.layers_diff, -1)
-            # append at the beginning
-            self._removed_parameters = params + self._removed_parameters
-            self._model = extract_submodel(self._model, 0, -control.layers_diff)
+            new_num_layers = get_num_layers(self._model) + control.layers_diff
+
+            params = extract_submodel_state_dict(self._model, new_num_layers, get_num_layers(self._model))
+
+            self._removed_parameters.append(params)
+            self._model = extract_submodel(self._model, 0, new_num_layers)
+            print("Reduced model size", self._model)
 
     def __call__(self, input_vars, labels):
         self._tmp_idx += 1
@@ -205,12 +209,31 @@ class ModelTrainer:
     def get_training_metrics(self):
         print("Total local computation time", self._tot_local_computation_time)
         print({"training_loss": self._metrics["loss"] / self._num_processed_data_points})
-        return {"training_loss": self._metrics["loss"] / self._num_processed_data_points}
+        return {
+            "training_loss": self._metrics["loss"] / self._num_processed_data_points,
+            "local_computation_time": self._tot_local_computation_time
+        }
 
     def get_fit_results(self):
-        params = [
-            v.cpu().numpy() for v in self._model.state_dict().values()
-        ] + self._removed_parameters
+        # TODO Create a dictionary with the latest values for each key
+        # probably not ideal, as previous versions are discarded
+        combined_state_dict = {}
+        for params_dict in self._removed_parameters:
+            for key, value in params_dict.items():
+                combined_state_dict[key] = value
+
+        # First add the current model state dict
+        combined_state_dict.update(dict(self._model.state_dict()))
+
+        # Convert the combined state dict to list of numpy arrays
+        params = []
+        for k in self._whole_model.state_dict():
+            if k in combined_state_dict:
+                params.append(combined_state_dict[k].detach().cpu().numpy())
+                del combined_state_dict[k]
+            else:
+                assert len(combined_state_dict) == 0
+                break
         return (
             params,
             {f"_proc{k}": v for k, v in self._per_parameter_data_points.items()},

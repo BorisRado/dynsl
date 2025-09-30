@@ -203,12 +203,14 @@ class Server(FlwrServer):
         self.server_model_manager.initialize_server_models(server_model_configs, is_training=True)
 
         # Collect `fit` results from all clients participating in this round
+        fit_start_time = timeit.default_timer()
         results, failures = fit_clients(
             client_instructions=client_instructions,
             max_workers=self.max_workers,
             timeout=timeout,
             group_id=server_round,
         )
+        self.strategy._fit_epoch_duration = timeit.default_timer() - fit_start_time
         log(
             INFO,
             "fit_round %s received %s results and %s failures",

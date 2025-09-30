@@ -2,6 +2,7 @@ from collections import OrderedDict
 from logging import ERROR
 from typing import List, Tuple, Union, Dict
 
+import wandb
 from flwr.common import (
     FitRes,
     Scalar,
@@ -20,6 +21,7 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 class DynSLStrategy(BaseStrategy):
 
     def _aggregate_layer_parameters_with_forking(self, trained_values, forking_data, key):
+        print(forking_data)
         if "" not in trained_values:
             # the layer was not trained on the server
             # simply average the client layers with corresponding weights
@@ -106,5 +108,12 @@ class DynSLStrategy(BaseStrategy):
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:
             fit_metrics = [(res.num_examples, res.metrics) for _, res in client_results]
-            aggregated_metrics = self.fit_metrics_aggregation_fn(fit_metrics)
+            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics)
+
+        if wandb.run is not None:
+            wandb.log(
+                aggregated_metrics |
+                layer_allocator.collect_epoch_metrics() |
+                {"fit_round_time": self._fit_epoch_duration}
+            )
         return out_state_dict, aggregated_metrics

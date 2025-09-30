@@ -80,10 +80,6 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
     def finalize_epoch(self):
         return
 
-    def trigger_reallocation(self, client_ids) -> None:
-        _ = (client_ids, )
-        return
-
     def get_post_reallocation_layer_difference(self, client_id: str) -> Optional[Tuple[int, int]]:
         _ = (client_id, )
         return

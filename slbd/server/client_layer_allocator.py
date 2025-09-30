@@ -53,13 +53,6 @@ class ClientLayerAllocator(ABC):
         """
 
     @abstractmethod
-    def trigger_reallocation(self, client_ids) -> None:
-        """
-        Trigger layer reallocation based on performance metrics. Gets called after
-        the server has processed a ClientRequestGroup
-        """
-
-    @abstractmethod
     def get_post_reallocation_layer_difference(self, client_id: str) -> Optional[Tuple[int, int]]:
         """If in the last reallocation the allocator identified that the client has to
         process more or less layers, the method returns a tuple containing

@@ -65,7 +65,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
         self._request_queues: Dict[Tuple[int, str], asyncio.Queue] = defaultdict(asyncio.Queue)
         self._workers = {}
-        self._layer_allocator_lock = asyncio.Lock()
 
         self._num_concat_batches = num_concat_batches
         self._loop = asyncio.get_running_loop()
@@ -125,6 +124,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 if len(batches) == 0:
                     continue
                 log(WARNING, f"Did not attain sufficient number of batches. Processing {len(batches)}...")
+                batch_preparation_time = asyncio.get_event_loop().time() - batch_preparation_start_time
 
             # Start computation as a separate task and continue immediately
             computation_task = asyncio.create_task(
@@ -167,9 +167,9 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 **kwargs
             )
 
-        async with self._layer_allocator_lock:
-            self.client_layer_allocator.update_server_metrics(num_offloaded_layers, timer.elapsed, 0., batch_preparation_time)
-            self.client_layer_allocator.trigger_reallocation(client_ids)
+        self.client_layer_allocator.update_server_metrics(
+            num_offloaded_layers, timer.elapsed, 0., batch_preparation_time
+        )
 
         results = []
         forking_data = {}
@@ -232,13 +232,16 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             ) if data_sending_time > 0 else None
             res = await self._compute_response(client_id, req, timing_metrics)
 
-            data_sending_time = time.time()
             if res is not None:
                 tmp = self._to_grpc(res)
                 yield tmp
+            data_sending_time = time.time()
 
         stream_end = time.time()
         log(INFO, f"[Server Profiling] StreamRequest client_id={client_id} total_time={stream_end-stream_start:.4f}s")
+
+        if hasattr(self.client_layer_allocator, "remove_client"):
+            self.client_layer_allocator.remove_client(client_id)
 
         yield server_model_pb2.BatchDataBackward(
             control_code=control_code_to_proto(ControlCode.STREAM_CLOSED_OK)
