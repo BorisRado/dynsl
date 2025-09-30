@@ -1,6 +1,4 @@
-from typing import Dict, Type
-
-import torch.nn as nn
+from typing import Type
 
 from flwr.client.client import (
     maybe_call_evaluate,
@@ -9,7 +7,7 @@ from flwr.client.client import (
     maybe_call_get_properties,
 )
 from flwr.client import NumPyClient, ClientFn
-from flwr.common import Context, Message, Scalar
+from flwr.common import Context, Message
 from flwr.common.constant import MessageType, MessageTypeLegacy
 from flwr.common.recordset_compat import (
     evaluateres_to_recordset,
@@ -22,6 +20,7 @@ from flwr.common.recordset_compat import (
     recordset_to_getpropertiesins,
 )
 
+from slbd.torch.sequential_model import FlexibleSequential
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
@@ -29,7 +28,7 @@ from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerMod
 
 def handle_legacy_message_from_msgtype(
     client_fn: ClientFn,
-    model: nn.Sequential,
+    model: FlexibleSequential,
     message: Message,
     context: Context,
     server_model_stub: ServerModelStub,

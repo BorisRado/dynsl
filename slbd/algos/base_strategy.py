@@ -1,7 +1,7 @@
 import copy
 from collections import OrderedDict, defaultdict
 from logging import ERROR
-from typing import Optional, List, Tuple, Union, Dict, Callable, Any
+from typing import Optional, List, Tuple, Union, Dict, Callable
 
 import wandb
 from flwr.common import (
@@ -30,6 +30,7 @@ from slbd.server.strategy import Strategy
 from slbd.torch.model_utils import get_model_layer_keys, get_num_layers
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.torch.utils import OptimizerGenerator
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 def weighted_average(metrics: List[Tuple[int, Dict[str, float]]]):
@@ -59,7 +60,7 @@ class BaseStrategy(Strategy):
     def __init__(
         self,
         *,
-        model: torch.nn.Sequential,
+        model: FlexibleSequential,
         optimizer_config,
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,

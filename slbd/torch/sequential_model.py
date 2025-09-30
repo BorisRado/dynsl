@@ -1,13 +1,12 @@
 import torch.nn as nn
 
 
-class FlexibleSequential(nn.Module):
+class FlexibleSequential(nn.ModuleList):
     def __init__(self, *layers):
-        super().__init__()
-        self.layers = nn.ModuleList(layers)
+        super().__init__(layers)
 
     def forward(self, *inputs):
-        for layer in self.layers:
+        for layer in self.children():
             if isinstance(inputs, tuple):
                 inputs = layer(*inputs)
             else:

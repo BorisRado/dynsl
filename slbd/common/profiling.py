@@ -2,13 +2,14 @@ import copy
 from typing import Tuple, List
 
 import torch
-import torch.nn as nn
 
 from slbd.common.utils import measure_time
 
+from slbd.torch.sequential_model import FlexibleSequential
+
 
 def measure_per_layer_time(
-    model: nn.Sequential,
+    model: FlexibleSequential,
     optimizer: torch.optim.Optimizer,
     input_shape: Tuple[int, ...],
     iterations: int,
@@ -18,7 +19,7 @@ def measure_per_layer_time(
 
     Parameters
     ----------
-    model : nn.Sequential
+    model : FlexibleSequential
         Model to be profiled
     optimizer : torch.optim.Optimizer
         Base optimizer used during training
@@ -52,7 +53,7 @@ def measure_per_layer_time(
     output_tensor_floats = []
 
     next_layer_shape = input_shape
-    for layer in model.children():
+    for layer in list(model):
         layer.to(device)
 
         layer_requires_gradient = any(p.requires_grad for p in layer.parameters())

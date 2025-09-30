@@ -18,6 +18,7 @@ from slbd.common.constants import (
     CLIENT_DATASET_SIZE
 )
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 class BaseNumpyClientAdapter(FlwrNumpyClient):
@@ -27,7 +28,7 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
     def __init__(
         self,
         torch_client: AbstractTorchClient,
-        whole_model: torch.nn.Sequential,
+        whole_model: FlexibleSequential,
         server_model_proxy: GrpcServerModelProxy,
     ):
         self.torch_client = torch_client

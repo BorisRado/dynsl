@@ -3,10 +3,12 @@ import torch.nn as nn
 
 import torchvision.models as models
 
+from slbd.torch.sequential_model import FlexibleSequential
+
 from exp.src.common.stochasticity import set_seed
 
 
-class VGG11(nn.Sequential):
+class VGG11(FlexibleSequential):
     def __init__(self, num_classes):
         model = models.vgg11(weights=None, num_classes=num_classes)
         all_layers = list(model.features.children()) + \

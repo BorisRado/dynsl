@@ -1,7 +1,9 @@
 import torch.nn as nn
 
+from slbd.torch.sequential_model import FlexibleSequential
 
-class VGG9(nn.Sequential):
+
+class VGG9(FlexibleSequential):
 
     def _make_convblock(self, in_ch, out_ch):
         return nn.Sequential(

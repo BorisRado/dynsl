@@ -6,8 +6,10 @@ import copy
 import torch
 import torch.nn as nn
 
+from slbd.torch.sequential_model import FlexibleSequential
 
-def extract_submodel(model: nn.Sequential, start_idx: int, end_idx: int) -> nn.Sequential:
+
+def extract_submodel(model: FlexibleSequential, start_idx: int, end_idx: int) -> FlexibleSequential:
     """
     Creates a copy of model layers from start_idx to end_idx.
 
@@ -33,12 +35,12 @@ def extract_submodel(model: nn.Sequential, start_idx: int, end_idx: int) -> nn.S
     assert start_idx < end_idx, f"start_idx ({start_idx}) must be less than end_idx ({end_idx})"
 
     sub_layers = copy.deepcopy(list(model.children())[start_idx:end_idx])
-    submodel = nn.Sequential(*sub_layers)
+    submodel = FlexibleSequential(*sub_layers)
     submodel._is_complete = end_idx == max_num_layers
     return submodel
 
 
-def extract_submodel_weights(model: nn.Sequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
+def extract_submodel_weights(model: FlexibleSequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
     """
     Extract weights from a submodel defined by layer indices.
 
@@ -54,7 +56,7 @@ def extract_submodel_weights(model: nn.Sequential, start_idx: int, end_idx: int)
     return [v.detach().cpu() for _, v in submodel.state_dict().items()]
 
 
-def extract_submodel_state_dict(model: nn.Sequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
+def extract_submodel_state_dict(model: FlexibleSequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
     """
     Extract weights from a submodel defined by layer indices.
 
@@ -70,11 +72,11 @@ def extract_submodel_state_dict(model: nn.Sequential, start_idx: int, end_idx: i
 
 
 def load_submodel(
-    model: nn.Sequential,
+    model: FlexibleSequential,
     start_idx: int,
     end_idx: int,
     state_dict: OrderedDict
-) -> nn.Sequential:
+) -> FlexibleSequential:
     """
     Load a submodel with given state dict.
 
@@ -92,7 +94,7 @@ def load_submodel(
     return submodel
 
 
-def get_model_layer_keys(model: nn.Sequential) -> Dict[int, List[str]]:
+def get_model_layer_keys(model: FlexibleSequential) -> Dict[int, List[str]]:
     """
     Get the parameter keys for each layer in the model.
 
@@ -129,16 +131,16 @@ def param_list_to_state_dict(param_list, model):
 
 
 def concat_sequential_models(
-    model1: nn.Sequential,
-    model2: nn.Sequential,
+    model1: FlexibleSequential,
+    model2: FlexibleSequential,
     optimizer: Optional[torch.optim.Optimizer]
-) -> nn.Sequential:
+) -> FlexibleSequential:
     layers1 = list(model1.children())
     layers2 = list(model2.children())
     if optimizer is not None:
         optimizer.add_param_group({"params": model2.parameters()})
     combined_layers = layers1 + layers2
-    return nn.Sequential(*combined_layers)
+    return FlexibleSequential(*combined_layers)
 
 
 def attach_layers(whole_model, current_model, num_new_layers, params_list, optimizer):

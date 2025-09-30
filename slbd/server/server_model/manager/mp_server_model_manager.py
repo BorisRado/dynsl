@@ -2,7 +2,6 @@ import copy
 from typing import Union, List
 
 import torch
-import torch.nn as nn
 
 from slbd.server.server_model.manager.multiprocessing.model_process_pool import (
     ModelProcessPoolWPipe,
@@ -14,13 +13,14 @@ from slbd.torch.model_utils import extract_submodel
 from slbd.server.server_model.manager.multiprocessing.model_worker import TaskType
 from slbd.server.server_model.manager import BaseServerModelManager
 from slbd.common.typing import ServerModelEvaluateIns, ServerModelFitIns, ServerModelFitRes
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 class MpServerModelManager(BaseServerModelManager):
 
     def __init__(
         self,
-        model: nn.Sequential,
+        model: FlexibleSequential,
         communication_channel: str,
         reuse_procesess: bool,
         shuffle_data: bool,

@@ -6,13 +6,14 @@ from slbd.torch.model_utils import shift_state_dict
 from slbd.torch.utils import init_optimizer
 from slbd.common.typing import ServerModelFitIns, ServerModelEvaluateIns, ServerModelFitRes
 from slbd.torch.model_utils import extract_submodel, get_num_layers
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 class TorchServerModel:
     """Class is fully controlled by the framework and cannot be overridden by the model owner."""
     def __init__(
         self,
-        model: torch.nn.Sequential,
+        model: FlexibleSequential,
         device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ):
         self._whole_model = model
@@ -88,7 +89,7 @@ class TorchServerModel:
         return gradient.detach().cpu(), loss.item()
 
     def _forward_sequence_of_layers(self, data, num_offloaded_layers):
-        layers = self._model[-num_offloaded_layers:].children()
+        layers = list(self._model)[-num_offloaded_layers:]
 
         x = data
         for idx, layer in enumerate(layers, start=self._num_model_layers - num_offloaded_layers):

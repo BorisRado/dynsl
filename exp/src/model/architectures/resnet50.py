@@ -3,10 +3,12 @@ import torch.nn as nn
 
 import torchvision.models as models
 
+from slbd.torch.sequential_model import FlexibleSequential
+
 from exp.src.common.stochasticity import set_seed
 
 
-class ResNet50(nn.Sequential):
+class ResNet50(FlexibleSequential):
     def __init__(self, num_classes):
         model = models.resnet50(weights=None, num_classes=num_classes)
         super().__init__(

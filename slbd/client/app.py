@@ -5,7 +5,6 @@ from typing import Optional, Union, Callable, Tuple
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from omegaconf import DictConfig, OmegaConf
-import torch.nn as nn
 
 from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
 from flwr.common.constant import TRANSPORT_TYPE_GRPC_BIDI
@@ -27,6 +26,7 @@ from slbd.algos.ares import ARESNumpyClientAdapter
 from slbd.algos.dynsl import DynSLClientAdapter
 from slbd.algos.fedavg import FedAvgNumpyClientAdapter
 from slbd.algos.splitfed import SplitFedClientAdapter
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 ClientFn = Callable[[str], Client]
@@ -38,7 +38,7 @@ def start_client(
     config_file: Optional[str]=None,
     config: Optional[DictConfig] = None,
     client_fn: Optional[ClientFn] = None,
-    model: nn.Sequential,
+    model: FlexibleSequential,
     client: Optional[Client] = None,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     root_certificates: Optional[Union[bytes, str]] = None,
@@ -78,7 +78,7 @@ def _start_client_internal(
     load_client_app_fn: Optional[Callable[[], ClientApp]] = None,
     client_fn: Optional[ClientFn] = None,
     client: Optional[Client] = None,
-    model: nn.Sequential = None,
+    model: FlexibleSequential = None,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     root_certificates: Optional[Union[bytes, str]] = None,
     insecure: Optional[bool] = None,

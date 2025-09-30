@@ -3,7 +3,6 @@ from collections import defaultdict, OrderedDict
 from typing import List, Optional
 
 import torch
-import torch.nn as nn
 from flwr.common import log
 
 from slbd.torch.model_utils import (
@@ -19,6 +18,7 @@ import torch.nn as nn
 from flwr.common import log
 
 from slbd.common.utils import measure_time
+from slbd.torch.sequential_model import FlexibleSequential
 from slbd.torch.utils import init_optimizer
 from slbd.torch.model_utils import (
     extract_submodel,
@@ -40,7 +40,7 @@ class ModelTrainer:
 
     def __init__(
         self,
-        whole_model: nn.Sequential,
+        whole_model: FlexibleSequential,
         last_layer_idx: int,
         init_parameters,
         server_model_proxy,
@@ -62,7 +62,7 @@ class ModelTrainer:
         self._use_cuda = torch.cuda.is_available()
         self._whole_model = whole_model
         self._last_layer_idx = last_layer_idx
-        self._model: Optional[nn.Sequential] = None
+        self._model: Optional[FlexibleSequential] = None
         self._optimizer: Optional[torch.optim.Optimizer] = None
         self._device = torch.device("cuda" if self._use_cuda else "cpu")
         self._server_model_proxy = server_model_proxy

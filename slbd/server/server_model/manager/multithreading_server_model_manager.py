@@ -10,13 +10,14 @@ from slbd.server.server_model.manager.multiprocessing.model_worker import TaskTy
 from slbd.server.server_model.manager import BaseServerModelManager
 from slbd.common.typing import ServerModelEvaluateIns, ServerModelFitIns, ServerModelFitRes
 from slbd.torch.model_utils import extract_submodel_weights
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 class MultithreadingServerModelManager(BaseServerModelManager):
 
     def __init__(
         self,
-        model: nn.Sequential,
+        model: FlexibleSequential,
         shuffle_data: bool,
         exp_config,
     ) -> None:

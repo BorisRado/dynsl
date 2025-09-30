@@ -41,6 +41,7 @@ from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator
 from slbd.algos.dynsl.layer_allocator import DynSLClientLayerAllocatorTest
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 ADDRESS_DRIVER_API = "0.0.0.0:9091"
@@ -205,7 +206,7 @@ def setup_signal_handlers(worker_manager):
 @run_async
 async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     *,
-    model: nn.Sequential,
+    model: FlexibleSequential,
     config_file: Optional[str] = None,
     config: Optional[DictConfig] = None,
     server_address: str = ADDRESS_FLEET_API_GRPC_BIDI,

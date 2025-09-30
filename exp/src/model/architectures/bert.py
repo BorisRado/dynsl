@@ -3,6 +3,7 @@ import torch.nn as nn
 from transformers import BertConfig, BertForSequenceClassification
 
 from slbd.torch.sequential_model import FlexibleSequential
+from slbd.torch.model_utils import extract_submodel
 
 from exp.src.common.stochasticity import set_seed
 
@@ -129,8 +130,9 @@ if __name__ == "__main__":
 
     # # test with model splitting
     split_point = 5
-    encoder_model = FlexibleSequential(*seq_model.layers[:split_point])
-    clf_head_model = FlexibleSequential(*seq_model.layers[split_point:])
+    encoder_model = extract_submodel(seq_model, 0, split_point)
+    clf_head_model = extract_submodel(seq_model, split_point, -1)
+
     for idx in range(10):
         batch_size = 8
         seq_length = 128

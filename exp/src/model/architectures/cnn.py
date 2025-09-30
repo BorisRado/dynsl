@@ -1,7 +1,9 @@
 import torch.nn as nn
 
+from slbd.torch.sequential_model import FlexibleSequential
 
-class SimpleCNN(nn.Sequential):
+
+class SimpleCNN(FlexibleSequential):
     def __init__(self, num_classes):
         return super().__init__(
             nn.Conv2d(3, 32, kernel_size=3, padding=1),

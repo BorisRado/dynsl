@@ -6,7 +6,6 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
 
 from slbd.server.app import start_server as start_async_server
-from slbd.server.mt_app import start_server as start_mt_server
 
 from exp.src.common.wandb import init_wandb, finish_wandb, run_exists_already
 from exp.src.common.stochasticity import set_seed
@@ -40,10 +39,8 @@ def run(cfg: DictConfig):
         "config": cfg,
         "server_address": f"0.0.0.0:{cfg.server.port}",
     }
-    if cfg.server.async_:
-        start_async_server(**start_kwargs)
-    else:
-        start_mt_server(**start_kwargs)
+    assert cfg.server.async_
+    start_async_server(**start_kwargs)
     finish_wandb()
 
 

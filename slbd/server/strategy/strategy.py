@@ -2,8 +2,6 @@ from collections import OrderedDict
 from abc import abstractmethod
 from typing import Optional, List, Tuple, Dict, Union
 
-import torch.nn as nn
-
 from flwr.common import Scalar
 from flwr.common import EvaluateIns, EvaluateRes, FitIns, FitRes, Scalar
 from flwr.server.client_manager import ClientManager
@@ -15,6 +13,7 @@ from slbd.common import (
     ServerModelFitRes,
 )
 from slbd.server.client_layer_allocator import ClientLayerAllocator
+from slbd.torch.sequential_model import FlexibleSequential
 
 
 class Strategy:
@@ -176,7 +175,7 @@ class Strategy:
         """
 
     @abstractmethod
-    def get_model_architecture(self) -> nn.Sequential:
+    def get_model_architecture(self) -> FlexibleSequential:
         """Returns a copy of the initial model
         """
 

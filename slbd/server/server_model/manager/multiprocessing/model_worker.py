@@ -3,7 +3,7 @@ from enum import Enum
 import torch.nn as nn
 import torch.multiprocessing as mp
 
-
+from slbd.torch.sequential_model import FlexibleSequential
 from slbd.server.server_model.torch_server_model import TorchServerModel
 
 
@@ -20,7 +20,7 @@ class TaskType(Enum):
 class ModelWorker(mp.Process):
     def __init__(
         self,
-        model: nn.Sequential,
+        model: FlexibleSequential,
         device,
         request_queue=None,
         response_queue=None,
