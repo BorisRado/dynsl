@@ -48,6 +48,7 @@ class ClientApp:
         model,
         client_fn: ClientFn,
         client_adapter_cls: Type[NumPyClient],
+        data_manipulation_config,
     ) -> None:
 
         def ffn(
@@ -62,6 +63,7 @@ class ClientApp:
                 context=context,
                 server_model_stub=server_model_stub,
                 client_adapter_cls=client_adapter_cls,
+                data_manipulation_config=data_manipulation_config,
             )
             return out_message
 

@@ -1,0 +1,8 @@
+name: ag_news
+type: nlp
+num_classes: 4  # AG News has 4 classes (World, Sports, Business, Sci/Tech)
+tokenizer_name: bert-base-uncased
+max_len: ${model.max_position_embeddings}
+tokenizer:
+  name: bert-base-uncased
+  vocab_size: 30522

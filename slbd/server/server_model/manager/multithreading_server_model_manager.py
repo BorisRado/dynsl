@@ -29,9 +29,13 @@ class MultithreadingServerModelManager(BaseServerModelManager):
 
     async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
-        embeddings, labels = \
-            embeddings.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
-        # possible::TODO: implement CUDA graphs and ring buffer
+        if isinstance(embeddings, tuple):
+            embeddings = tuple(e.to(self.device, non_blocking=True) for e in embeddings)
+        else:
+            embeddings = embeddings.to(self.device, non_blocking=True)
+        labels = labels.to(self.device, non_blocking=True)
+
+
         async with self._model_locks[model_id]:
             gradient, loss = self.spanned_server_models[model_id].train_and_compute_gradient(
                 embeddings, labels, num_offloaded_layers

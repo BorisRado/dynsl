@@ -51,8 +51,15 @@ class MOTorchClient(AbstractTorchClient):
             duration=self.bg_proc_duration,
         )
         set_seed(self.seed + config["epoch_idx"])
-        for batch in trainloader:
-            model_trainer(batch["img"], batch["label"])
+        if self.trainset._dataset_type == "cv":
+            for batch in trainloader:
+                model_trainer(batch["img"], batch["label"])
+        else:
+            for batch in trainloader:
+                model_trainer(
+                    input_vars=(batch["input_ids"], batch["attention_mask"]),
+                    labels=batch["labels"]
+                )
         self.bg_proc_mng.pause_processes()
 
     def evaluate(self, config, model_trainer):

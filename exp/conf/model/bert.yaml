@@ -1,0 +1,10 @@
+_target_: exp.src.model.architectures.bert.SequentialBert
+num_labels: ${data.num_classes}
+hidden_size: 256
+num_hidden_layers: 8
+num_attention_heads: 8
+intermediate_size: 512
+hidden_dropout_prob: 0.2
+attention_probs_dropout_prob: 0.2
+max_position_embeddings: 512
+vocab_size: ${data.tokenizer.vocab_size}

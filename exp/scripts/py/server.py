@@ -32,7 +32,7 @@ def run(cfg: DictConfig):
     set_seed(cfg.general.seed)
 
     model = instantiate(cfg.model)
-    warmup_gpu(model, cfg)
+    # warmup_gpu(model, cfg)
 
     start_kwargs = {
         "model": model,

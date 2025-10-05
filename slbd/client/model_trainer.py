@@ -40,12 +40,15 @@ class ModelTrainer:
 
     def __init__(
         self,
+        *,
         whole_model: FlexibleSequential,
         last_layer_idx: int,
         init_parameters,
         server_model_proxy,
-        optimizer_config=None,
-        is_training: bool = True,
+        optimizer_config,
+        is_training,
+        sending_transform_fn,
+        receiving_transform_fn,
     ):
         """
         Initialize the ModelTrainer.
@@ -78,6 +81,9 @@ class ModelTrainer:
         self._backward_time: float = -1.
         self._removed_parameters: List[OrderedDict] = []
         self._tot_local_computation_time = 0.
+
+        self.sending_transform_fn = sending_transform_fn
+        self.receiving_transform_fn = receiving_transform_fn
 
         self._init_model(last_layer_idx, init_parameters, optimizer_config)
 
@@ -136,12 +142,20 @@ class ModelTrainer:
     def __call__(self, input_vars, labels):
         self._tmp_idx += 1
 
-        input_vars = input_vars.to(self._device)
+        is_tuple = isinstance(input_vars, tuple)
+        if is_tuple:
+            input_vars = tuple(t.to(self._device) for t in input_vars)
+        else:
+            input_vars = input_vars.to(self._device)
         self._optimizer.zero_grad()
 
         # forward on client model
         with measure_time(self._use_cuda) as timer:
-            client_output = self._model(input_vars)
+            if is_tuple:
+                client_output = self._model(*input_vars)
+            else:
+                client_output = self._model(input_vars)
+
         self._forward_time = timer.elapsed # perhaps could have a rolling average
         self._tot_local_computation_time += self._forward_time
 
@@ -156,25 +170,35 @@ class ModelTrainer:
             control = None
         else:
             # request over network to the server -- SL step
+            send_client_output = client_output
+            if self.sending_transform_fn is not None:
+                send_client_output = self.sending_transform_fn(client_output)
             gradient, control, loss = self._server_model_proxy(
-                embeddings=client_output,
+                embeddings=send_client_output,
                 labels=labels,
                 local_computation_time=-1 if self._backward_time < 0 else \
                     self._backward_time + self._forward_time
             )
+            if self.receiving_transform_fn is not None:
+                gradient = self.receiving_transform_fn(gradient, client_output=client_output)
             with measure_time(self._use_cuda) as timer:
-                client_output.backward(gradient.to(client_output.device))
+                if is_tuple:
+                    # TODO: for now let's assume that the first tensor is the one that requires grad
+                    client_output[0].backward(gradient.to(self._device))
+                else:
+                    client_output.backward(gradient.to(self._device))
                 self._optimizer.step()
             self._backward_time = timer.elapsed
         self._tot_local_computation_time += self._backward_time
 
-        self._metrics["loss"] += loss * labels.shape[0]
+        _this_batch_size = labels.shape[0]
+        self._metrics["loss"] += loss * _this_batch_size
         for layer_idx in range(get_num_layers(self._model)):
-            self._per_parameter_data_points[layer_idx] += input_vars.shape[0]
+            self._per_parameter_data_points[layer_idx] += _this_batch_size
         self._update_model(control)
 
-        self._dataset_size += input_vars.shape[0]
-        self._num_processed_data_points += labels.shape[0]
+        self._dataset_size += _this_batch_size
+        self._num_processed_data_points += _this_batch_size
 
     def evaluate(self, input_vars, output_vars):
         input_vars = input_vars.to(self._device)

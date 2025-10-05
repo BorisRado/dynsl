@@ -1,0 +1,10 @@
+client:
+  sending_fn:
+    _target_: exp.src.common.data_compression.to_f16
+  receiving_fn:
+    _target_: exp.src.common.data_compression.to_f32
+server:
+  receiving_fn:
+    _target_: exp.src.common.data_compression.to_f32
+  sending_fn:
+    _target_: exp.src.common.data_compression.to_f16

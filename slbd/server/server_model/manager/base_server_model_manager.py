@@ -28,8 +28,15 @@ class BaseServerModelManager(ServerModelManager):
 
     def _concat_and_shuffle_data(self, embeddings, labels):
         sizes = [b.shape[0] for b in labels]
-        embeddings = torch.cat([torch.from_numpy(b) for b in embeddings], dim=0)
-        labels = torch.cat([torch.from_numpy(b) for b in labels], dim=0)
+        if isinstance(embeddings[0], torch.Tensor):
+            embeddings = torch.cat(embeddings, dim=0)
+        else:
+            embeddings = tuple(
+                torch.cat([b[i] for b in embeddings])
+                for i in range(len(embeddings[0]))
+            )
+
+        labels = torch.cat(labels, dim=0)
         if self._shuffle_data:
             raise Exception("Not implemented yet")
         return embeddings, labels, (sizes,)
@@ -37,7 +44,7 @@ class BaseServerModelManager(ServerModelManager):
     def _split_and_unshuffle_data(self, loss, gradient, control):
         assert len(control) == 1
         sizes = control[0]
-        return [(g.numpy(), loss) for g in gradient.split(sizes, dim=0)]
+        return [(g, loss) for g in gradient.split(sizes, dim=0)]
 
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())

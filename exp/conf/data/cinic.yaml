@@ -1,6 +1,7 @@
 name: flwrlabs/cinic10
 input_shape: [3, 32, 32]
 num_classes: 10
+type: cv
 val_percentage: 0.1
 train_transforms:
   _target_: torchvision.transforms.Compose

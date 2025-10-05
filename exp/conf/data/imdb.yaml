@@ -1,0 +1,8 @@
+name: stanfordnlp/imdb
+type: nlp
+num_classes: 2
+tokenizer_name: bert-base-uncased
+max_len: ${model.max_position_embeddings}
+tokenizer:
+  name: bert-base-uncased
+  vocab_size: 30522

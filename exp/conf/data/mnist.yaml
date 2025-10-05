@@ -1,5 +1,6 @@
 name: mnist
 input_shape: [1, 28, 28]
+type: cv
 num_classes: 10
 transforms:
   _target_: torchvision.transforms.Compose

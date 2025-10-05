@@ -4,6 +4,7 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from flwr_datasets import FederatedDataset
 from datasets.utils.logging import disable_progress_bar
+from transformers import AutoTokenizer
 
 from exp.src.common.stochasticity import set_seed
 
@@ -15,7 +16,9 @@ def _apply_transforms_fn(batch, transforms):
   return batch
 
 
-def load_client_trainset(client_idx, dataset_config, partitioning_config, seed):
+
+
+def _load_cv_dataset(client_idx, dataset_config, partitioning_config, seed):
     train_transforms = instantiate(dataset_config.train_transforms)
     partitioner = instantiate(partitioning_config)
 
@@ -33,6 +36,40 @@ def load_client_trainset(client_idx, dataset_config, partitioning_config, seed):
     trainset = trainset.with_transform(apply_train_transforms)
 
     return trainset
+
+def _load_nlp_dataset(client_idx, dataset_config, partitioning_config, seed):
+    partitioner = instantiate(partitioning_config)
+    fds = FederatedDataset(
+        dataset=dataset_config.name,
+        partitioners={"train": partitioner},
+        seed=seed,
+        keep_in_memory=False,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(dataset_config.tokenizer_name)
+    # tokenize_fn = partial(tokenize_function, tokenizer=tokenizer, max_length=dataset_config.max_len)
+    dataset = fds.load_partition(client_idx)
+    def tokenize_function(examples):
+        return tokenizer(
+            examples["text"],
+            truncation=True,
+            padding="max_length",
+            max_length=dataset_config.max_len
+        )
+    dataset = dataset.map(tokenize_function, batched=True, remove_columns=["text"])
+    dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "label"])
+    dataset._employed_tokenizer = tokenizer
+    return dataset
+
+
+def load_client_trainset(client_idx, dataset_config, partitioning_config, seed):
+    if dataset_config.type == "cv":
+        dataset = _load_cv_dataset(client_idx, dataset_config, partitioning_config, seed)
+    elif dataset_config.type == "nlp":
+        dataset = _load_nlp_dataset(client_idx, dataset_config, partitioning_config, seed)
+    else:
+        raise Exception(f"Unknown dataset type {dataset_config.type}")
+    dataset._dataset_type = dataset_config.type
+    return dataset
 
 
 if __name__ == "__main__":

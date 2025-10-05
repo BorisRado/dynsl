@@ -2,6 +2,7 @@ name: cifar10
 input_shape: [3, 32, 32]
 num_classes: 10
 val_percentage: 0.1
+type: cv
 train_transforms:
   _target_: torchvision.transforms.Compose
   transforms:

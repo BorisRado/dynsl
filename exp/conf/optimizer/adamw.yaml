@@ -1,0 +1,7 @@
+defaults:
+  - scheduler: constant
+  - _self_
+optimizer:
+  optimizer_name: adamw
+  lr: 0.0001
+  weight_decay: 0.0005

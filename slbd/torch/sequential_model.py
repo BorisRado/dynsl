@@ -6,9 +6,11 @@ class FlexibleSequential(nn.ModuleList):
         super().__init__(layers)
 
     def forward(self, *inputs):
-        for layer in self.children():
-            if isinstance(inputs, tuple):
-                inputs = layer(*inputs)
-            else:
+        if len(inputs) == 1:
+            inputs = inputs[0]
+            for layer in self.children():
                 inputs = layer(inputs)
+        else:
+            for layer in self.children():
+                inputs = layer(*inputs)
         return inputs

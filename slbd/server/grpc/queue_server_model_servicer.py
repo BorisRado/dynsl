@@ -2,10 +2,12 @@ import time
 import asyncio
 from logging import INFO, WARNING
 from collections import defaultdict
-from typing import AsyncIterable, Dict, Tuple
+from typing import AsyncIterable, Dict, Tuple, Optional, Callable
 
+import numpy as np
 import torch
 from flwr.common import log
+from hydra.utils import instantiate
 
 from slbd.proto import server_model_pb2_grpc
 from slbd.proto import server_model_pb2
@@ -56,7 +58,9 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         server_model_manager: ServerModelManager,
         client_layer_allocator: ClientLayerAllocator,
         num_concat_batches: int,
-        request_group_timeout,
+        request_group_timeout: float,
+        sending_transform_fn_config: Optional[Callable],
+        receiving_transform_fn_config: Optional[Callable],
     ) -> None:
         super().__init__()
         self.server_model_manager = server_model_manager
@@ -68,6 +72,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         self._num_concat_batches = num_concat_batches
         self._loop = asyncio.get_running_loop()
+        self.sending_transform_fn = instantiate(sending_transform_fn_config, _partial_=True)
+        self.receiving_transform_fn = instantiate(receiving_transform_fn_config, _partial_=True)
 
     async def _compute_response(
         self,
@@ -158,7 +164,20 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
     async def _run_computation(self, batches, client_ids, num_offloaded_layers, server_id, batch_preparation_time):
 
         kwargs_list = [bytes_to_ndarray_dict(b.data) for b in batches]
-        kwargs = {key: [d[key] for d in kwargs_list] for key in kwargs_list[0]}
+        kwargs = {}
+        for key in kwargs_list[0]:
+            if isinstance(kwargs_list[0][key], np.ndarray):
+                kwargs[key] = [torch.from_numpy(d[key]) for d in kwargs_list]
+            else:
+                tpls = [d[key] for d in kwargs_list]
+                n_elements = len(tpls[0])
+                kwargs[key] = tuple(
+                    [torch.from_numpy(tpl[i]) for tpl in tpls]
+                    for i in range(n_elements)
+                )
+
+        if self.receiving_transform_fn:
+            kwargs["embeddings"] = [self.receiving_transform_fn(d) for d in kwargs["embeddings"]]
 
         with measure_time(self._is_cuda_available) as timer:
             grad_results = await self.server_model_manager.marshall_train_request(
@@ -173,8 +192,14 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
         results = []
         forking_data = {}
-        for result_item, client_id in zip(grad_results, client_ids):
+        for result_item, client_id, received_data in zip(grad_results, client_ids, kwargs_list):
             gradient, training_loss = result_item
+            if self.sending_transform_fn is not None:
+                gradient = self.sending_transform_fn(gradient, received_data=received_data)
+            if isinstance(gradient, torch.Tensor):
+                gradient = gradient.numpy()
+            else:
+                gradient = [g.numpy() for g in gradient]
 
             diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
 

@@ -3,6 +3,7 @@ defaults:
   - data: cifar10
   - partitioning: iid
   - optimizer: sgd
+  - data_manipulation: cv
   - algorithm: splitfed_v2
   - server_model_manager: multithreading
   - _self_

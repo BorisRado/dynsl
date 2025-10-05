@@ -74,8 +74,13 @@ class TorchServerModel:
         labels,
         num_offloaded_layers,
     ):
-        embeddings.requires_grad_(True)
-        embeddings.grad = None # required because otherwise the gradient may be accumulated
+        is_tuple = isinstance(embeddings, tuple)
+        if is_tuple:
+            embeddings[0].requires_grad_(True)
+            embeddings[0].grad = None # required because otherwise the gradient may be accumulated
+        else:
+            embeddings.requires_grad_(True)
+            embeddings.grad = None # required because otherwise the gradient may be accumulated
 
         self._optimizer.zero_grad(set_to_none=True)
         logits = self._forward_sequence_of_layers(embeddings, num_offloaded_layers)
@@ -83,7 +88,10 @@ class TorchServerModel:
         loss.backward()
         self._optimizer.step()
 
-        gradient = embeddings.grad
+        if is_tuple:
+            gradient = embeddings[0].grad
+        else:
+            gradient = embeddings.grad
 
         # all clients get assigned the same loss
         return gradient.detach().cpu(), loss.item()
@@ -92,9 +100,16 @@ class TorchServerModel:
         layers = list(self._model)[-num_offloaded_layers:]
 
         x = data
-        for idx, layer in enumerate(layers, start=self._num_model_layers - num_offloaded_layers):
-            x = layer(x)
-            self._per_parameter_data_points[idx] += x.shape[0]
+        if isinstance(x, torch.Tensor):
+            bs = x.shape[0]
+            for idx, layer in enumerate(layers, start=self._num_model_layers - num_offloaded_layers):
+                x = layer(x)
+                self._per_parameter_data_points[idx] += bs
+        else:
+            bs = x[0].shape[0]
+            for idx, layer in enumerate(layers, start=self._num_model_layers - num_offloaded_layers):
+                x = layer(*x)
+                self._per_parameter_data_points[idx] += bs
         return x
 
     def eval_get_logits(self, batches, num_offloaded_layers):

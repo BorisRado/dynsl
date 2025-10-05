@@ -137,6 +137,7 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     server_model_manager: ServerModelManager,
     client_layer_allocator: ClientLayerAllocator,
     server_model_servicer_config,
+    data_manipulation_config,
     server_address: str,
     max_concurrent_workers: int = 1000,
     max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
@@ -177,7 +178,13 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     server_model_servicer_name = server_model_servicer_config.pop("servicer_name")
     if server_model_servicer_name == "queue":
         print("Using queue servicer")
-        slbd_servicer = QueueServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
+        slbd_servicer = QueueServerModelServicer(
+            server_model_manager=server_model_manager,
+            client_layer_allocator=client_layer_allocator,
+            sending_transform_fn_config=data_manipulation_config.server.sending_fn,
+            receiving_transform_fn_config=data_manipulation_config.server.receiving_fn,
+            **server_model_servicer_config
+        )
     elif server_model_servicer_name == "ping_pong":
         slbd_servicer = PPServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
     else:
@@ -266,6 +273,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         server_model_manager=initialized_server.server_model_manager,
         server_model_servicer_config=OmegaConf.to_container(config.server_model_servicer),
         client_layer_allocator=initialized_server.get_client_layer_allocator(),
+        data_manipulation_config=config.data_manipulation,
         server_address=address,
         max_message_length=grpc_max_message_length,
         certificates=certificates,

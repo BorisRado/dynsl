@@ -156,6 +156,7 @@ def _start_client_internal(
                 client_fn=client_fn,
                 model=model,
                 client_adapter_cls=client_adapter_cls,
+                data_manipulation_config=config.data_manipulation.client,
             )
 
         load_client_app_fn = _load_client_app

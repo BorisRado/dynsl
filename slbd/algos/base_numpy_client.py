@@ -1,7 +1,7 @@
 import time
 from typing import Dict, Tuple
 
-import torch
+from hydra.utils import instantiate
 
 from flwr.common import (
     Config,
@@ -30,10 +30,13 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         torch_client: AbstractTorchClient,
         whole_model: FlexibleSequential,
         server_model_proxy: GrpcServerModelProxy,
+        data_manipulation_config,
     ):
         self.torch_client = torch_client
         self.whole_model = whole_model
         self.server_model_proxy = server_model_proxy
+        self.sending_transform_fn = instantiate(data_manipulation_config.sending_fn, _partial_=True)
+        self.receiving_transform_fn = instantiate(data_manipulation_config.receiving_fn, _partial_=True)
 
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         _ = (config, )
@@ -55,7 +58,10 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
             last_layer_idx=last_client_layer_idx,
             init_parameters=parameters,
             server_model_proxy=self.server_model_proxy,
-            optimizer_config=optimizer_config
+            optimizer_config=optimizer_config,
+            sending_transform_fn=self.sending_transform_fn,
+            receiving_transform_fn=self.receiving_transform_fn,
+            is_training=True,
         )
 
         # call the model-owner training logic, and measure the time it takes
