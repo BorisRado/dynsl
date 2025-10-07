@@ -1,3 +1,4 @@
+import os
 import time
 from typing import Dict, Tuple
 
@@ -15,7 +16,8 @@ from slbd.client.model_trainer import ModelTrainer
 from slbd.common.constants import (
     CLIENT_LAST_LAYER_IDX_KEY,
     MIN_NUMBER_OF_CLIENT_LAYERS,
-    CLIENT_DATASET_SIZE
+    CLIENT_DATASET_SIZE,
+    CLIENT_DEVICE_TYPE,
 )
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
 from slbd.torch.sequential_model import FlexibleSequential
@@ -42,7 +44,8 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         _ = (config, )
         return {
             MIN_NUMBER_OF_CLIENT_LAYERS: 2,
-            CLIENT_DATASET_SIZE: self.torch_client.get_trainloader_size()
+            CLIENT_DATASET_SIZE: self.torch_client.get_trainloader_size(),
+            CLIENT_DEVICE_TYPE: os.environ.get("COLEXT_DEVICE_TYPE", ""),
         }
 
     def fit(

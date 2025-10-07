@@ -1,0 +1,34 @@
+project: slwr # project name should not have spaces
+job_name: "SOTA FL experiment"
+
+code:
+  # Path can be omited if colext_config.yaml is in the root folder of the project
+  path: "/home/radovib/dynsl"
+  client:
+    command: >-
+      PYTHONPATH=$PYTHONPATH:. python3 exp/scripts/py/client.py
+      model=vgg11
+      partitioning.num_partitions=20
+      algorithm=dynsl
+
+  server:
+      # algorithm.layer_allocator_init_args.max_client_layers=46
+      # algorithm.layer_allocator_init_args.num_client_layers=26
+    command: >-
+      PYTHONPATH=$PYTHONPATH:. python3 exp/scripts/py/server.py
+      general.rounds=4
+      algorithm=dynsl
+      algorithm.layer_allocator_init_args.max_client_layers=30
+      strategy.min_available_clients=${COLEXT_N_CLIENTS}
+      server.port=8080
+      wandb=true
+      model=vgg11
+      partitioning.num_partitions=20
+      experiment_name=colext_testing
+
+devices:
+  - { device_type: JetsonAGXOrin,  count: 0 }
+  - { device_type: JetsonOrinNano, count: 4 }
+  - { device_type: JetsonNano, count: 2 }
+  - { device_type: LattePandaDelta3, count: 2 }
+  - { device_type: OrangePi5B, count: 8 }

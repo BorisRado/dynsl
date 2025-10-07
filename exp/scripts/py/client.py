@@ -1,3 +1,5 @@
+import os
+
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
@@ -14,6 +16,10 @@ def run(cfg: DictConfig):
     del cfg.server
     del cfg.strategy
     del cfg.optimizer
+    if "COLEXT_SERVER_ADDRESS" in os.environ:
+        print("Overriding server address with CoLExT configuration")
+        cfg.client.server_address = os.environ["COLEXT_SERVER_ADDRESS"]
+        print("Server address:", cfg.client.server_address)
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
 

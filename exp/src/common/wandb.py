@@ -52,6 +52,10 @@ def run_exists_already(config):
 
     # bug in wandb: https://github.com/wandb/wandb/issues/7666
     # another one https://github.com/wandb/wandb/issues/3087
+    if not os.path.exists(".wandb_cache"):
+        # we never got to fetch data from wandb
+        return False
+
     for filename in os.listdir(".wandb_cache"):
         with open(f".wandb_cache/{filename}", "r") as fp:
             comparison_config = json.load(fp)

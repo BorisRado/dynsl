@@ -8,7 +8,7 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
 from slbd.common.typing import TimingMetrics
-from slbd.common.constants import MIN_NUMBER_OF_CLIENT_LAYERS, CLIENT_DATASET_SIZE
+from slbd.common.constants import MIN_NUMBER_OF_CLIENT_LAYERS, CLIENT_DATASET_SIZE, CLIENT_DEVICE_TYPE
 
 
 class DynSLClientLayerAllocator:
@@ -54,6 +54,7 @@ class DynSLClientLayerAllocator:
         self.meaningful_split_points = meaningful_split_points
         self._cached_num_layers = {}
         self.cache_client_configuration = cache_client_configuration
+        self._cid_to_device_type_mapping = {}
         print("Caching?", self.cache_client_configuration)
 
     def get_client_min_layers(self, client_proxy: ClientProxy) -> int:
@@ -73,6 +74,7 @@ class DynSLClientLayerAllocator:
 
             self._per_client_min_layers[client_proxy.cid] = min_client_layers
             self._dataset_sizes[client_proxy.cid] = int(result.properties[CLIENT_DATASET_SIZE])
+            self._cid_to_device_type_mapping[client_proxy.cid] = result.properties[CLIENT_DEVICE_TYPE]
             log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers")
         return self._per_client_min_layers[client_proxy.cid]
 
@@ -210,13 +212,16 @@ class DynSLClientLayerAllocator:
                 # if the client is much faster than the server, send it more layers
 
                 next_configuration = self.get_next_split_point(self._client_allocated_layers[cid])
+                if self._cid_to_device_type_mapping[cid] == "JetsonOrinNano" and next_configuration > 11:
+                    print("Avoiding to send too many layer to JON to avoid memory pressure")
+                    continue
                 if self._client_training_times[cid] < max_client_local_training_time / 10:
                     # print("Sending x2 skip")
                     next_configuration = self.get_next_split_point(next_configuration)
 
                 self._client_layer_diff[cid] = next_configuration - self._client_allocated_layers[cid]
                 change_offloading = True
-            elif rct > remaining_server_time + self._gamma:
+            elif rct > remaining_server_time + (self._gamma * 2):
                 # cliet is too slow
                 previous_configuration = self.get_previous_split_point(self._client_allocated_layers[cid], cid)
                 self._client_layer_diff[cid] = previous_configuration - self._client_allocated_layers[cid]

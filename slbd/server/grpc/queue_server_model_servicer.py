@@ -263,7 +263,10 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             data_sending_time = time.time()
 
         stream_end = time.time()
-        log(INFO, f"[Server Profiling] StreamRequest client_id={client_id} total_time={stream_end-stream_start:.4f}s")
+        extra_info = ""
+        if hasattr(self.client_layer_allocator, "_cid_to_device_type_mapping") and client_id in self.client_layer_allocator._cid_to_device_type_mapping:
+            extra_info = self.client_layer_allocator._cid_to_device_type_mapping[client_id]
+        log(INFO, f"[Server Profiling] StreamRequest client_id={client_id} total_time={stream_end-stream_start:.4f}s -- [device type: {extra_info}]")
 
         if hasattr(self.client_layer_allocator, "remove_client"):
             self.client_layer_allocator.remove_client(client_id)

@@ -2,11 +2,14 @@ from typing import List, Optional, Tuple
 
 import wandb
 import numpy as np
+from flwr.common import GetPropertiesIns
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.common.typing import TimingMetrics
+from slbd.common.constants import CLIENT_DEVICE_TYPE
+
 
 
 class SplitFedClientLayerAllocator(ClientLayerAllocator):
@@ -22,6 +25,17 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         self._server_training_time = []
         self._wait_time_in_ready_state = []
         self._batch_preparation_times = []
+        self._cid_to_device_type_mapping = {}
+
+    def _get_properties(self, client_proxies):
+        get_properties_instructions = GetPropertiesIns({})
+        for client_proxy in client_proxies:
+            result = client_proxy.get_properties(
+                get_properties_instructions, timeout=None, group_id=None
+            )
+            device_type = result.properties[CLIENT_DEVICE_TYPE]
+            self._cid_to_device_type_mapping[client_proxy.cid] = device_type
+            print(f"{client_proxy.cid} is device type {device_type}")
 
     def initialize_epoch(
         self,
@@ -30,6 +44,9 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         is_training: bool,
     ) -> None:
         _ = (client_manager, is_training, )
+        if len(self._cid_to_device_type_mapping) == 0:
+            self._get_properties(epoch_clients)
+
         self._server_training_time = []
         self._wait_time_in_ready_state = []
         self._batch_preparation_times = []
