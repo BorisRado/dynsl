@@ -1,12 +1,12 @@
 client:
   sending_fn:
-    _target_: exp.src.model.architectures.bert.compress_embeddings
+    _target_: exp.src.model.architectures.bert.compress_embeddings_api
   receiving_fn:
     _target_: exp.src.model.architectures.bert.uncompress_gradient_api
     max_len: ${model.max_position_embeddings}
 server:
   receiving_fn:
-    _target_: exp.src.model.architectures.bert.uncompress_embeddings_api
+    _target_: exp.src.model.architectures.bert.uncompress_embeddings
     max_len: ${model.max_position_embeddings}
   sending_fn:
     _target_: exp.src.model.architectures.bert.compress_gradient

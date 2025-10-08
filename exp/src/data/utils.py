@@ -12,6 +12,8 @@ def get_dataloader(dataset, batch_size, num_workers=2, shuffle=True):
             tokenizer=dataset._employed_tokenizer,
             padding="longest"
         )
+        num_workers = 0
+
     # set number of worker to 0 on orange pis, otherwise we get a segmentation fault of the DL
     tmp_device_type = os.environ.get("COLEXT_DEVICE_TYPE", "")
     num_workers = num_workers \

@@ -39,3 +39,4 @@ class VGG9(FlexibleSequential):
             nn.Linear(fc_units, num_classes)
 
         )
+        self._data_type = "cv"

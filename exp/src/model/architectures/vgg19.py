@@ -27,6 +27,7 @@ class VGG19(FlexibleSequential):
         #      if i == len(self.meaningful_split_points) - 1 or self.meaningful_split_points[i + 1] != point + 1]
         # )) + [len(self)]
         self.meaningful_split_points = [5, 10, 19, 28, 37, 46]
+        self._data_type = "cv"
 
 
 if __name__ == "__main__":

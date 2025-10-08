@@ -96,6 +96,8 @@ class CustomDropout(nn.Module):
 class SequentialBert(FlexibleSequential):
     def __init__(self, **kwargs):
         custom_config = BertConfig(**kwargs)
+        self._data_type = "nlp"
+        self.model_config = custom_config
         custom_bert_model = BertForSequenceClassification(custom_config)
         super().__init__(
             CustomEmbedding(custom_bert_model.bert.embeddings),

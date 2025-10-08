@@ -24,6 +24,7 @@ class ResNet34(FlexibleSequential):
             nn.Flatten(),
             model.fc,
         )
+        self._data_type = "cv"
 
 
 if __name__ == "__main__":
