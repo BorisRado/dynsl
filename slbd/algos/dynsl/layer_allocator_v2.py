@@ -1,5 +1,4 @@
 import time
-from logging import INFO
 from typing import List, Dict
 
 from slbd.algos.dynsl.layer_allocator import DynSLClientLayerAllocator
@@ -12,6 +11,7 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         max_client_layers: int,
         num_model_layers: int,
         reallocation_frequency: float,
+        gamma: float,
         num_concat_batches: int,
         meaningful_split_points: List[int],
         cache_client_configuration: bool,
@@ -25,6 +25,7 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
             num_model_layers: Total number of model layers
             alpha: smoothing factor for layer adjustment
         """
+        self._gamma = gamma
         self._per_client_min_layers: Dict[str, int] = {}
         self._num_model_layers: int = num_model_layers
 
@@ -85,14 +86,22 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
 
         # Step 1.: Compute the remaining training time on the server if the situation does not change
         for cid in self._epoch_clients:
-            remaining_server_time += \
-                self._pending_batches[cid] * \
-                    (self._server_training_times[self.get_client_offloaded_layer_count(cid)] / self._num_concat_batches)
+            nsl = self.get_client_offloaded_layer_count(cid)
+            if nsl in self._server_training_times:
+                remaining_server_time += \
+                    self._pending_batches[cid] * (self._server_training_times[nsl] / self._num_concat_batches)
+            else:
+                # some offloading change was detected but the client has still not sent any
+                # batch to the server -- for now we have a very conservative max estimate
+                remaining_server_time += self._pending_batches[cid] * max(self._server_training_times.values()) / self._num_concat_batches
+                pass
         print("Server remaining time", remaining_server_time)
 
         # Step 2.: Change client confituration
         for cid in self._epoch_clients:
             # linear interpolation of client training times with respect to the number of layers
+            if cid not in self._client_training_times or self._client_train_batches_count[cid] < 5:
+                continue
             client_pending_batches = self._pending_batches[cid]
             client_training_time = self._client_training_times[cid]
             baseline_layer_time = self._baseline_computational_model_per_split_point[self._client_allocated_layers[cid]]
@@ -102,7 +111,6 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
                     client_pending_batches * (model_time / baseline_layer_time) * client_training_time
                 for split_point, model_time in self._baseline_computational_model_per_split_point.items()
             }
-            print("Client predicted remaining times:", tmp)
 
             # now we have a rough (like life) estimate of how much time training is going to take
             # on the client with respect to every split point
@@ -110,9 +118,24 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
             # the client from becoming a bottleneck. Thus, we pick the largest split point s,
             # such that the the remaining time is still smaller than that of the server
             # +5 to make sure the server is sure that this is a good choice
-            maximum_split_point = max((k for k, v in tmp.items() if v + 5 < remaining_server_time), default=-1)
-            print([k for k, v in tmp.items() if v + 5 < remaining_server_time])
-            print("MSP", maximum_split_point)
+            if tmp[self._client_allocated_layers[cid]] < remaining_server_time:
+                # with the current configuration, the client will train for less time than the server
+                # get the latest split point, in which the client is still predicted to be faster
+                # than the server (plus some slack)
+                maximum_split_point = max((k for k, v in tmp.items() if v + self._gamma < remaining_server_time), default=-1)
+            else:
+                # the client is expected to train for mode time than the server. We should therefore
+                # try to reduce the number of layers. Get the maximum split point
+                maximum_split_point = max(
+                    (k for k, v in tmp.items() if v - self._gamma < remaining_server_time and k <= self._client_allocated_layers[cid]),
+                    default=-1
+                )
+            print(f"{cid} predicted remaining times:", tmp, maximum_split_point)
+            # deincentivize reducing the number of layers -- if the server thinks it needs to send
+            # less layers, it needs to be justified by at least a _gamma threshold
+            if maximum_split_point > 0 and maximum_split_point < self._client_allocated_layers[cid]:
+                maximum_split_point
+                pass
             if maximum_split_point > 0 and maximum_split_point != self._client_allocated_layers[cid]:
                 diff = maximum_split_point - self._client_allocated_layers[cid]
                 self._client_layer_diff[cid] = diff

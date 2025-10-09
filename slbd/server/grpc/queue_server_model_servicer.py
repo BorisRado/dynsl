@@ -205,6 +205,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
 
             num_layers_diff, params = 0, None
             if diff_data is not None:
+                extraction_start_time = time.time()
                 previous, num_layers_diff = diff_data
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
                     client_id, num_layers_diff)
@@ -212,12 +213,14 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                     forking_data[client_id] = list(range(previous, previous+num_layers_diff))
                     params = self.server_model_manager \
                         .extract_layer_weights(previous, previous+num_layers_diff)
+                    params = torch_list_to_bytes(params)
+                print(f"Model extraction time: {time.time() - extraction_start_time}")
 
             results.append(BatchDataBackward(
                 data=ndarray_dict_to_bytes(gradient),
                 control_code=ControlCode.OK,
                 layers_diff=num_layers_diff,
-                additional_layers_parameters=torch_list_to_bytes(params),
+                additional_layers_parameters=params,
                 training_loss=training_loss,
             ))
 
