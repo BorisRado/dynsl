@@ -31,12 +31,7 @@ class DynSLClientLayerAllocator:
             alpha: smoothing factor for layer adjustment
         """
         self._per_client_min_layers: Dict[str, int] = {}
-        self._max_client_layers: int = max_client_layers
         self._num_model_layers: int = num_model_layers
-        self._wait_time_in_ready_state = None
-
-        # expected finish time of the slowest client in the current epoch
-        self._max_expected_finish_time: float = None
 
         # per-client dataset and pending batches
         self._dataset_sizes: Dict[str, int] = {}
@@ -51,7 +46,7 @@ class DynSLClientLayerAllocator:
         self.reallocation_frequency = reallocation_frequency
         self._reallocation_stop_event = None
         self._num_concat_batches = num_concat_batches
-        self.meaningful_split_points = meaningful_split_points
+        self.meaningful_split_points = [msp for msp in meaningful_split_points if msp <= max_client_layers]
         self._cached_num_layers = {}
         self.cache_client_configuration = cache_client_configuration
         self._cid_to_device_type_mapping = {}
@@ -144,14 +139,17 @@ class DynSLClientLayerAllocator:
     def get_next_split_point(self, current_idx):
         for split_point in self.meaningful_split_points:
             if split_point > current_idx:
-                return min(split_point, self._max_client_layers)
-        return min(self.meaningful_split_points[-1], self._max_client_layers)
+                return split_point
+        return current_idx
 
-    def get_previous_split_point(self, current_idx, client_id):
+    def get_previous_split_point(self, current_idx, client_id=None):
+        previous_split_point = self.meaningful_split_points[0]
         for split_point in reversed(self.meaningful_split_points):
             if split_point < current_idx:
-                return max(split_point, self._per_client_min_layers[client_id])
-        return self._per_client_min_layers[client_id]
+                previous_split_point = split_point
+                break
+        return previous_split_point if client_id is None \
+            else max(previous_split_point, self._per_client_min_layers[client_id])
 
     def trigger_reallocation(self) -> None:
         """

@@ -9,7 +9,7 @@ from typing import Optional, Tuple
 
 import grpc
 import grpc.aio
-import torch.nn as nn
+import torch.optim as optim
 from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
 
@@ -35,9 +35,13 @@ from slbd.torch.model_utils import get_num_layers
 from slbd.torch.utils import init_optimizer, OptimizerGenerator
 
 # import of algorithm components
-from slbd.common.profiling import measure_per_layer_time
+from slbd.common.profiling import (
+    measure_per_layer_time,
+    get_flops_per_layer_fvcore,
+    measure_per_layer_complexity
+)
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
-from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator
+from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2
 from slbd.algos.dynsl.layer_allocator import DynSLClientLayerAllocatorTest
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
@@ -65,6 +69,38 @@ def init_dynsl_components(config, model):
     )
     # client_layer_allocator = DynSLClientLayerAllocatorTest(8, get_num_layers(model))
 
+
+    return strategy, client_layer_allocator
+
+
+def init_dynsl_v2_components(config, model):
+    strategy = DynSLStrategy(
+        model=model,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
+        **OmegaConf.to_container(config.strategy),
+    )
+    layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
+    complexity_estimator = layer_allocator_config.pop("model_complexity_estimator")
+    if complexity_estimator == "time_on_server":
+        tmp_optimizer = optim.SGD(model.parameters(), momentum=0.9)
+        layer_complexities = measure_per_layer_complexity(
+            model=model,
+            optimizer=tmp_optimizer,
+            batch_size=config.client.init_kwargs.batch_size,
+            iterations=100,
+            dry_runs=20,
+        )
+        del tmp_optimizer
+    elif complexity_estimator == "flops":
+        layer_complexities = get_flops_per_layer_fvcore(model=model)
+    else:
+        raise Exception(f"Unknown estimator {complexity_estimator}")
+    client_layer_allocator = DynSLClientLayerAllocatorV2(
+        num_model_layers=get_num_layers(model),
+        meaningful_split_points=model.meaningful_split_points,
+        **layer_allocator_config,
+        modeled_layer_complexities=layer_complexities,
+    )
 
     return strategy, client_layer_allocator
 
@@ -231,6 +267,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     # initialize the server
     strategy, client_layer_allocator = {
         "dynsl": init_dynsl_components,
+        "dynsl_v2": init_dynsl_v2_components,
         "ares": init_ares_components,
         "fedavg": init_fedavg_components,
         "splitfed_v1": init_splitfed_components,

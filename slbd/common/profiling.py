@@ -155,6 +155,7 @@ def _measure_per_layer_time_nlp(
 
     return forward_times, backward_times, []
 
+
 def measure_per_layer_time(
     model: FlexibleSequential,
     optimizer: torch.optim.Optimizer,
@@ -214,11 +215,19 @@ def measure_per_layer_time(
     raise Exception("unknown model data type")
 
 
-def get_flops_per_layer_fvcore(model, data_type):
+def measure_per_layer_complexity(**kwargs):
+    forward_times, backward_times, _ = measure_per_layer_time(**kwargs)
+    assert len(forward_times) == len(backward_times) == len(kwargs["model"])
+    return {
+        i: fw+bw for i, (fw, bw) in enumerate(zip(forward_times, backward_times))
+    }
+
+def get_flops_per_layer_fvcore(model):
     batch_size = 2
-    if data_type == "cv":
+    if model._data_type == "cv":
         x = torch.randn(batch_size, 3, 32, 32)
     else:
+        assert model._data_type == "nlp"
         sequence_length = model.model_config.max_position_embeddings
         token_ids = torch.randint(0, 1000, (batch_size, sequence_length))
         attention_mask = torch.ones(batch_size, sequence_length)

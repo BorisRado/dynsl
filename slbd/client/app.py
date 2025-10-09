@@ -129,6 +129,7 @@ def _start_client_internal(
     client_adapter_cls = {
         "ares": ARESNumpyClientAdapter,
         "dynsl": DynSLClientAdapter,
+        "dynsl_v2": DynSLClientAdapter,
         "fedavg": FedAvgNumpyClientAdapter,
         "splitfed_v1": SplitFedClientAdapter,
         "splitfed_v2": SplitFedClientAdapter,
