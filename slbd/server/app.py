@@ -87,8 +87,8 @@ def init_dynsl_v2_components(config, model):
             model=model,
             optimizer=tmp_optimizer,
             batch_size=config.client.init_kwargs.batch_size,
-            iterations=100,
-            dry_runs=20,
+            iterations=200,
+            dry_runs=50,
         )
         del tmp_optimizer
     elif complexity_estimator == "flops":

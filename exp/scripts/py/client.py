@@ -8,6 +8,7 @@ from slbd.client.app import start_client
 
 from exp.src.sl.mo_client import MOTorchClient
 from exp.src.common.other import set_torch_flags
+from exp.src.model.utils import warmup_device
 
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
@@ -23,6 +24,8 @@ def run(cfg: DictConfig):
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
+    model = instantiate(cfg.model)
+    warmup_device()
     client = MOTorchClient(
         **OmegaConf.to_container(cfg.client.init_kwargs),
         dataset_config=cfg.data,
@@ -36,7 +39,7 @@ def run(cfg: DictConfig):
     start_client(
         config=cfg,
         client=client,
-        model=instantiate(cfg.model),
+        model=model,
     )
     client.bg_proc_mng.terminate_processes()
 

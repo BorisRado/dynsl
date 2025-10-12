@@ -11,3 +11,4 @@ torch==2.4.1
 torchvision==0.19.1
 transformers==4.37.2
 wandb==0.21.0
+fvcore==0.1.5.post20221221

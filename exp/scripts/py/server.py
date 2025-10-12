@@ -10,7 +10,7 @@ from slbd.server.app import start_server as start_async_server
 from exp.src.common.wandb import init_wandb, finish_wandb, run_exists_already
 from exp.src.common.stochasticity import set_seed
 from exp.src.common.other import set_torch_flags
-from exp.src.model.utils import warmup_gpu
+from exp.src.model.utils import warmup_device
 
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
@@ -32,7 +32,7 @@ def run(cfg: DictConfig):
     set_seed(cfg.general.seed)
 
     model = instantiate(cfg.model)
-    # warmup_gpu(model, cfg)
+    warmup_device()
 
     start_kwargs = {
         "model": model,

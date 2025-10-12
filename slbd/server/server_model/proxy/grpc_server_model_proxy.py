@@ -81,11 +81,16 @@ class GrpcServerModelProxy(ServerModelProxy):
         )
         return gradient, layer_change_info, res.training_loss
 
-    def close_stream(self):
+    def close_stream(self, error=False):
         if self.request_queue is None:
             return
-        self.request_queue.put(server_model_pb2.BatchDataForward(
-            control_code=control_code_to_proto(ControlCode.DO_CLOSE_STREAM)
-        ))
+        if error is False:
+            self.request_queue.put(server_model_pb2.BatchDataForward(
+                control_code=control_code_to_proto(ControlCode.DO_CLOSE_STREAM)
+            ))
+        else:
+            self.request_queue.put(server_model_pb2.BatchDataForward(
+                control_code=control_code_to_proto(ControlCode.ERROR_PROCESSING_STREAM)
+            ))
         res = next(self.response_stream)
         assert control_code_from_proto(res.control_code) == ControlCode.STREAM_CLOSED_OK

@@ -27,6 +27,7 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         """
         self._gamma = gamma
         self._per_client_min_layers: Dict[str, int] = {}
+        self._per_client_max_layers: Dict[str, int] = {}
         self._num_model_layers: int = num_model_layers
 
         # per-client dataset and pending batches
@@ -70,7 +71,7 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         """
         start_time = time.time()
         remaining_server_time = 0.
-        print("Triggering reallocation...")
+        print("Triggering reallocation...", len(self._client_training_times), "clients missing")
         if len(self._client_train_batches_count) == 0 or max(self._pending_batches.values()) < 10:
             print("No need to reconfigure...")
             return
@@ -118,11 +119,16 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
             # the client from becoming a bottleneck. Thus, we pick the largest split point s,
             # such that the the remaining time is still smaller than that of the server
             # +5 to make sure the server is sure that this is a good choice
-            if tmp[self._client_allocated_layers[cid]] < remaining_server_time:
+            if tmp[self._client_allocated_layers[cid]] < 5.0 and self._pending_batches[cid] < 20:
+                continue
+            elif tmp[self._client_allocated_layers[cid]] < remaining_server_time:
                 # with the current configuration, the client will train for less time than the server
-                # get the latest split point, in which the client is still predicted to be faster
+                # => get the latest split point, in which the client is still predicted to be faster
                 # than the server (plus some slack)
-                maximum_split_point = max((k for k, v in tmp.items() if v + self._gamma < remaining_server_time), default=-1)
+                maximum_split_point = max((k for k, v in tmp.items() if v + self._gamma < remaining_server_time and k <= self._per_client_max_layers[cid]), default=-1)
+                if maximum_split_point > 0 and self.meaningful_split_points.index(maximum_split_point) - self.meaningful_split_points.index(self._client_allocated_layers[cid]) > 3:
+                    # the maximum allowed step size is two
+                    maximum_split_point = self.meaningful_split_points[self.meaningful_split_points.index(self._client_allocated_layers[cid])+3]
             else:
                 # the client is expected to train for mode time than the server. We should therefore
                 # try to reduce the number of layers. Get the maximum split point

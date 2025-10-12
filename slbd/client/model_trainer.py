@@ -79,7 +79,7 @@ class ModelTrainer:
         self._per_parameter_data_points = defaultdict(int)
         self._forward_time: float = -1.
         self._backward_time: float = -1.
-        self._removed_parameters: List[OrderedDict] = []
+        self._removed_parameters = {}
         self._tot_local_computation_time = 0.
 
         self.sending_transform_fn = sending_transform_fn
@@ -135,7 +135,7 @@ class ModelTrainer:
 
             params = extract_submodel_state_dict(self._model, new_num_layers, get_num_layers(self._model))
 
-            self._removed_parameters.append(params)
+            self._removed_parameters.update(params)
             self._model = extract_submodel(self._model, 0, new_num_layers)
             print("Reduced model size", self._model)
 
@@ -241,10 +241,7 @@ class ModelTrainer:
     def get_fit_results(self):
         # TODO Create a dictionary with the latest values for each key
         # probably not ideal, as previous versions are discarded
-        combined_state_dict = {}
-        for params_dict in self._removed_parameters:
-            for key, value in params_dict.items():
-                combined_state_dict[key] = value
+        combined_state_dict = self._removed_parameters
 
         # First add the current model state dict
         combined_state_dict.update(dict(self._model.state_dict()))
@@ -258,6 +255,7 @@ class ModelTrainer:
             else:
                 assert len(combined_state_dict) == 0
                 break
+        self._removed_parameters = {}
         return (
             params,
             {f"_proc{k}": v for k, v in self._per_parameter_data_points.items()},

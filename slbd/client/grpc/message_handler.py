@@ -90,7 +90,10 @@ def handle_legacy_message_from_msgtype(
     else:
         raise ValueError(f"Invalid message type: {message_type}")
 
-    server_model_proxy.close_stream()
+    try:
+        server_model_proxy.close_stream()
+    except:
+        pass
 
     # Return Message
     return message.create_reply(out_recordset)

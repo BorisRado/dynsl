@@ -39,17 +39,19 @@ class MOTorchClient(AbstractTorchClient):
         assert bg_device in {"cpu", "cuda"}
         bg_device = torch.device("cuda" if torch.cuda.is_available() and bg_device == "cuda" else "cpu")
         print(bg_num_procs, bg_proc_delay, bg_proc_duration, bg_device)
-        self.bg_proc_mng = BackgroundProcessManager(
-            num_processes=self.bg_num_procs, bg_device=bg_device
-        )
+        if self.bg_num_procs > 0:
+            self.bg_proc_mng = BackgroundProcessManager(
+                num_processes=self.bg_num_procs, bg_device=bg_device
+            )
 
     def fit(self, config, model_trainer):
         trainloader = get_dataloader(self.trainset, batch_size=self.batch_size)
 
-        self.bg_proc_mng.resume_processes(
-            delay=self.bg_proc_delay,
-            duration=self.bg_proc_duration,
-        )
+        if self.bg_num_procs > 0:
+            self.bg_proc_mng.resume_processes(
+                delay=self.bg_proc_delay,
+                duration=self.bg_proc_duration,
+            )
         set_seed(self.seed + config["epoch_idx"])
         if self.trainset._dataset_type == "cv":
             for batch in trainloader:
@@ -60,7 +62,8 @@ class MOTorchClient(AbstractTorchClient):
                     input_vars=(batch["input_ids"], batch["attention_mask"]),
                     labels=batch["labels"]
                 )
-        self.bg_proc_mng.pause_processes()
+        if self.bg_num_procs > 0:
+            self.bg_proc_mng.pause_processes()
 
     def evaluate(self, config, model_trainer):
         valloader = get_dataloader(self.trainset, batch_size=self.batch_size, shuffle=False)

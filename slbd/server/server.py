@@ -1,7 +1,7 @@
 import copy
 import timeit
 from collections import OrderedDict
-from logging import INFO
+from logging import INFO, ERROR
 from typing import Dict, Optional, Tuple
 
 from flwr.common import (
@@ -156,6 +156,8 @@ class Server(FlwrServer):
             len(results),
             len(failures),
         )
+        for failure in failures:
+            log(ERROR, "OH NOOO!!!" + str(failure))
 
         # Aggregate the evaluation results
         aggregated_result: Tuple[
@@ -218,6 +220,13 @@ class Server(FlwrServer):
             len(results),
             len(failures),
         )
+        print("OK CLIENTS", [c.cid for c, _ in results])
+        for failure in failures:
+            log(ERROR, "OH NOOO!!!" + str(failure))
+            try:
+                print("Error client", failure[0].cid)
+            except:
+                continue
         server_fit_res = self.server_model_manager.collect_server_fit_results()
         self.server_model_manager.end_round()
 

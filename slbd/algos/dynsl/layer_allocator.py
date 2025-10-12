@@ -8,7 +8,12 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
 from slbd.common.typing import TimingMetrics
-from slbd.common.constants import MIN_NUMBER_OF_CLIENT_LAYERS, CLIENT_DATASET_SIZE, CLIENT_DEVICE_TYPE
+from slbd.common.constants import (
+    MIN_NUMBER_OF_CLIENT_LAYERS,
+    CLIENT_DATASET_SIZE,
+    CLIENT_DEVICE_TYPE,
+    MAX_NUMBER_OF_CLIENT_LAYERS,
+)
 
 
 class DynSLClientLayerAllocator:
@@ -31,6 +36,7 @@ class DynSLClientLayerAllocator:
             alpha: smoothing factor for layer adjustment
         """
         self._per_client_min_layers: Dict[str, int] = {}
+        self._per_client_max_layers: Dict[str, int] = {}
         self._num_model_layers: int = num_model_layers
 
         # per-client dataset and pending batches
@@ -62,15 +68,25 @@ class DynSLClientLayerAllocator:
             )
             min_client_layers = int(result.properties[MIN_NUMBER_OF_CLIENT_LAYERS])
 
-            # correct the min layers according to the configuration
-            if self.get_next_split_point(min_client_layers - 1) < min_client_layers:
-                min_client_layers = self.get_next_split_point(min_client_layers)
-            min_client_layers = self.get_next_split_point(min_client_layers - 1)
+            # align min client layers to the model configuration. Find the first value in
+            # model.meaningful_split_points that is larger or equal to min layers
+            aligned_min_client_layers = \
+                next((point for point in self.meaningful_split_points if point >= min_client_layers), None)
+            print(f"Corrected min client layer {min_client_layers} -> {aligned_min_client_layers}")
+            assert aligned_min_client_layers is not None
 
-            self._per_client_min_layers[client_proxy.cid] = min_client_layers
+            max_client_layers = int(result.properties[MAX_NUMBER_OF_CLIENT_LAYERS])
+            # align max client layers to the model configuration. Find the first value in
+            # model.meaningful_split_points that is smaller or equal to the max layers
+            aligned_max_client_layers = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers), None)
+            print(f"Corrected MAX client layer {max_client_layers} -> {aligned_max_client_layers}")
+
+            self._per_client_min_layers[client_proxy.cid] = aligned_min_client_layers
+            self._per_client_max_layers[client_proxy.cid] = aligned_max_client_layers
             self._dataset_sizes[client_proxy.cid] = int(result.properties[CLIENT_DATASET_SIZE])
             self._cid_to_device_type_mapping[client_proxy.cid] = result.properties[CLIENT_DEVICE_TYPE]
-            log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers")
+            node_name = result.properties["node_name"]
+            log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers [{result.properties[CLIENT_DEVICE_TYPE]} -- {node_name}]")
         return self._per_client_min_layers[client_proxy.cid]
 
     def get_initial_layer_count(self, client_proxy: ClientProxy) -> int:
@@ -307,6 +323,7 @@ class DynSLClientLayerAllocator:
             del self._client_round_times[cid]
             del self._client_training_times[cid]
             del self._client_train_batches_count[cid]
+            del self._pending_batches[cid]
         except:
             pass
 

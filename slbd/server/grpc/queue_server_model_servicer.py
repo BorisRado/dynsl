@@ -251,7 +251,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         client_id = req.cid
         data_sending_time, data_received_time = -1, -1
         async for req in request_iterator:
-            if control_code_from_proto(req.control_code) == ControlCode.DO_CLOSE_STREAM:
+            if control_code_from_proto(req.control_code) in {ControlCode.DO_CLOSE_STREAM, ControlCode.ERROR_PROCESSING_STREAM}:
                 break
             data_received_time = time.time()
             timing_metrics = TimingMetrics(
@@ -269,6 +269,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         extra_info = ""
         if hasattr(self.client_layer_allocator, "_cid_to_device_type_mapping") and client_id in self.client_layer_allocator._cid_to_device_type_mapping:
             extra_info = self.client_layer_allocator._cid_to_device_type_mapping[client_id]
+        if req.control_code == ControlCode.ERROR_PROCESSING_STREAM:
+            extra_info += " ERROR!!!"
         log(INFO, f"[Server Profiling] StreamRequest client_id={client_id} total_time={stream_end-stream_start:.4f}s -- [device type: {extra_info}]")
 
         if hasattr(self.client_layer_allocator, "remove_client"):
