@@ -38,6 +38,7 @@ class DynSLClientLayerAllocator:
         self._per_client_min_layers: Dict[str, int] = {}
         self._per_client_max_layers: Dict[str, int] = {}
         self._num_model_layers: int = num_model_layers
+        self._allocated_layer_history = []
 
         # per-client dataset and pending batches
         self._dataset_sizes: Dict[str, int] = {}
@@ -179,6 +180,7 @@ class DynSLClientLayerAllocator:
         if len(self._client_train_batches_count) == 0 :
             print("Not enough data...")
             return
+        self._allocated_layer_history.append(self._client_allocated_layers.copy())
         print("Pending batches:", self._pending_batches)
         print("Current configuration", self._client_allocated_layers)
         print("Client training times", self._client_training_times)
@@ -313,6 +315,7 @@ class DynSLClientLayerAllocator:
     def collect_epoch_metrics(self):
         return {
             "training_times": self._server_training_time_list,
+            "layer_history": self._allocated_layer_history,
         }
 
     def remove_client(self, cid):
