@@ -33,7 +33,7 @@ from slbd.torch.utils import OptimizerGenerator
 from slbd.torch.sequential_model import FlexibleSequential
 
 
-def weighted_average(metrics: List[Tuple[int, Dict[str, float]]]):
+def weighted_average(metrics: List[Tuple[int, Dict[str, float]]], cids):
     total_examples = sum(num_examples for num_examples, _ in metrics)
     if total_examples == 0:
         return {key: -1.0 for key in metrics[0][1].keys() if not key.startswith("_")}
@@ -47,7 +47,7 @@ def weighted_average(metrics: List[Tuple[int, Dict[str, float]]]):
             weighted_metrics[key] = weighted_sum / total_examples
         else:
             weighted_metrics[key] = [
-                (num_examples, metric[key]) for num_examples, metric in metrics
+                (cid, num_examples, metric[key]) for cid, (num_examples, metric) in zip(cids, metrics)
             ]
 
     print(weighted_metrics)
@@ -281,7 +281,8 @@ class BaseStrategy(Strategy):
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:
             fit_metrics = [(res.num_examples, res.metrics) for _, res in client_results]
-            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics)
+            cids = [proxy.cid for proxy, _ in client_results]
+            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics, cids)
 
         if wandb.run is not None:
             wandb.log(

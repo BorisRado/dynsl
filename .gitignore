@@ -5,6 +5,7 @@ dcgm/*
 *.out
 *.ipynb
 *.json
+*.txt
 
 # Distribution / packaging
 .Python

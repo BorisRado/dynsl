@@ -45,11 +45,14 @@ class DynSLClientAdapter(BaseNumpyClientAdapter):
         # no limits if client has GPU, otherwise ... how to determine max layers the client can afford? TODO
         print("Client GPU?", torch.cuda.is_available())
         device_type = os.environ.get("COLEXT_DEVICE_TYPE", "")
+        # TODO -- ALL THESE CONSTRAINTS NEED TO GO AWAY
         if device_type == "":
             # probably slurm cluster
             max_layers = 100
+        elif device_type == "JetsonAgxOrin":
+            max_layers = self.whole_model.meaningful_split_points[3]
         elif device_type == "JetsonNano":
-            max_layers = self.whole_model.meaningful_split_points[2]
+            max_layers = self.whole_model.meaningful_split_points[1]
         elif device_type == "JetsonXavierNX":
             max_layers = self.whole_model.meaningful_split_points[3]
         elif device_type == "JetsonOrinNano":

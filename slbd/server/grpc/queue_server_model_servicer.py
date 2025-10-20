@@ -211,9 +211,8 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                     client_id, num_layers_diff)
                 if num_layers_diff > 0:
                     forking_data[client_id] = list(range(previous, previous+num_layers_diff))
-                    params = self.server_model_manager \
+                    params = await self.server_model_manager \
                         .extract_layer_weights(previous, previous+num_layers_diff)
-                    params = torch_list_to_bytes(params)
                 print(f"Model extraction time: {time.time() - extraction_start_time}")
 
             results.append(BatchDataBackward(
@@ -245,11 +244,11 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         context,
     ) -> AsyncIterable[server_model_pb2.BatchDataBackward]:
         _ = (context, )
-        stream_start = time.time()
         req = await request_iterator.__anext__()
         assert control_code_from_proto(req.control_code) == ControlCode.INIT_STREAM
         client_id = req.cid
         data_sending_time, data_received_time = -1, -1
+        stream_start = time.time()
         async for req in request_iterator:
             if control_code_from_proto(req.control_code) in {ControlCode.DO_CLOSE_STREAM, ControlCode.ERROR_PROCESSING_STREAM}:
                 break

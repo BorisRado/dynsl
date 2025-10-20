@@ -1,10 +1,11 @@
 import copy
+import time
 import asyncio
 from typing import Union, List
 
 import torch
-import torch.nn as nn
 
+from slbd.common.parameter import torch_list_to_bytes
 from slbd.server.server_model.torch_server_model import TorchServerModel
 from slbd.server.server_model.manager.multiprocessing.model_worker import TaskType
 from slbd.server.server_model.manager import BaseServerModelManager
@@ -26,6 +27,9 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         self.spanned_server_models = {}
         self._model_locks = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # caching -- if parameters were extracted very recently, instead of extracting them again,
+        # and converting them to bytes from scratch, we re-use recently extracted ones -- Faster
+        self._cached_binarized_parameters = {}
 
     async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
@@ -92,11 +96,17 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
 
-    def extract_layer_weights(self, layer_from, layer_to):
+    async def extract_layer_weights(self, layer_from, layer_to):
         # returns a copy of the model weights
         assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
-        model = self.spanned_server_models[""]
-        shift = model.first_server_layer
-        return extract_submodel_weights(
-            model.get_model(), layer_from-shift, layer_to-shift
-        )
+        key = (layer_from, layer_to)
+        if key not in self._cached_binarized_parameters or time.time() - self._cached_binarized_parameters[key][1] > 2.0:
+            model = self.spanned_server_models[""]
+            shift = model.first_server_layer
+            async with self._model_locks[""]:
+                params = extract_submodel_weights(
+                    model.get_model(), layer_from-shift, layer_to-shift
+                )
+            params = torch_list_to_bytes(params)
+            self._cached_binarized_parameters[key] = (params, time.time())
+        return self._cached_binarized_parameters[key][0]

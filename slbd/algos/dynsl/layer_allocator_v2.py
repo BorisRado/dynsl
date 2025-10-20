@@ -34,6 +34,8 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         self._dataset_sizes: Dict[str, int] = {}
         self._pending_batches: Dict[str, int] = {}
 
+        self._allocated_layer_history = []
+
         # rolling averages
         self._client_training_times: Dict[str, float] = {}
         self._client_round_times: Dict[str, float] = {}
@@ -75,6 +77,7 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         if len(self._client_train_batches_count) == 0 or max(self._pending_batches.values()) < 10:
             print("No need to reconfigure...")
             return
+        self._allocated_layer_history.append(self._client_allocated_layers.copy())
 
         print("=" * 20)
         print("CURRENT_CONFIGURATION:")
@@ -126,9 +129,9 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
                 # => get the latest split point, in which the client is still predicted to be faster
                 # than the server (plus some slack)
                 maximum_split_point = max((k for k, v in tmp.items() if v + self._gamma < remaining_server_time and k <= self._per_client_max_layers[cid]), default=-1)
-                if maximum_split_point > 0 and self.meaningful_split_points.index(maximum_split_point) - self.meaningful_split_points.index(self._client_allocated_layers[cid]) > 3:
+                if maximum_split_point > 0 and self.meaningful_split_points.index(maximum_split_point) - self.meaningful_split_points.index(self._client_allocated_layers[cid]) > 4:
                     # the maximum allowed step size is two
-                    maximum_split_point = self.meaningful_split_points[self.meaningful_split_points.index(self._client_allocated_layers[cid])+3]
+                    maximum_split_point = self.meaningful_split_points[self.meaningful_split_points.index(self._client_allocated_layers[cid])+4]
             else:
                 # the client is expected to train for mode time than the server. We should therefore
                 # try to reduce the number of layers. Get the maximum split point
@@ -136,7 +139,7 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
                     (k for k, v in tmp.items() if v - self._gamma < remaining_server_time and k <= self._client_allocated_layers[cid]),
                     default=-1
                 )
-            print(f"{cid} predicted remaining times:", tmp, maximum_split_point)
+            # print(f"{cid} predicted remaining times:", tmp, maximum_split_point)
             # deincentivize reducing the number of layers -- if the server thinks it needs to send
             # less layers, it needs to be justified by at least a _gamma threshold
             if maximum_split_point > 0 and maximum_split_point < self._client_allocated_layers[cid]:

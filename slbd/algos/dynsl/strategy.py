@@ -108,7 +108,8 @@ class DynSLStrategy(BaseStrategy):
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:
             fit_metrics = [(res.num_examples, res.metrics) for _, res in client_results]
-            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics)
+            cids = [proxy.cid for proxy, _ in client_results]
+            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics, cids)
 
         if wandb.run is not None:
             wandb.log(

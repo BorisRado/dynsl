@@ -213,6 +213,7 @@ class Server(FlwrServer):
             group_id=server_round,
         )
         self.strategy._fit_epoch_duration = timeit.default_timer() - fit_start_time
+        print("EPOCH TIME", self.strategy._fit_epoch_duration)
         log(
             INFO,
             "fit_round %s received %s results and %s failures",

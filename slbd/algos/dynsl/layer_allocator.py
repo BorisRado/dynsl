@@ -102,6 +102,7 @@ class DynSLClientLayerAllocator:
         client_manager: ClientManager,
         is_training: bool,
     ):
+        self._allocated_layer_history = []
         self._server_training_time_list = []
         _ = (client_manager, )
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]

@@ -42,9 +42,9 @@ from slbd.common.profiling import (
 )
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
 from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2
-from slbd.algos.dynsl.layer_allocator import DynSLClientLayerAllocatorTest
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
+from slbd.algos.oracle import OracleClientLayerAllocator, OracleStrategy
 from slbd.torch.sequential_model import FlexibleSequential
 
 
@@ -67,9 +67,19 @@ def init_dynsl_components(config, model):
         meaningful_split_points=model.meaningful_split_points,
         **OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True),
     )
-    # client_layer_allocator = DynSLClientLayerAllocatorTest(8, get_num_layers(model))
+    return strategy, client_layer_allocator
 
 
+def init_oracle_components(config, model):
+    strategy = OracleStrategy(
+        model=model,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
+        **OmegaConf.to_container(config.strategy),
+    )
+    client_layer_allocator = OracleClientLayerAllocator(
+        num_model_layers=get_num_layers(model),
+        **OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True),
+    )
     return strategy, client_layer_allocator
 
 
@@ -272,6 +282,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         "fedavg": init_fedavg_components,
         "splitfed_v1": init_splitfed_components,
         "splitfed_v2": init_splitfed_components,
+        "oracle": init_oracle_components,
     }[config.algorithm.name](config, model)
 
     server_model_manager = instantiate(
