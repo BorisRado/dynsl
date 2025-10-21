@@ -67,7 +67,7 @@ class DynSLClientAdapter(BaseNumpyClientAdapter):
         try:
             node_name = get_node_name()
         except:
-            node_name = ""
+            node_name = str(torch.cuda.is_available())
         return {
             MIN_NUMBER_OF_CLIENT_LAYERS: 2,
             CLIENT_DATASET_SIZE: self.torch_client.get_trainloader_size(),

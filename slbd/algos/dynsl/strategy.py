@@ -21,7 +21,6 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 class DynSLStrategy(BaseStrategy):
 
     def _aggregate_layer_parameters_with_forking(self, trained_values, forking_data, key):
-        print(forking_data)
         if "" not in trained_values:
             # the layer was not trained on the server
             # simply average the client layers with corresponding weights

@@ -41,7 +41,8 @@ def run(cfg: DictConfig):
         client=client,
         model=model,
     )
-    client.bg_proc_mng.terminate_processes()
+    if hasattr(client, "bg_proc_mgr"):
+        client.bg_proc_mng.terminate_processes()
 
 
 if __name__ == "__main__":

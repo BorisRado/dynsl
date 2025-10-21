@@ -21,4 +21,4 @@ class SimpleCNN(FlexibleSequential):
             nn.Linear(256, num_classes)
         )
         self._data_type = "cv"
-        self.meaningful_split_points = [3, 6, 9, 13]
+        self.meaningful_split_points = [3, 6, 9]

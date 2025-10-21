@@ -90,21 +90,18 @@ def init_dynsl_v2_components(config, model):
         **OmegaConf.to_container(config.strategy),
     )
     layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
-    complexity_estimator = layer_allocator_config.pop("model_complexity_estimator")
-    if complexity_estimator == "time_on_server":
-        tmp_optimizer = optim.SGD(model.parameters(), momentum=0.9)
-        layer_complexities = measure_per_layer_complexity(
-            model=model,
-            optimizer=tmp_optimizer,
-            batch_size=config.client.init_kwargs.batch_size,
-            iterations=200,
-            dry_runs=50,
-        )
-        del tmp_optimizer
-    elif complexity_estimator == "flops":
-        layer_complexities = get_flops_per_layer_fvcore(model=model)
-    else:
-        raise Exception(f"Unknown estimator {complexity_estimator}")
+    tmp_optimizer = optim.SGD(model.parameters(), momentum=0.9)
+    layer_complexities = measure_per_layer_complexity(
+        model=model,
+        optimizer=tmp_optimizer,
+        batch_size=config.client.init_kwargs.batch_size * config.server_model_servicer.num_concat_batches,
+        iterations=200,
+        dry_runs=50,
+    )
+    del tmp_optimizer
+    if layer_allocator_config["max_client_layers"] < 0:
+        layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
+    assert layer_allocator_config["max_client_layers"] < get_num_layers(model)
     client_layer_allocator = DynSLClientLayerAllocatorV2(
         num_model_layers=get_num_layers(model),
         meaningful_split_points=model.meaningful_split_points,

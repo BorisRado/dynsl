@@ -15,6 +15,7 @@ def run(cfg: DictConfig):
 
     model = instantiate(cfg.model)
     warmup_device()
+    print("Number of model parameters: ", sum(p.numel() for p in model.parameters()))
     optim_generator = OptimizerGenerator(cfg.optimizer.optimizer, cfg.optimizer.scheduler)
     optimizer = init_optimizer(
         model.parameters(),
@@ -27,7 +28,7 @@ def run(cfg: DictConfig):
         iterations=100,
         dry_runs=20,
     )
-    device_type = os.environ.get("COLEXT_DEVICE_TYPE", "SEERVER")
+    device_type = os.environ.get("COLEXT_DEVICE_TYPE", "SERVER")
     print(f"RESULTS [{device_type}]: {complexities}")
 
 
