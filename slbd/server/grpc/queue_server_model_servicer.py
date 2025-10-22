@@ -213,7 +213,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                     forking_data[client_id] = list(range(previous, previous+num_layers_diff))
                     params = await self.server_model_manager \
                         .extract_layer_weights(previous, previous+num_layers_diff)
-                print(f"Model extraction time: {time.time() - extraction_start_time}")
 
             results.append(BatchDataBackward(
                 data=ndarray_dict_to_bytes(gradient),
