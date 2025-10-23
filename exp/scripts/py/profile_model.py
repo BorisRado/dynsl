@@ -1,5 +1,7 @@
 import os
+import time
 
+import torch
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig
@@ -9,12 +11,26 @@ from exp.src.model.utils import warmup_device
 from slbd.common.profiling import measure_per_layer_complexity
 from slbd.torch.utils import OptimizerGenerator, init_optimizer
 
+from exp.src.common.background_process_manager import BackgroundProcessManager
+
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
+    print("PROFILING MODEL >>>")
 
     model = instantiate(cfg.model)
+    num_bg_processes = cfg.get("num_bg_processes", 0)
+    print(f"Setting number of background processes to: {num_bg_processes}")
+    if num_bg_processes > 0:
+        manager = BackgroundProcessManager(
+            num_processes=num_bg_processes,
+            bg_device=torch.device("cpu")
+        )
+        manager.resume_processes(delay=0., duration=1e8)
+        time.sleep(1.0)
+
     warmup_device()
+
     print("Number of model parameters: ", sum(p.numel() for p in model.parameters()))
     optim_generator = OptimizerGenerator(cfg.optimizer.optimizer, cfg.optimizer.scheduler)
     optimizer = init_optimizer(
@@ -30,6 +46,9 @@ def run(cfg: DictConfig):
     )
     device_type = os.environ.get("COLEXT_DEVICE_TYPE", "SERVER")
     print(f"RESULTS [{device_type}]: {complexities}")
+
+    if num_bg_processes > 0:
+        manager.terminate_processes()
 
 
 if __name__ == "__main__":
