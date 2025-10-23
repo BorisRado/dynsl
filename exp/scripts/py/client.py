@@ -25,7 +25,7 @@ def run(cfg: DictConfig):
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
     model = instantiate(cfg.model)
-    warmup_device()
+    warmup_device(steps=30)
     client = MOTorchClient(
         **OmegaConf.to_container(cfg.client.init_kwargs),
         dataset_config=cfg.data,

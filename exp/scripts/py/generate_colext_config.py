@@ -1,0 +1,72 @@
+import argparse
+
+from jinja2 import Template
+
+
+"""
+Simple script to create a colext config for a given experiment. It injects the fl_algorithm,
+the data configuration, and any further configuration
+"""
+COLEXT_TEMPLATE = "exp/colext/colext_template.yaml"
+COLEXT_OUT_CONFIG = "colext_config.yaml"
+
+def generate():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--algorithm", required=True, type=str, help="FL algorithm to be tested")
+    parser.add_argument("--model-name", required=True, type=str, help="Model to be trained")
+    parser.add_argument("--num-rounds", required=False, type=int, default=1, help="Number of training rounds")
+    parser.add_argument("--num-partitions", required=False, type=int, default=10, help="Number of partitions of the training dataset")
+    parser.add_argument("--experiment-name", required=False, type=str, default="colext", help="Name of experiment on wandb")
+
+    # number of devices
+    parser.add_argument("--num-jao", required=False, type=int, default=2, help="Number of agx devices to use")
+    parser.add_argument("--num-jn", required=False, type=int, default=6, help="Number of jn devices to use")
+    parser.add_argument("--num-jon", required=False, type=int, default=4, help="Number of jon devices to use")
+    parser.add_argument("--num-jxn", required=False, type=int, default=2, help="Number of jxn devices to use")
+    parser.add_argument("--num-lp", required=False, type=int, default=4, help="Number of lp devices to use")
+    parser.add_argument("--num-op", required=False, type=int, default=7, help="Number of op devices to use")
+
+    # algorithm specific configuration -- SPLITFED
+    parser.add_argument("--splitfed-num-client-layers", required=False, type=int, default=4, help="Number of layer trained on the client [SPLITFED]")
+
+    # algorithm specific configuration -- DYNSL
+    parser.add_argument("--dynsl-reallocation-frequency", required=False, type=float, default=8.0, help="... [DYNSL]")
+    parser.add_argument("--dynsl-max-client-layers", required=False, type=int, default=-1, help="... [DYNSL]")
+    parser.add_argument("--dynsl-gamma", required=False, type=float, default=8.0, help="... [DYNSL]")
+    parser.add_argument("--dynsl-cache-client-configuration", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
+    parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="genetic", choices=["genetic"], help="... [DYNSL]")
+
+    args = parser.parse_args()
+    args_dict = vars(args)
+
+    if args.algorithm.startswith("splitfed"):
+        args_dict["algo_config"] = f"algorithm.layer_allocator_init_args.num_client_layers={args.splitfed_num_client_layers}"
+
+    if args.algorithm.startswith("dynsl"):
+        predix_len = len("dynsl_")
+        args_dict["algo_config"] = "\n      ".join([
+            f"algorithm.layer_allocator_init_args.{key[predix_len:]}={args_dict[key]}"
+            for key in args_dict if key.startswith("dynsl")
+        ])
+
+    # generate a string with the number of devices to be appended to the config
+    device_listing = " ".join([
+        f"+{key}={args_dict[key]}"
+        for key in ["num_jao", "num_jon", "num_jn", "num_lp", "num_jxn", "num_op"]
+    ])
+    args_dict["device_listing"] = device_listing
+
+    with open(COLEXT_TEMPLATE, "r") as file:
+        template = Template(file.read())
+
+    rendered_content = template.render(args_dict)
+
+    with open(COLEXT_OUT_CONFIG, "w") as file:
+        file.write(rendered_content)
+
+    print("YAML file generated successfully.")
+
+
+if __name__ == "__main__":
+    generate()

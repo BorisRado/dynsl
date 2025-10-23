@@ -32,3 +32,4 @@ wandb/
 
 # specific files
 .env
+colext_config.yaml

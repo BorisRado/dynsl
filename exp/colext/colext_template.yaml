@@ -8,35 +8,35 @@ code:
   client:
     command: >-
       PYTHONPATH=$PYTHONPATH:. python3 exp/scripts/py/client.py
-      model=vgg11
-      partitioning.num_partitions=10
-      algorithm=splitfed_v2
+      model={{ model_name }}
+      partitioning.num_partitions={{ num_partitions }}
+      algorithm={{ algorithm }}
 
   server:
       # algorithm.layer_allocator_init_args.max_client_layers=46
-      # algorithm.layer_allocator_init_args.num_client_layers=26
     command: >-
       sed -i '/FLOWER_LOGGER.addHandler(console_handler)/d' /opt/conda/lib/python3.10/site-packages/flwr/common/logger.py && PYTHONPATH=$PYTHONPATH:. python3 -u exp/scripts/py/server.py
-      general.rounds=10
-      algorithm=splitfed_v2
-      algorithm.layer_allocator_init_args.num_client_layers=6
+      general.rounds={{ num_rounds }}
+      algorithm={{ algorithm }}
       strategy.min_available_clients=${COLEXT_N_CLIENTS}
       server.port=8080
       wandb=true
-      model=vgg11
-      partitioning.num_partitions=10
-      experiment_name=colext_testing2
+      model={{ model_name }}
+      partitioning.num_partitions={{ num_partitions }}
+      experiment_name={{ experiment_name }}
+      {{ algo_config }}
+      {{ device_listing }}
 
 clients:
   - dev_type: JetsonAGXOrin
-    count: 2
+    count: {{ num_jao }}
   - dev_type: JetsonOrinNano
-    count: 4
+    count: {{ num_jon }}
   - dev_type: JetsonNano
-    count: 3
+    count: {{ num_jn }}
   - dev_type: LattePandaDelta3
-    count: 2
+    count: {{ num_lp }}
   - dev_type: JetsonXavierNX
-    count: 2
+    count: {{ num_jxn }}
   - dev_type: OrangePi5B
-    count: 7
+    count: {{ num_op }}

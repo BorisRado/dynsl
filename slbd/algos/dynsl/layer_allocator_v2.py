@@ -82,6 +82,14 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
 
     def trigger_reallocation(self) -> None:
         start_time = time.time()
+        # print(self._client_train_batches_count)
+        print({k: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
+        if any(v < 6 for v in self._client_train_batches_count.values()):
+            print("Not enough data to try reallocating...")
+            return
+        if len(self._client_layer_diff) == 0:
+            print("All have completed training. Exiting...")
+            return
         if self.layer_allocation_optimizer == "genetic":
             best_config = self._genetic_reallocation()
         elif self.layer_allocation_optimizer == "greedy":
