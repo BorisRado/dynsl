@@ -29,6 +29,7 @@ MANIFEST
 outputs/
 exp/logs/
 wandb/
+exp/scripts/old_slurm/
 
 # specific files
 .env
