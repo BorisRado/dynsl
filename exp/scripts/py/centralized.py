@@ -13,29 +13,55 @@ from exp.src.common.stochasticity import set_seed
 from exp.src.common.other import set_torch_flags
 
 
+def evaluate_model(model, dataloader, device):
+    model.eval()
+    total_loss = 0.0
+    correct = 0
+    total = 0
+
+    with torch.no_grad():
+        for batch in dataloader:
+            if "img" in batch:
+                img = batch["img"].to(device)
+                logits = model(img)
+                label = batch["label"].to(device, non_blocking=True)
+            else:
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                logits = model(input_ids, attention_mask)
+                label = batch["labels"].to(device, non_blocking=True)
+
+            loss = torch.nn.CrossEntropyLoss()(logits, label)
+            total_loss += loss.item()
+
+            _, predicted = torch.max(logits, 1)
+            total += label.size(0)
+            correct += (predicted == label).sum().item()
+
+    accuracy = 100 * correct / total
+    avg_loss = total_loss / len(dataloader)
+    print(f"Accuracy {accuracy:.3f}")
+    print(f"Avg loss {avg_loss:.3f}")
+
+
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
-    print(OmegaConf.to_yaml(cfg))
+    print(OmegaConf.to_yaml(cfg, resolve=True))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     set_seed(cfg.general.seed)
-    model = instantiate(cfg.model).to(device)
+    model = instantiate(cfg.model)
+    model.to(device)
 
-    # for idx in range(14):
-    #     dataset = load_client_trainset(idx, cfg.data, cfg.partitioning, cfg.general.seed)
-    #     # Compute distribution over target labels
-
-    #     labels = [dp["label"] for dp in dataset]
-    #     unique_labels, counts = torch.unique(torch.tensor(labels), return_counts=True)
-    #     distribution = dict(zip(unique_labels.tolist(), counts.tolist()))
-    #     print(f"Client {idx} label distribution [{len(dataset)}]: {distribution}")
-    # return
+    print("Number of parameters: ", sum(p.numel() for p in model.parameters()))
+    print("Device: ", device)
 
     dataset = load_client_trainset(0, cfg.data, cfg.partitioning, cfg.general.seed)
     print("Centralized dataset size", len(dataset))
     trainloader = get_dataloader(dataset, batch_size=cfg.client.init_kwargs.batch_size)
-    valloader = get_dataloader(dataset, batch_size=cfg.client.init_kwargs.batch_size, shuffle=False)
     criterion = torch.nn.CrossEntropyLoss()
+
+    evaluate_model(model, trainloader, device)
 
     optimizer_config_generator = OptimizerGenerator(cfg.optimizer.optimizer, cfg.optimizer.scheduler)
     start_time = time.time()
@@ -48,33 +74,27 @@ def run(cfg: DictConfig):
             **optimizer_config_generator.get_optimizer_config()
         )
         model.train()
+        tot_loss = 0.
         for batch in trainloader:
-            img, label = batch["img"].to(device), batch["label"].to(device)
-            logits = model(img)
+            if "img" in batch:
+                img = batch["img"].to(device)
+                logits = model(img)
+                label = batch["label"].to(device, non_blocking=True)
+            else:
+                input_ids = batch["input_ids"].to(device)
+                attention_mask = batch["attention_mask"].to(device)
+                logits = model(input_ids, attention_mask)
+                label = batch["labels"].to(device, non_blocking=True)
+
             optimizer.zero_grad()
             loss = criterion(logits, label)
+            # print(logits.min().min().item(), logits.max().max().item(), loss.item())
             loss.backward()
             optimizer.step()
+            tot_loss += loss.item()
+        print(f"Loss {tot_loss / len(trainloader):.3f}")
 
-        model.eval()
-        correct = 0
-        total = 0
-        total_loss = 0.0
-        set_seed(10)
-        with torch.no_grad():
-            for batch in valloader:
-                img, label = batch["img"].to(device), batch["label"].to(device)
-                logits = model(img)
-                loss = criterion(logits, label)
-                total_loss += loss.item() * label.size(0)
-                predicted = torch.argmax(logits, 1)
-                correct += (predicted == label).sum().item()
-                total += label.size(0)
-            accuracy = correct / total
-            avg_loss = total_loss / total
-        optimizer_config_generator.end_epoch_callback()
-        print(f"Train Accuracy: {accuracy:.6f}, Train Loss: {avg_loss:.6f}")
-
+    evaluate_model(model, trainloader, device)
     print(f"Runtime {time.time() - start_time:.2f}")
 
 
