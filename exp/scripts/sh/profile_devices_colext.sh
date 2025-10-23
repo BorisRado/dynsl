@@ -1,5 +1,7 @@
 #!/bin/bash
 
+colext_launch_job -p
+
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <number_of_background_processes>"
     exit 1
