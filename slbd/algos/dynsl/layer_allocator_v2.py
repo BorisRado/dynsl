@@ -79,12 +79,14 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         print("Meaningful split points: ", self.meaningful_split_points)
         print("Static server training times:", self._server_training_times)
         self.known_client_training_times_per_layer = {}
+        self._cid_to_node_name = {}
 
     def trigger_reallocation(self) -> None:
         start_time = time.time()
         # print(self._client_train_batches_count)
-        print({k: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
-        if any(v < 6 for v in self._client_train_batches_count.values()):
+        print({self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
+        print({self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
+        if any(v < 8 for v in self._client_train_batches_count.values()):
             print("Not enough data to try reallocating...")
             return
         if len(self._client_layer_diff) == 0:
@@ -330,3 +332,25 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
             del self._client_layer_diff[cid]
         except:
             pass
+
+    def update_client_metrics(self, client_id: str, metrics):
+        if metrics is None:
+            return
+
+        client_train_time = metrics.client_local_computation_time
+        client_round_time = metrics.client_round_time
+        if client_train_time > 0:
+            if self._client_train_batches_count[client_id] == 0:
+                self._client_training_times[client_id] = client_train_time
+                self._client_round_times[client_id] = client_round_time
+            else:
+                # rolling average update
+                self._client_training_times[client_id] = \
+                    self._rolling_average(self._client_training_times[client_id], client_train_time)
+                self._client_round_times[client_id] = \
+                    self._rolling_average(self._client_round_times[client_id], client_round_time)
+            self._client_train_batches_count[client_id] += 1
+        else:
+            print("Ignoring...")
+
+        self._pending_batches[client_id] -= 1

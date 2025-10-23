@@ -176,7 +176,7 @@ class ModelTrainer:
             gradient, control, loss = self._server_model_proxy(
                 embeddings=send_client_output,
                 labels=labels,
-                local_computation_time=-1 if self._backward_time < 0 else \
+                local_computation_time=-1 if self._tmp_idx < 3 else \
                     self._backward_time + self._forward_time
             )
             if self.receiving_transform_fn is not None:

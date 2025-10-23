@@ -1,13 +1,4 @@
 name: oracle
 layer_allocator_init_args:
   device_mapping:
-    OrangePi5B: 6
-    LattePandaDelta3: 6
-    JetsonOrinNano: 12
-    JetsonAGXOrin: 12
-    JetsonXavierNX: 12
-    # OrangePi5B: 6
-    # JetsonOrinNano: 16
-    # JetsonAGXOrin: 26
-    # LattePandaDelta3: 6
-    # JetsonXavierNX: 16
+    {}

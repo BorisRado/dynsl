@@ -95,7 +95,7 @@ def init_dynsl_v2_components(config, model):
         model=model,
         optimizer=tmp_optimizer,
         batch_size=config.client.init_kwargs.batch_size * config.server_model_servicer.num_concat_batches,
-        iterations=200,
+        iterations=400,
         dry_runs=50,
     )
     del tmp_optimizer

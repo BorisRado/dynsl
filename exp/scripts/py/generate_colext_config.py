@@ -37,6 +37,15 @@ def generate():
     parser.add_argument("--dynsl-cache-client-configuration", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
     parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="genetic", choices=["genetic"], help="... [DYNSL]")
 
+    # algorithm specific configuration -- ORACLE
+    parser.add_argument("--oracle-nl-jao", required=False, type=int, default=-1, help="... [ORACLE]")
+    parser.add_argument("--oracle-nl-jn", required=False, type=int, default=-1, help="... [ORACLE]")
+    parser.add_argument("--oracle-nl-jon", required=False, type=int, default=-1, help="... [ORACLE]")
+    parser.add_argument("--oracle-nl-jxn", required=False, type=int, default=-1, help="... [ORACLE]")
+    parser.add_argument("--oracle-nl-lp", required=False, type=int, default=-1, help="... [ORACLE]")
+    parser.add_argument("--oracle-nl-op", required=False, type=int, default=-1, help="... [ORACLE]")
+
+
     args = parser.parse_args()
     args_dict = vars(args)
 
@@ -49,6 +58,26 @@ def generate():
             f"algorithm.layer_allocator_init_args.{key[predix_len:]}={args_dict[key]}"
             for key in args_dict if key.startswith("dynsl")
         ])
+
+    if args.algorithm.startswith("oracle"):
+        tmp = []
+        for key, val in args_dict.items():
+            if not key.startswith("oracle"):
+                continue
+            device_type_acronym = key.split("_")[-1]
+            if args_dict[f"num_{device_type_acronym}"] == 0:
+                continue
+            assert val > 0
+            device_type = {
+                "jao": "JetsonAGXOrin",
+                "jn": "JetsonNano",
+                "jon": "JetsonOrinNano",
+                "jxn": "JetsonXavierNX",
+                "lp": "LattePandaDelta3",
+                "op": "OrangePi5B",
+            }[device_type_acronym]
+            tmp.append(f"+algorithm.layer_allocator_init_args.device_mapping.{device_type}={val}")
+        args_dict["algo_config"] = "\n      ".join(tmp)
 
     # generate a string with the number of devices to be appended to the config
     device_listing = " ".join([

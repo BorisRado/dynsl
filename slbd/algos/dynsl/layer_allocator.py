@@ -57,6 +57,7 @@ class DynSLClientLayerAllocator:
         self._cached_num_layers = {}
         self.cache_client_configuration = cache_client_configuration
         self._cid_to_device_type_mapping = {}
+        self._cid_to_node_name = {}
         print("Caching?", self.cache_client_configuration)
 
     def get_client_min_layers(self, client_proxy: ClientProxy) -> int:
@@ -87,6 +88,7 @@ class DynSLClientLayerAllocator:
             self._dataset_sizes[client_proxy.cid] = int(result.properties[CLIENT_DATASET_SIZE])
             self._cid_to_device_type_mapping[client_proxy.cid] = result.properties[CLIENT_DEVICE_TYPE]
             node_name = result.properties["node_name"]
+            self._cid_to_node_name[client_proxy.cid] = node_name
             log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers [{result.properties[CLIENT_DEVICE_TYPE]} -- {node_name}]")
         return self._per_client_min_layers[client_proxy.cid]
 
