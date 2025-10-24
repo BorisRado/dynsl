@@ -216,11 +216,15 @@ def measure_per_layer_time(
 
 
 def measure_per_layer_complexity(**kwargs):
-    forward_times, backward_times, _ = measure_per_layer_time(**kwargs)
+    forward_times, backward_times, tensor_sizes = measure_per_layer_time(**kwargs)
     assert len(forward_times) == len(backward_times) == len(kwargs["model"])
-    return {
+    times = {
         i: fw+bw for i, (fw, bw) in enumerate(zip(forward_times, backward_times))
     }
+    tensor_sizes = {
+        i: ts for i, ts in enumerate(tensor_sizes)
+    }
+    return times, tensor_sizes
 
 def get_flops_per_layer_fvcore(model):
     batch_size = 2

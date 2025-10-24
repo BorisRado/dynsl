@@ -37,7 +37,7 @@ def run(cfg: DictConfig):
         model.parameters(),
         **optim_generator.get_optimizer_config()
     )
-    complexities = measure_per_layer_complexity(
+    complexities, _ = measure_per_layer_complexity(
         model=model,
         optimizer=optimizer,
         batch_size=cfg.client.init_kwargs.batch_size,

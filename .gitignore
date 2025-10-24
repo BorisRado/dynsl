@@ -34,3 +34,4 @@ exp/scripts/old_slurm/
 # specific files
 .env
 colext_config.yaml
+*_interactive.sh

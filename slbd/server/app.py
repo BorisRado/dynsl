@@ -91,7 +91,7 @@ def init_dynsl_v2_components(config, model):
     )
     layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
     tmp_optimizer = optim.SGD(model.parameters(), momentum=0.9)
-    layer_complexities = measure_per_layer_complexity(
+    layer_complexities, tensor_sizes = measure_per_layer_complexity(
         model=model,
         optimizer=tmp_optimizer,
         batch_size=config.client.init_kwargs.batch_size * config.server_model_servicer.num_concat_batches,
@@ -105,6 +105,7 @@ def init_dynsl_v2_components(config, model):
     client_layer_allocator = DynSLClientLayerAllocatorV2(
         num_model_layers=get_num_layers(model),
         meaningful_split_points=model.meaningful_split_points,
+        per_layer_communication_volume=tensor_sizes,
         **layer_allocator_config,
         modeled_layer_complexities=layer_complexities,
     )

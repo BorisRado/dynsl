@@ -18,7 +18,8 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         layer_allocation_optimizer: str,
         meaningful_split_points: List[int],
         cache_client_configuration: bool,
-        modeled_layer_complexities: List[float]
+        modeled_layer_complexities: List[float],
+        per_layer_communication_volume: List[int],
     ):
         """
         Initialize the LayerAllocator.
@@ -80,6 +81,18 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
         print("Static server training times:", self._server_training_times)
         self.known_client_training_times_per_layer = {}
         self._cid_to_node_name = {}
+
+        throughput_Gbps = 1e9
+        # per_layer_communication_volume contains number of parameters per layer
+        # =====>>>>>> in the formula:
+        # * 2 ... forward+backward
+        # * 4 ... 32 bit representation
+        # * 8 ... we transform bytes to bits
+        self.per_batch_communication_time = {
+            k: 2 * 4 * per_layer_communication_volume[k] * 8 / throughput_Gbps
+            for k in self.meaningful_split_points
+        }
+        print("Communication:", self.per_batch_communication_time)
 
     def trigger_reallocation(self) -> None:
         start_time = time.time()
@@ -179,17 +192,19 @@ class DynSLClientLayerAllocatorV2(DynSLClientLayerAllocator):
     def _compute_objective(self, layer_config):
         pred_client_times = {}
         server_time = 0.
+        communication_time = 0.
         for cid, L in layer_config.items():
             B = self._pending_batches[cid]
             server_time += B * self._server_training_times[L] / self._num_concat_batches
             pred_client_times[cid] = self.compute_client_time(cid, L)
+            communication_time += B * self.per_batch_communication_time[L]
 
         # additionally penalize every layer change
         reg_term = sum([
             layer_config[cid] != self._client_allocated_layers[cid] for cid in layer_config
         ])
         max_client_time = max(pred_client_times.values())
-        total_time = max(server_time, max_client_time) + reg_term / 2
+        total_time = max(server_time, max_client_time) + reg_term / 2 + communication_time
         return total_time
 
     def compute_client_time(self, cid, L):
