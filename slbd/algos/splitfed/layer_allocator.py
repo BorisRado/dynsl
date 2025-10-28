@@ -26,6 +26,7 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         self._wait_time_in_ready_state = []
         self._batch_preparation_times = []
         self._cid_to_device_type_mapping = {}
+        self.tot_server_computation_time = None
 
     def _get_properties(self, client_proxies):
         get_properties_instructions = GetPropertiesIns({})
@@ -46,6 +47,7 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         _ = (client_manager, is_training, )
         if len(self._cid_to_device_type_mapping) == 0:
             self._get_properties(epoch_clients)
+        self.tot_server_computation_time = 0.
 
         self._server_training_time = []
         self._wait_time_in_ready_state = []
@@ -74,13 +76,12 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         wait_time_in_ready_state: float,
         batch_preparation_time: float
     ):
-        self._server_training_time.append(elapsed_time)
-        self._wait_time_in_ready_state.append(wait_time_in_ready_state)
-        self._batch_preparation_times.append(batch_preparation_time)
+        # self._server_training_time.append(elapsed_time)
+        # self._wait_time_in_ready_state.append(wait_time_in_ready_state)
+        # self._batch_preparation_times.append(batch_preparation_time)
+        self.tot_server_computation_time += elapsed_time
 
     def collect_epoch_metrics(self):
         return {
-            "training_times": self._server_training_time,
-            "wait_in_ready_state": self._wait_time_in_ready_state,
-            "batch_preparation": self._batch_preparation_times,
+            "tot_server_training_time": self.tot_server_computation_time,
         }

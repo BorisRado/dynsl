@@ -48,6 +48,7 @@ class DynSLClientLayerAllocator:
         self._client_training_times: Dict[str, float] = {}
         self._client_round_times: Dict[str, float] = {}
         self._server_training_times: Dict[int, float] = {}
+        self.tot_server_computation_time = None
 
         # we will call the reallocation function with the following frequency
         self.reallocation_frequency = reallocation_frequency
@@ -146,6 +147,7 @@ class DynSLClientLayerAllocator:
         self._reallocation_thread.start()
         initial_allocation = [self._client_allocated_layers[proxy.cid]  for proxy in epoch_clients]
         print("Initial allocation", initial_allocation)
+        self.tot_server_computation_time = 0.
         return initial_allocation
 
     def finalize_epoch(self):

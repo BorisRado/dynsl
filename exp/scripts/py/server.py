@@ -1,4 +1,5 @@
 import os
+import time
 
 from dotenv import load_dotenv
 import hydra
@@ -42,6 +43,9 @@ def run(cfg: DictConfig):
     assert cfg.server.async_
     start_async_server(**start_kwargs)
     finish_wandb()
+    print("Experiment completed!")
+    time.sleep(10.)
+    os._exit(0)
 
 
 

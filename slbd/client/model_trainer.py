@@ -1,3 +1,4 @@
+import psutil
 from logging import DEBUG
 from collections import defaultdict, OrderedDict
 from typing import List, Optional
@@ -87,7 +88,7 @@ class ModelTrainer:
 
         self._init_model(last_layer_idx, init_parameters, optimizer_config)
 
-        self._tmp_idx = 0  # TODO: Remove this debugging variable
+        self._iter_since_last_model_change = 0
 
     def _init_model(self, last_layer_idx: int, init_parameters, optimizer_config) -> None:
         """
@@ -118,6 +119,7 @@ class ModelTrainer:
 
         if control.layers_diff > 0:
             log(DEBUG, "Receiving %d new layers" % control.layers_diff)
+            self._iter_since_last_model_change = 0
             self._model = attach_layers(
                 self._whole_model,
                 self._model,
@@ -140,17 +142,19 @@ class ModelTrainer:
             print("Reduced model size", self._model)
 
     def __call__(self, input_vars, labels):
-        self._tmp_idx += 1
+        self._iter_since_last_model_change = self._iter_since_last_model_change + 1
 
-        is_tuple = isinstance(input_vars, tuple)
-        if is_tuple:
-            input_vars = tuple(t.to(self._device) for t in input_vars)
-        else:
-            input_vars = input_vars.to(self._device)
-        self._optimizer.zero_grad()
 
         # forward on client model
         with measure_time(self._use_cuda) as timer:
+
+            is_tuple = isinstance(input_vars, tuple)
+            if is_tuple:
+                input_vars = tuple(t.to(self._device) for t in input_vars)
+            else:
+                input_vars = input_vars.to(self._device)
+            self._optimizer.zero_grad()
+
             if is_tuple:
                 client_output = self._model(*input_vars)
             else:
@@ -173,11 +177,15 @@ class ModelTrainer:
             send_client_output = client_output
             if self.sending_transform_fn is not None:
                 send_client_output = self.sending_transform_fn(client_output)
+            client_time = self._backward_time + self._forward_time
+            if psutil.virtual_memory().percent > 90:
+                client_time *= 3.0
+            if psutil.cpu_percent(interval=None) > 90:
+                client_time *= 1.5
             gradient, control, loss = self._server_model_proxy(
                 embeddings=send_client_output,
                 labels=labels,
-                local_computation_time=-1 if self._tmp_idx < 3 else \
-                    self._backward_time + self._forward_time
+                local_computation_time=-1 if self._iter_since_last_model_change < 4 else client_time
             )
             if self.receiving_transform_fn is not None:
                 gradient = self.receiving_transform_fn(gradient, client_output=client_output)
