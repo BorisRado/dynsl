@@ -148,7 +148,7 @@ def init_ares_components(config, model):
     )
     log(INFO, "Server profiling completed")
     client_layer_allocator = ARESClientLayerAllocator(
-        client_profiling_frequency=5,
+        client_profiling_frequency=4,
         server_fb_times=[fw+bw for fw, bw in zip(forward_times, backward_times)],
         activation_sizes=activation_sizes,
         client_throughputs_MBps=1000, # TODO: it is hardcoded right now

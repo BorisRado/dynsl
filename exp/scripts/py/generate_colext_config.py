@@ -45,6 +45,17 @@ def generate():
     parser.add_argument("--oracle-nl-lp", required=False, type=int, default=-1, help="... [ORACLE]")
     parser.add_argument("--oracle-nl-op", required=False, type=int, default=-1, help="... [ORACLE]")
 
+    # CONFIGURATION OF BACKGROUND ACTIVITY
+    parser.add_argument("--background-processes", required=False, action="store_true")
+    parser.add_argument("--bg-proc-delay", required=False, type=float, default=0., help="...")
+    parser.add_argument("--bg-proc-duration", required=False, type=float, default=0., help="...")
+    parser.add_argument("--bg-num-procs", required=False, type=int, default=0, help="...")
+    parser.add_argument("--bg-dev-num-jao", required=False, type=int, default=0)
+    parser.add_argument("--bg-dev-num-jn", required=False, type=int, default=0)
+    parser.add_argument("--bg-dev-num-jon", required=False, type=int, default=0)
+    parser.add_argument("--bg-dev-num-jxn", required=False, type=int, default=0)
+    parser.add_argument("--bg-dev-num-lp", required=False, type=int, default=0)
+    parser.add_argument("--bg-dev-num-op", required=False, type=int, default=0)
 
     args = parser.parse_args()
     args_dict = vars(args)
@@ -85,6 +96,33 @@ def generate():
         for key in ["num_jao", "num_jon", "num_jn", "num_lp", "num_jxn", "num_op"]
     ])
     args_dict["device_listing"] = device_listing
+
+    if args.background_processes:
+        # configure the background activity
+        assert (
+            args.bg_num_procs > 0 and
+            args.bg_proc_duration > 0
+        )
+        bg_configuration = \
+            "+client.init_kwargs='{bg_proc_duration:" + str(args.bg_proc_duration) + \
+            ",bg_num_procs:" + str(args.bg_num_procs) + \
+            ",bg_proc_delay:" + str(args.bg_proc_delay) + \
+            "}'"
+        # handle clients
+        bg_devices_listing = "+bg_proc_devices='{"
+        tot_devices_with_bg = 0
+        for config in args_dict:
+            if not config.startswith("bg_dev_num_"):
+                continue
+            if args_dict[config] == 0:
+                continue
+            bg_devices_listing += config.split("_")[-1] + ": " + str(args_dict[config]) + ", "
+            tot_devices_with_bg += args_dict[config]
+        bg_devices_listing = bg_devices_listing[:-2] + "}'"
+        args_dict["bg_devices"] = bg_devices_listing
+        args_dict["bg_configuration"] = bg_configuration
+
+        assert tot_devices_with_bg > 0
 
     with open(COLEXT_TEMPLATE, "r") as file:
         template = Template(file.read())

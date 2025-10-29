@@ -1,10 +1,5 @@
 import os
-import psutil
 from typing import Dict
-try:
-    from kubernetes import client, config
-except:
-    pass
 
 import torch
 from flwr.common import Config, Scalar
@@ -17,25 +12,7 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS
 )
 
-
-
-def get_node_name():
-    # Load in-cluster config (works from inside any Pod)
-    config.load_incluster_config()
-
-    # Create CoreV1 API client
-    v1 = client.CoreV1Api()
-
-    # Get current pod name and namespace
-    pod_name = os.getenv("HOSTNAME")
-    with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace") as f:
-        namespace = f.read().strip()
-
-    # Query the Kubernetes API for this pod
-    pod = v1.read_namespaced_pod(name=pod_name, namespace=namespace)
-
-    # Return the node name
-    return pod.spec.node_name
+from exp.src.common.k8s import get_node_name
 
 
 class DynSLClientAdapter(BaseNumpyClientAdapter):

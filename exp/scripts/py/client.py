@@ -8,7 +8,32 @@ from slbd.client.app import start_client
 
 from exp.src.sl.mo_client import MOTorchClient
 from exp.src.common.other import set_torch_flags
+from exp.src.common.k8s import get_all_pods_and_nodes, get_node_name
 from exp.src.model.utils import warmup_device
+
+
+def handle_bg_process_config_colext(client_init_kwargs, cfg):
+    if "COLEXT_SERVER_ADDRESS" not in os.environ:
+        print("Not running on CoLExT -- ignoring bg-process override")
+        return
+
+    if client_init_kwargs.get("bg_num_procs", 0) > 0:
+        if "bg_proc_devices" in cfg:
+            nodes = list(get_all_pods_and_nodes().values()) # all nodes selected in this run
+            print("ALL NODES", nodes)
+            this_node = get_node_name()
+            print("THIS NODE", this_node)
+            has_been_selected = False
+            for device_type, num_w_bg_procs in cfg.bg_proc_devices.items():
+                device_nodes = [node for node in nodes if node.startswith(device_type)]
+                selected_nodes = sorted(device_nodes)[:num_w_bg_procs]
+                if this_node in selected_nodes:
+                    has_been_selected = True
+                    break
+            if not has_been_selected:
+                to_delete_keys = [k for k in client_init_kwargs if k.startswith("bg_")]
+                for k in to_delete_keys:
+                    del client_init_kwargs[k]
 
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
@@ -22,12 +47,15 @@ def run(cfg: DictConfig):
         cfg.client.server_address = os.environ["COLEXT_SERVER_ADDRESS"]
         print("Server address:", cfg.client.server_address)
 
+    client_init_kwargs = OmegaConf.to_container(cfg.client.init_kwargs)
+    handle_bg_process_config_colext(client_init_kwargs, cfg)
+    print("Client init kwargs:", client_init_kwargs)
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
     model = instantiate(cfg.model)
     warmup_device(steps=30)
     client = MOTorchClient(
-        **OmegaConf.to_container(cfg.client.init_kwargs),
+        **client_init_kwargs,
         dataset_config=cfg.data,
         partitioning_config=cfg.partitioning,
         seed=cfg.general.seed
@@ -41,7 +69,7 @@ def run(cfg: DictConfig):
         client=client,
         model=model,
     )
-    if hasattr(client, "bg_proc_mgr"):
+    if hasattr(client, "bg_proc_mng"):
         client.bg_proc_mng.terminate_processes()
 
 

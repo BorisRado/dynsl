@@ -1,8 +1,10 @@
+import time
 import threading
 import multiprocessing
 import multiprocessing.synchronize
+from datetime import datetime
+
 import torch
-import time
 
 
 def cpu_intensive_task(
@@ -30,7 +32,7 @@ class BackgroundProcessManager:
         self.pause_event = multiprocessing.Event()
         self.pause_event.clear()
 
-        print(f"Launching {num_processes} worker processes (initially paused).")
+        print(f"Launching {num_processes} worker processes (initially paused).", self.get_current_time())
 
         for _ in range(num_processes):
             p = multiprocessing.Process(
@@ -41,29 +43,33 @@ class BackgroundProcessManager:
             self.processes.append(p)
 
     def pause_processes(self) -> None:
-        print("Pausing processes...")
+        print("Pausing processes...", self.get_current_time())
         self.pause_event.clear()
 
     def resume_processes(self, delay: float = 0, duration: float | None = None) -> None:
+        print("Request to resume processes...", self.get_current_time())
         def delayed_resume():
             if delay > 0:
                 time.sleep(delay)
-            print("Resuming processes...")
+            print("Resuming processes...", self.get_current_time())
             self.pause_event.set()
 
             if duration is not None:
                 time.sleep(duration)
                 # only pause if still running
                 if self.pause_event.is_set():
-                    print("Auto-pausing after duration.")
+                    print("Auto-pausing after duration.", self.get_current_time())
                     self.pause_event.clear()
 
         threading.Thread(target=delayed_resume, daemon=True).start()
 
     def terminate_processes(self) -> None:
-        print("Terminating processes...")
+        print("Terminating processes...", self.get_current_time())
         for p in self.processes:
             if p.is_alive():
                 p.terminate()
                 p.join()
         self.processes = []
+
+    def get_current_time(self):
+        return datetime.now().strftime("%H:%M:%S")
