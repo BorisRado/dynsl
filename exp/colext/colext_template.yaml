@@ -11,8 +11,8 @@ code:
       model={{ model_name }}
       partitioning.num_partitions={{ num_partitions }}
       algorithm={{ algorithm }}
-      {{ bg_devices }}
-      {{ bg_configuration }}
+      {%- if bg_devices %}{{ bg_devices }}{% endif %}
+      {%- if bg_configuration %}{{ bg_configuration }}{% endif %}
 
   server:
       # algorithm.layer_allocator_init_args.max_client_layers=46
@@ -26,10 +26,10 @@ code:
       model={{ model_name }}
       partitioning.num_partitions={{ num_partitions }}
       experiment_name={{ experiment_name }}
-      {{ algo_config }}
+      {%- if algo_config %}{{ algo_config }}{% endif %}
       {{ device_listing }}
-      {{ bg_devices }}
-      {{ bg_configuration }}
+      {%- if bg_devices %}{{ bg_devices }}{% endif %}
+      {%- if bg_configuration %}{{ bg_configuration }}{% endif %}
 
 clients:
   - dev_type: JetsonAGXOrin

@@ -13,7 +13,8 @@ COLEXT_OUT_CONFIG = "colext_config.yaml"
 def generate():
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--algorithm", required=True, type=str, help="FL algorithm to be tested")
+    parser.add_argument("--algorithm", required=True, type=str, help="FL algorithm to be tested",
+                        choices=["splitfed_v1", "splitfed_v2", "ares", "dynsl_v2"])
     parser.add_argument("--model-name", required=True, type=str, help="Model to be trained")
     parser.add_argument("--num-rounds", required=False, type=int, default=1, help="Number of training rounds")
     parser.add_argument("--num-partitions", required=False, type=int, default=10, help="Number of partitions of the training dataset")
