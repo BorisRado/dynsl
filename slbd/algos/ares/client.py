@@ -24,7 +24,7 @@ class ARESNumpyClientAdapter(BaseNumpyClientAdapter):
         forward_times, backward_times, _ = measure_per_layer_time(
             model=self.whole_model,
             optimizer=optimizer,
-            input_shape=(self.torch_client.batch_size, 3, 32, 32), # TODO: img size still hardcoded
+            batch_size=self.torch_client.batch_size,
             iterations=iterations,
             dry_runs=dry_runs,
         )

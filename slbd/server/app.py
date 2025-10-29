@@ -142,7 +142,7 @@ def init_ares_components(config, model):
     forward_times, backward_times, activation_sizes = measure_per_layer_time(
         model=model,
         optimizer=optimizer,
-        input_shape=(config.client.init_kwargs.batch_size,) + tuple(config.data.input_shape),
+        batch_size=config.client.init_kwargs.batch_size,
         iterations=10,
         dry_runs=0,
     )
@@ -152,6 +152,8 @@ def init_ares_components(config, model):
         server_fb_times=[fw+bw for fw, bw in zip(forward_times, backward_times)],
         activation_sizes=activation_sizes,
         client_throughputs_MBps=1000, # TODO: it is hardcoded right now
+        **OmegaConf.to_container(config.algorithm.layer_allocator_init_args),
+        meaningful_split_points=model.meaningful_split_points,
     )
 
     return strategy, client_layer_allocator
