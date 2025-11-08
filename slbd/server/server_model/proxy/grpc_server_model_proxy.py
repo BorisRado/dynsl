@@ -58,7 +58,7 @@ class GrpcServerModelProxy(ServerModelProxy):
         )
         return gradient, layer_change_info, res.training_loss
 
-    def __call__(self, embeddings, labels, local_computation_time, training=True):
+    def __call__(self, embeddings, labels, local_computation_time, tot_local_time, training=True):
         # return self.unary_request(embeddings, labels, local_computation_time, training)
         batch_data = torch_to_bytes(embeddings=embeddings, labels=labels)
         if self.request_queue is None:
@@ -69,6 +69,7 @@ class GrpcServerModelProxy(ServerModelProxy):
             control_code=control_code_to_proto(ControlCode.OK),
             training=training,
             local_computation_time=local_computation_time,
+            tot_local_time=tot_local_time,
         )
         self.request_queue.put(ins)
         res = next(self.response_stream)

@@ -1,7 +1,5 @@
 from typing import List, Optional, Tuple
 
-import wandb
-import numpy as np
 from flwr.common import GetPropertiesIns
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
@@ -66,15 +64,13 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         return self._num_offloaded_layers
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes: int):
         return
 
     def update_server_metrics(
         self,
         num_offloaded_layers: int,
         elapsed_time: float,
-        wait_time_in_ready_state: float,
-        batch_preparation_time: float
     ):
         # self._server_training_time.append(elapsed_time)
         # self._wait_time_in_ready_state.append(wait_time_in_ready_state)

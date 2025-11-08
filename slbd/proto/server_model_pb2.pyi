@@ -2,7 +2,8 @@ from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
+from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -20,7 +21,7 @@ ERROR_PROCESSING_STREAM: ControlCode
 INIT_STREAM: ControlCode
 
 class BatchDataForward(_message.Message):
-    __slots__ = ("training", "data", "control_code", "cid", "local_computation_time")
+    __slots__ = ("training", "data", "control_code", "cid", "local_computation_time", "tot_local_time")
     class DataEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -33,12 +34,14 @@ class BatchDataForward(_message.Message):
     CONTROL_CODE_FIELD_NUMBER: _ClassVar[int]
     CID_FIELD_NUMBER: _ClassVar[int]
     LOCAL_COMPUTATION_TIME_FIELD_NUMBER: _ClassVar[int]
+    TOT_LOCAL_TIME_FIELD_NUMBER: _ClassVar[int]
     training: bool
     data: _containers.MessageMap[str, ByteTensor]
     control_code: ControlCode
     cid: str
     local_computation_time: float
-    def __init__(self, training: bool = ..., data: _Optional[_Mapping[str, ByteTensor]] = ..., control_code: _Optional[_Union[ControlCode, str]] = ..., cid: _Optional[str] = ..., local_computation_time: _Optional[float] = ...) -> None: ...
+    tot_local_time: float
+    def __init__(self, training: bool = ..., data: _Optional[_Mapping[str, ByteTensor]] = ..., control_code: _Optional[_Union[ControlCode, str]] = ..., cid: _Optional[str] = ..., local_computation_time: _Optional[float] = ..., tot_local_time: _Optional[float] = ...) -> None: ...
 
 class BatchDataBackward(_message.Message):
     __slots__ = ("data", "control_code", "layers_diff", "additional_layers_parameters", "training_loss")

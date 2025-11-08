@@ -18,6 +18,7 @@ from slbd.common.constants import (
     MIN_NUMBER_OF_CLIENT_LAYERS,
     CLIENT_DATASET_SIZE,
     CLIENT_DEVICE_TYPE,
+    CLIENT_NUM_RECEIVED_LAYERS,
 )
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
 from slbd.torch.sequential_model import FlexibleSequential
@@ -33,12 +34,15 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         whole_model: FlexibleSequential,
         server_model_proxy: GrpcServerModelProxy,
         data_manipulation_config,
+        server_forking=False,
     ):
         self.torch_client = torch_client
         self.whole_model = whole_model
         self.server_model_proxy = server_model_proxy
         self.sending_transform_fn = instantiate(data_manipulation_config.sending_fn, _partial_=True)
         self.receiving_transform_fn = instantiate(data_manipulation_config.receiving_fn, _partial_=True)
+        assert not server_forking, "Need to fix code with server forking"
+        self._server_forking = server_forking
 
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         _ = (config, )
@@ -53,18 +57,21 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
         # initialize local model
         last_client_layer_idx = config.pop(CLIENT_LAST_LAYER_IDX_KEY)
+        num_received_layers = config.pop(CLIENT_NUM_RECEIVED_LAYERS, last_client_layer_idx)
         optimizer_config = {k: v for k, v in config.items() if k.startswith("optim.")}
 
         # initialize the model trainer
         model_trainer = ModelTrainer(
             whole_model=self.whole_model,
             last_layer_idx=last_client_layer_idx,
+            num_received_layers=num_received_layers,
             init_parameters=parameters,
             server_model_proxy=self.server_model_proxy,
             optimizer_config=optimizer_config,
             sending_transform_fn=self.sending_transform_fn,
             receiving_transform_fn=self.receiving_transform_fn,
             is_training=True,
+            server_forking=self._server_forking,
         )
 
         # call the model-owner training logic, and measure the time it takes

@@ -87,7 +87,8 @@ def init_dynsl_v2_components(config, model):
     strategy = DynSLStrategy(
         model=model,
         optimizer_config=OmegaConf.to_container(config.optimizer),
-        **OmegaConf.to_container(config.strategy),
+        **OmegaConf.to_container(config.strategy, resolve=True),
+        **OmegaConf.to_container(config.algorithm.strategy_init_args, resolve=True),
     )
     layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
     tmp_optimizer = optim.SGD(model.parameters(), momentum=0.9)

@@ -70,10 +70,10 @@ class TimerResult:
 def measure_time(use_cuda):
     if use_cuda:
         torch.cuda.synchronize()
-    start = time.time()
+    start = time.perf_counter()
     timer = TimerResult()
     yield timer
     if use_cuda:
         torch.cuda.synchronize()
-    end = time.time()
+    end = time.perf_counter()
     timer.elapsed = end - start

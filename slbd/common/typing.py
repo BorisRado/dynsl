@@ -1,5 +1,5 @@
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Union, List, Optional, Tuple
 
@@ -43,6 +43,16 @@ class BatchDataBackward:
 class TimingMetrics:
     client_local_computation_time: float
     client_round_time: float
+    client_tot_local_time: float
+    communication_time: float = field(init=False)
+    throughput: float = field(init=False)
+
+    def __post_init__(self):
+        self.communication_time = self.client_round_time - self.client_tot_local_time
+
+    def compute_throughput(self, num_bytes):
+        # communication time includes forward and backward computation, thus we multiply times 2
+        self.throughput = 2 * (num_bytes * 8 / self.communication_time) / 1e6
 
 
 @dataclass

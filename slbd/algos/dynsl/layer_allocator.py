@@ -7,6 +7,7 @@ from flwr.common import GetPropertiesIns, log
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
+from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.common.typing import TimingMetrics
 from slbd.common.constants import (
     MIN_NUMBER_OF_CLIENT_LAYERS,
@@ -16,7 +17,7 @@ from slbd.common.constants import (
 )
 
 
-class DynSLClientLayerAllocator:
+class DynSLClientLayerAllocator(ClientLayerAllocator):
 
     def __init__(
         self,
@@ -280,7 +281,7 @@ class DynSLClientLayerAllocator:
             self._client_layer_diff[client_id] = 0
             return previous, diff
 
-    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics]):
+    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics], num_received_bytes: int):
         if metrics is None:
             return
 
@@ -307,8 +308,6 @@ class DynSLClientLayerAllocator:
         self,
         num_offloaded_layers: int,
         elapsed_time: float,
-        wait_time_in_ready_state: float,
-        batch_preparation_time: float
     ):
         self._server_training_time_list.append(elapsed_time)
         if num_offloaded_layers in self._server_training_times:
@@ -442,7 +441,7 @@ class DynSLClientLayerAllocatorTest:
         else:
             return None
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes):
         _ = (metrics, )
         # print(metrics)
         self._per_client_processed_batches[client_id] += 1
@@ -451,8 +450,6 @@ class DynSLClientLayerAllocatorTest:
         self,
         num_offloaded_layers: int,
         elapsed_time: float,
-        wait_time_in_ready_state: float,
-        batch_preparation_time: float
     ):
         # print(num_offloaded_layers, elapsed_time, wait_time_in_ready_state)
         # print(num_offloaded_layers, elapsed_time)

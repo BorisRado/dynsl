@@ -148,15 +148,17 @@ def concat_sequential_models(
 
 
 def attach_layers(whole_model, current_model, num_new_layers, params_list, optimizer):
-    num_current_layers = get_num_layers(current_model)
-    end_idx = num_current_layers + num_new_layers
-    attach_model = extract_submodel(whole_model, num_current_layers, end_idx)
-    state_dict = param_list_to_state_dict(params_list, attach_model)
-
     # Get the device where current_model is located
     device = next(current_model.parameters()).device
 
-    attach_model.load_state_dict(state_dict, strict=True)
+    num_current_layers = get_num_layers(current_model)
+    end_idx = num_current_layers + num_new_layers
+    attach_model = extract_submodel(whole_model, num_current_layers, end_idx)
+
+    if params_list is not None:
+        state_dict = param_list_to_state_dict(params_list, attach_model)
+        attach_model.load_state_dict(state_dict, strict=True)
+
     attach_model.to(device)
     concat_model = concat_sequential_models(current_model, attach_model, optimizer)
     concat_model._is_complete = end_idx == get_num_layers(whole_model)
@@ -168,6 +170,10 @@ def get_state_dict_keys_between_limits(model, start_idx, end_idx):
         key for key in model.state_dict().keys()
         if start_idx <= int(key.split('.')[0]) < end_idx
     ]
+
+
+def get_layer_idx(name):
+    return int(name.split(".")[0])
 
 
 if __name__ == "__main__":

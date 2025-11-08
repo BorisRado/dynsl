@@ -33,7 +33,6 @@ def handle_legacy_message_from_msgtype(
     context: Context,
     server_model_stub: ServerModelStub,
     client_adapter_cls: Type[NumPyClient],
-    data_manipulation_config,
 ) -> Message:
     """Handle legacy message in the inner most mod."""
     assert len(message.content.configs_records) == 1
@@ -49,7 +48,6 @@ def handle_legacy_message_from_msgtype(
         torch_client=client_fn(),
         whole_model=model,
         server_model_proxy=server_model_proxy,
-        data_manipulation_config=data_manipulation_config,
     )
     client = client.to_client()
 

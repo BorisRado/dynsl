@@ -1,4 +1,5 @@
 import time
+from functools import partial
 from logging import INFO, WARN, DEBUG, ERROR
 from typing import Optional, Union, Callable, Tuple
 
@@ -135,6 +136,12 @@ def _start_client_internal(
         "splitfed_v2": SplitFedClientAdapter,
         "oracle": SplitFedClientAdapter,
     }[config.algorithm.name]
+    client_adapter_kwargs = OmegaConf.to_container(config, resolve=True)["algorithm"].get("client_adapted_args", {})
+    client_adapter_cls = partial(
+        client_adapter_cls,
+        data_manipulation_config=config.data_manipulation.client,
+        **client_adapter_kwargs
+    )
 
     if insecure is None:
         insecure = root_certificates is None
@@ -158,7 +165,6 @@ def _start_client_internal(
                 client_fn=client_fn,
                 model=model,
                 client_adapter_cls=client_adapter_cls,
-                data_manipulation_config=config.data_manipulation.client,
             )
 
         load_client_app_fn = _load_client_app

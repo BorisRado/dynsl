@@ -24,6 +24,7 @@ message BatchDataForward {
   ControlCode control_code = 3;
   string cid = 4;
   float local_computation_time = 5;
+  float tot_local_time = 6;
 }
 
 message BatchDataBackward {

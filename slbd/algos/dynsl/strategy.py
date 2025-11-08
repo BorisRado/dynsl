@@ -1,45 +1,114 @@
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from logging import ERROR
 from typing import List, Tuple, Union, Dict
 
 import wandb
 from flwr.common import (
     FitRes,
+    FitIns,
     Scalar,
     parameters_to_ndarrays,
     log,
 )
 from flwr.server.client_proxy import ClientProxy
+from flwr.server.client_manager import ClientManager
 
 import torch
 
 from slbd.common import ServerModelFitRes
+from slbd.common.constants import CLIENT_LAST_LAYER_IDX_KEY, CLIENT_NUM_RECEIVED_LAYERS
+from slbd.torch.model_utils import get_layer_idx
 from slbd.algos.base_strategy import BaseStrategy
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 
 class DynSLStrategy(BaseStrategy):
 
-    def _aggregate_layer_parameters_with_forking(self, trained_values, forking_data, key):
-        if "" not in trained_values:
+    def __init__(self, fork_server_model: bool, num_server_models: int, **kwargs):
+        """Initialize
+
+        Parameters
+        ----------
+        fork_server_model : bool
+            If true, the latest weights of the server model will be sent to the client whenever increasing the number of layers
+        num_server_models : int
+            For now possible values as 1 and -1. 1: there is a common model on the server. -1: every client has its own server model
+        """
+        super().__init__(**kwargs)
+        print("----INIT STRATEGY", fork_server_model)
+        self._fork_server_model = fork_server_model
+        self._num_server_models = num_server_models
+        assert num_server_models in {1, -1}
+
+    def _aggregate_layer_parameters_with_forking(self, all_trained_values, forking_data, key):
+        trained_values = all_trained_values[key]
+        if "" not in trained_values or ("" in trained_values and len(trained_values) == 1):
             # the layer was not trained on the server
             # simply average the client layers with corresponding weights
-            return self._aggregate_layer_parameters(trained_values.values())
-        elif "" in trained_values and len(trained_values) == 1:
-            # the layer was only trained on the server -- we just return the server value
-            return trained_values[""][0]
+            tmp = self._aggregate_layer_parameters(trained_values.values())
+            del all_trained_values[key]
+            return tmp
 
-        iter_layer, s_prime = trained_values[""]
+        # `s_prime` states on how many data points the next model (i.e., the model
+        # one layer lower in the tree) has been trained on
+        iter_layer, s_prime = trained_values.pop("")
 
         for forking_clients, forking_num_dp in reversed(forking_data):
+            # how many new data points clients that have forked in this iterations contribute
+            increase = sum([trained_values[cid][1] for cid in forking_clients])
             iter_layer = self._aggregate_layer_parameters([
-                trained_values[cid] for cid in forking_clients
+                trained_values.pop(cid) for cid in forking_clients
             ] + [(iter_layer, s_prime - forking_num_dp)])
-            s_prime += sum([trained_values[cid][1] for cid in forking_clients])
-
-            # assert iter_layer.allclose(trained_values[forking_clients[0]][0])
+            s_prime += increase
 
         return iter_layer
+
+    def configure_fit(
+        self,
+        server_round: int,
+        model_state_dict: OrderedDict,
+        client_manager: ClientManager,
+        client_layer_allocator: ClientLayerAllocator
+    ) -> List[Tuple[ClientProxy, FitIns]]:
+        client_manager.wait_for(self.min_available_clients)
+        config = self.optimizer_config_generator.get_optimizer_config()
+        if self.config_client_fit_fn:
+            config |= self.config_client_fit_fn(server_round)
+
+        clients = self.sample_epoch_clients(client_manager, True)
+        if len(clients) == 0:
+            return [], []
+        num_initial_client_layers = client_layer_allocator \
+            .initialize_epoch(clients, client_manager, True)
+
+        if self._fork_server_model:
+            # when forking, we sent to the client only the initial weights it will train
+            all_clients_fit_ins = self._setup_epoch_clients(
+                server_round, clients, num_initial_client_layers, model_state_dict, True, config
+            )
+        else:
+            # we do not fork server models. For simplicity, we send all the possible
+            # weights at the beginning of the epoch
+            max_layers = [client_layer_allocator.get_max_client_layers(proxy.cid) for  proxy in clients]
+            all_clients_fit_ins = self._setup_epoch_clients(
+                server_round, clients, max_layers, model_state_dict, True, config
+            )
+            for nitl, (_, fit_ins) in zip(num_initial_client_layers, all_clients_fit_ins):
+                fit_ins.config[CLIENT_NUM_RECEIVED_LAYERS] = fit_ins.config[CLIENT_LAST_LAYER_IDX_KEY]
+                fit_ins.config[CLIENT_LAST_LAYER_IDX_KEY] = nitl
+
+        if self._num_server_models == 1:
+            all_server_models_fit_ins = self._setup_epoch_server_models(
+                [("", min(num_initial_client_layers), [proxy.cid for proxy in clients])],
+                model_state_dict, True, config
+            )
+        elif self._num_server_models == -1:
+            all_server_models_fit_ins = self._setup_epoch_server_models(
+                [(proxy.cid, min(num_initial_client_layers), [proxy.cid]) for proxy in clients],
+                model_state_dict, True, config
+            )
+
+        return all_clients_fit_ins, all_server_models_fit_ins
 
     def aggregate_fit(
         self,
@@ -50,18 +119,28 @@ class DynSLStrategy(BaseStrategy):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )
+
+        print(self)
+        if not self._fork_server_model:
+            # if there is no forking, we can aggregate the usual way
+            for s_res in server_results:
+                assert all(len(v) == 0 for v in s_res.forking_data.values())
+            return super().aggregate_fit(
+                server_round, client_results, server_results, layer_allocator, failures
+            )
+
+        assert False, "Needs to be fixed"
         self.optimizer_config_generator.end_epoch_callback()
         for failure in failures:
             log(ERROR, str(failure))
 
-        # client parameters to state dict
-        # for every parameter, we have a dictionary with client-id [key] and a tuple
-        # containing the finetuned value along with the number of trained data points [value]
-        # the dictionary also contains the values for the SINGLE server model under the key `""`
-        per_parameter_trained_values = {k: {} for k in self.model.state_dict()}
+        # finetuned parameters to state dict
+        # for every model parameter (key), we have a list with tuples, containing the finetuned
+        # value along with the number of data points. The parameters include both the client- and
+        # the server-side trained models
+        per_parameter_trained_values = {k: defaultdict(tuple) for k in self.model.state_dict()}
 
         for client_proxy, fit_res in client_results:
-            cid = client_proxy.cid
 
             client_finetuned_ndarrays = parameters_to_ndarrays(fit_res.parameters)
             processed_data_points_per_layer = {
@@ -69,40 +148,33 @@ class DynSLStrategy(BaseStrategy):
                 if k.startswith("_proc")
             }
 
-            # convert parameter list to dictionary with keys as the state_dict()
-            client_trained_statedict = {
-                key: (torch.from_numpy(array), processed_data_points_per_layer[int(key.split(".")[0])])
-                for key, array in zip(
-                    self.model.state_dict().keys(),
-                    client_finetuned_ndarrays
+            for key, array in zip(self.model.state_dict().keys(), client_finetuned_ndarrays):
+                client_dp = processed_data_points_per_layer[get_layer_idx(key)]
+                if client_dp == 0:
+                    break
+                per_parameter_trained_values[key][client_proxy] = (torch.from_numpy(array), client_dp)
+
+        for server_res in server_results:
+
+            forking_data = server_res.forking_data
+            processed_data_points_per_layer = server_res.per_layer_training_examples
+
+            for key, tensor in server_res.model_state_dict.items():
+                per_parameter_trained_values[key][""] = \
+                    (tensor.detach().cpu(), processed_data_points_per_layer[get_layer_idx(key)])
+
+            out_state_dict = OrderedDict([
+                (
+                    key,
+                    self._aggregate_layer_parameters_with_forking(
+                        per_parameter_trained_values,
+                        forking_data[get_layer_idx(key)],
+                        key
+                    )
                 )
-            }
-
-            # add the obtained values to the dictionary of all finetuned values we are building
-            for key, tensor_dp_tuple in client_trained_statedict.items():
-                per_parameter_trained_values[key][cid] = tensor_dp_tuple
-
-        assert len(server_results) == 1
-        server_res = server_results[0]
-        forking_data = server_res.forking_data
-
-        processed_data_points_per_layer = server_res.per_layer_training_examples
-
-        for key, tensor in server_res.model_state_dict.items():
-            per_parameter_trained_values[key][""] = \
-                (tensor.detach().cpu(), processed_data_points_per_layer[int(key.split(".")[0])])
-
-        out_state_dict = OrderedDict([
-            (
-                key,
-                self._aggregate_layer_parameters_with_forking(
-                    per_parameter_trained_values[key],
-                    forking_data[int(key.split(".")[0])],
-                    key
-                )
-            )
-            for key in self.model.state_dict().keys()
-        ])
+                for key in self.model.state_dict().keys()
+            ])
+        assert all(len(v) == 0 for v in per_parameter_trained_values.values())
 
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:

@@ -1,21 +1,10 @@
+import time
 import psutil
 from logging import DEBUG
-from collections import defaultdict, OrderedDict
-from typing import List, Optional
+from typing import Optional
+from collections import defaultdict
 
 import torch
-from flwr.common import log
-
-from slbd.torch.model_utils import (
-    extract_submodel,
-    param_list_to_state_dict,
-    attach_layers,
-    extract_submodel_weights,
-    get_num_layers
-)
-
-import torch
-import torch.nn as nn
 from flwr.common import log
 
 from slbd.common.utils import measure_time
@@ -44,12 +33,14 @@ class ModelTrainer:
         *,
         whole_model: FlexibleSequential,
         last_layer_idx: int,
+        num_received_layers: int,
         init_parameters,
         server_model_proxy,
         optimizer_config,
         is_training,
         sending_transform_fn,
         receiving_transform_fn,
+        server_forking=False,
     ):
         """
         Initialize the ModelTrainer.
@@ -65,32 +56,39 @@ class ModelTrainer:
         """
         self._use_cuda = torch.cuda.is_available()
         self._whole_model = whole_model
+        self._num_layers_whole_model = get_num_layers(self._whole_model)
         self._last_layer_idx = last_layer_idx
+        self._num_received_layers = num_received_layers
         self._model: Optional[FlexibleSequential] = None
         self._optimizer: Optional[torch.optim.Optimizer] = None
         self._device = torch.device("cuda" if self._use_cuda else "cpu")
         self._server_model_proxy = server_model_proxy
         self._is_training = is_training
+        self._server_forking = server_forking
         self._criterion = torch.nn.CrossEntropyLoss()
 
         # Collected metrics
         self._metrics = {"loss": 0., "accuracy": 0.}
         self._dataset_size = 0
-        self._num_processed_data_points = 0
         self._per_parameter_data_points = defaultdict(int)
+        self._num_dp_when_removed = defaultdict(int)
         self._forward_time: float = -1.
         self._backward_time: float = -1.
+        self._last_server_msg_time: float = -1.
         self._removed_parameters = {}
         self._tot_local_computation_time = 0.
 
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
 
-        self._init_model(last_layer_idx, init_parameters, optimizer_config)
+        print("Received number of layers: ", num_received_layers)
+        print("Num train layers", last_layer_idx)
+        self._init_model(num_received_layers, init_parameters, optimizer_config)
 
         self._iter_since_last_model_change = 0
+        self._num_model_layers = get_num_layers(self._model)
 
-    def _init_model(self, last_layer_idx: int, init_parameters, optimizer_config) -> None:
+    def _init_model(self, num_received_layers: int, init_parameters, optimizer_config) -> None:
         """
         Initialize the client-side model.
 
@@ -98,9 +96,9 @@ class ModelTrainer:
             last_layer_idx: Index of the last layer to include in client model
             init_parameters: Initial parameters for the model
         """
-        self._model = extract_submodel(self._whole_model, 0, last_layer_idx)
+        self._model = extract_submodel(self._whole_model, 0, num_received_layers)
         state_dict = param_list_to_state_dict(init_parameters, self._model)
-        self._model.load_state_dict(state_dict)
+        self._model.load_state_dict(state_dict, strict=True)
         self._model.to(self._device)
 
         if self._is_training:
@@ -120,30 +118,62 @@ class ModelTrainer:
         if control.layers_diff > 0:
             log(DEBUG, "Receiving %d new layers" % control.layers_diff)
             self._iter_since_last_model_change = 0
-            self._model = attach_layers(
-                self._whole_model,
-                self._model,
-                control.layers_diff,
-                control.additional_layers_parameters,
-                self._optimizer,
-            )
+            additional_layers_parameters = control.additional_layers_parameters
+            if self._server_forking:
+                assert additional_layers_parameters is not None
+                self._model = attach_layers(
+                    self._whole_model,
+                    self._model,
+                    control.layers_diff,
+                    control.additional_layers_parameters,
+                    self._optimizer,
+                )
+            else:
+                assert additional_layers_parameters is None
+                self._last_layer_idx = self._last_layer_idx + control.layers_diff
+                assert self._last_layer_idx <= get_num_layers(self._model)
+
             print("Increased model size", self._model)
         else:
             # need to better think how to properly handle this. For now, we store the
             # weights locally and upload to the server at the end of the training round
             # along with the other layers
             log(DEBUG, "Removing %d layers from client model" % -control.layers_diff)
-            new_num_layers = get_num_layers(self._model) + control.layers_diff
+            self._last_layer_idx = self._last_layer_idx + control.layers_diff
+            if not self._server_forking:
+                return
+            new_num_layers = self._num_model_layers + control.layers_diff
 
-            params = extract_submodel_state_dict(self._model, new_num_layers, get_num_layers(self._model))
+            assert False
+            params = extract_submodel_state_dict(self._model, new_num_layers, self._num_model_layers)
 
-            self._removed_parameters.update(params)
+            for removed_key, removed_param in params.state_dict():
+                if removed_key in self._removed_parameters:
+                    assert removed_key in self._num_dp_when_removed
+                    value = self._weighted_average(
+                        old_value=self._removed_parameters[removed_key],
+                        new_value=removed_param,
+                        old_weight=self._num_dp_when_removed[removed_key],
+                        new_weight=self._per_parameter_data_points[removed_key]-self._num_dp_when_removed[removed_key]
+                    )
+
+                    self._removed_parameters[removed_key] = value
+                    self._num_dp_when_removed[removed_key] = self._per_parameter_data_points[removed_key]
+
+                else:
+                    self._removed_parameters[removed_key] = removed_param
+                    self._num_dp_when_removed[removed_key] = self._per_parameter_data_points[removed_key]
+
             self._model = extract_submodel(self._model, 0, new_num_layers)
             print("Reduced model size", self._model)
 
-    def __call__(self, input_vars, labels):
-        self._iter_since_last_model_change = self._iter_since_last_model_change + 1
+    def _weighted_average(self, old_value, new_value, old_weight, new_weight):
+        value = (old_value * old_weight + new_value * new_weight) / (old_weight + new_weight)
+        return value.detach().cpu()
 
+    def __call__(self, input_vars, labels):
+        print(len(self._removed_parameters))
+        self._iter_since_last_model_change = self._iter_since_last_model_change + 1
 
         # forward on client model
         with measure_time(self._use_cuda) as timer:
@@ -154,16 +184,12 @@ class ModelTrainer:
             else:
                 input_vars = input_vars.to(self._device)
             self._optimizer.zero_grad()
-
-            if is_tuple:
-                client_output = self._model(*input_vars)
-            else:
-                client_output = self._model(input_vars)
+            client_output = self._forward_sequence_of_layers(input_vars)
 
         self._forward_time = timer.elapsed # perhaps could have a rolling average
         self._tot_local_computation_time += self._forward_time
 
-        if self._model._is_complete:
+        if self._last_layer_idx == self._num_layers_whole_model:
             # if model is in its entirety on the client, compute the loss on the client
             with measure_time(self._use_cuda) as timer:
                 loss = self._criterion(client_output, labels.to(self._device))
@@ -185,8 +211,10 @@ class ModelTrainer:
             gradient, control, loss = self._server_model_proxy(
                 embeddings=send_client_output,
                 labels=labels,
-                local_computation_time=-1 if self._iter_since_last_model_change < 4 else client_time
+                local_computation_time=-1 if self._iter_since_last_model_change < 4 else client_time,
+                tot_local_time=time.perf_counter() - self._last_server_msg_time,
             )
+            self._last_server_msg_time = time.perf_counter()
             if self.receiving_transform_fn is not None:
                 gradient = self.receiving_transform_fn(gradient, client_output=client_output)
             with measure_time(self._use_cuda) as timer:
@@ -199,14 +227,11 @@ class ModelTrainer:
             self._backward_time = timer.elapsed
         self._tot_local_computation_time += self._backward_time
 
-        _this_batch_size = labels.shape[0]
-        self._metrics["loss"] += loss * _this_batch_size
-        for layer_idx in range(get_num_layers(self._model)):
-            self._per_parameter_data_points[layer_idx] += _this_batch_size
         self._update_model(control)
 
+        _this_batch_size = labels.shape[0]
+        self._metrics["loss"] += loss * _this_batch_size
         self._dataset_size += _this_batch_size
-        self._num_processed_data_points += _this_batch_size
 
     def evaluate(self, input_vars, output_vars):
         input_vars = input_vars.to(self._device)
@@ -228,42 +253,50 @@ class ModelTrainer:
                 local_computation_time=self._forward_time,
             )
         logits = logits.to(self._device)
-        self._num_processed_data_points += output_vars.shape[0]
         self._metrics["loss"] += self._criterion(logits, output_vars) * output_vars.shape[0]
         self._metrics["accuracy"] += (logits.argmax(dim=1) == output_vars).sum()
         self._update_model(control)
 
     def get_evaluation_metrics(self):
         return {
-            k: v.item() / self._num_processed_data_points for k, v in self._metrics.items()
+            k: v.item() / self._dataset_size for k, v in self._metrics.items()
         }
 
     def get_training_metrics(self):
         print("Total local computation time", self._tot_local_computation_time)
-        print({"training_loss": self._metrics["loss"] / self._num_processed_data_points})
+        print({"training_loss": self._metrics["loss"] / self._dataset_size})
         return {
-            "training_loss": self._metrics["loss"] / self._num_processed_data_points,
+            "training_loss": self._metrics["loss"] / self._dataset_size,
             "local_computation_time": self._tot_local_computation_time
         }
 
     def get_fit_results(self):
-        # TODO Create a dictionary with the latest values for each key
-        # probably not ideal, as previous versions are discarded
-        combined_state_dict = self._removed_parameters
-
-        # First add the current model state dict
-        combined_state_dict.update(dict(self._model.state_dict()))
 
         # Convert the combined state dict to list of numpy arrays
         params = []
-        for k in self._whole_model.state_dict():
-            if k in combined_state_dict:
-                params.append(combined_state_dict[k].detach().cpu().numpy())
-                del combined_state_dict[k]
-            else:
-                assert len(combined_state_dict) == 0
+
+        for k, param in self._model.state_dict().items():
+            layer_idx = int(k.split(".")[0])
+            if self._per_parameter_data_points[layer_idx] == 0:
+                # we did not train any further model parameters
                 break
-        self._removed_parameters = {}
+            elif k not in self._removed_parameters:
+                # we have never removed the layer from local training
+                params.append(param.detach().cpu().numpy())
+            elif self._num_dp_when_removed[k] == self._per_parameter_data_points[k]:
+                assert False
+                params.append(self._removed_parameters[k])
+            else:
+                # we have removed it, and trained again. Thus, we need a weighted average
+                assert False
+                value = self._weighted_average(
+                    old_value=self._removed_parameters[k],
+                    new_value=param,
+                    old_weight=self._num_dp_when_removed[k],
+                    new_weight=self._per_parameter_data_points[k]-self._num_dp_when_removed[k]
+                )
+                params.append(value.detach().cpu().numpy())
+
         return (
             params,
             {f"_proc{k}": v for k, v in self._per_parameter_data_points.items()},
@@ -280,6 +313,21 @@ class ModelTrainer:
         )
         # dummy values
         self._dataset_size += 1
-        self._num_processed_data_points += 1
         for layer_idx in range(get_num_layers(self._model)):
             self._per_parameter_data_points[layer_idx] += 1
+
+    def _forward_sequence_of_layers(self, data):
+        layers = list(self._model)[:self._last_layer_idx]
+
+        x = data
+        if isinstance(x, torch.Tensor):
+            bs = x.shape[0]
+            for idx, layer in enumerate(layers):
+                x = layer(x)
+                self._per_parameter_data_points[idx] += bs
+        else:
+            bs = x[0].shape[0]
+            for idx, layer in enumerate(layers):
+                x = layer(*x)
+                self._per_parameter_data_points[idx] += bs
+        return x

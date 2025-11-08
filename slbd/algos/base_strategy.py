@@ -326,5 +326,4 @@ class BaseStrategy(Strategy):
         return copy.deepcopy(self.model)
 
     def route_client_request_to_server_model(self, client_id):
-        _ = (client_id, )
-        return ""
+        return self._cid_to_sid_mapping[client_id]

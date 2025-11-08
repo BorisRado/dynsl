@@ -58,15 +58,13 @@ class OracleClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         return self._num_offloaded_layers[client_id]
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes: int):
         return
 
     def update_server_metrics(
         self,
         num_offloaded_layers: int,
         elapsed_time: float,
-        wait_time_in_ready_state: float,
-        batch_preparation_time: float
     ):
         return
 
