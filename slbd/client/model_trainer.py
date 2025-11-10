@@ -131,6 +131,7 @@ class ModelTrainer:
             else:
                 assert additional_layers_parameters is None
                 self._last_layer_idx = self._last_layer_idx + control.layers_diff
+                print("Server is NOT forking, just increasing counter", self._last_layer_idx)
                 assert self._last_layer_idx <= get_num_layers(self._model)
 
             print("Increased model size", self._model)
@@ -141,6 +142,7 @@ class ModelTrainer:
             log(DEBUG, "Removing %d layers from client model" % -control.layers_diff)
             self._last_layer_idx = self._last_layer_idx + control.layers_diff
             if not self._server_forking:
+                print("Server is NOT forking, just decreasing counter", self._last_layer_idx)
                 return
             new_num_layers = self._num_model_layers + control.layers_diff
 
@@ -172,7 +174,6 @@ class ModelTrainer:
         return value.detach().cpu()
 
     def __call__(self, input_vars, labels):
-        print(len(self._removed_parameters))
         self._iter_since_last_model_change = self._iter_since_last_model_change + 1
 
         # forward on client model

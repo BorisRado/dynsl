@@ -60,7 +60,7 @@ def init_dynsl_components(config, model):
     strategy = DynSLStrategy(
         model=model,
         optimizer_config=OmegaConf.to_container(config.optimizer),
-        **OmegaConf.to_container(config.strategy),
+        **OmegaConf.to_container(config.strategy, resolve=True),
     )
     client_layer_allocator = DynSLClientLayerAllocator(
         num_model_layers=get_num_layers(model),
@@ -74,7 +74,7 @@ def init_oracle_components(config, model):
     strategy = OracleStrategy(
         model=model,
         optimizer_config=OmegaConf.to_container(config.optimizer),
-        **OmegaConf.to_container(config.strategy),
+        **OmegaConf.to_container(config.strategy, resolve=True),
     )
     client_layer_allocator = OracleClientLayerAllocator(
         num_model_layers=get_num_layers(model),
@@ -131,7 +131,7 @@ def init_ares_components(config, model):
     strategy = ARESStrategy(
         model=model,
         optimizer_config=OmegaConf.to_container(config.optimizer),
-        **OmegaConf.to_container(config.strategy),
+        **OmegaConf.to_container(config.strategy, resolve=True),
     )
 
     # profile the model on the server
@@ -149,7 +149,6 @@ def init_ares_components(config, model):
     )
     log(INFO, "Server profiling completed")
     client_layer_allocator = ARESClientLayerAllocator(
-        client_profiling_frequency=4,
         server_fb_times=[fw+bw for fw, bw in zip(forward_times, backward_times)],
         activation_sizes=activation_sizes,
         client_throughputs_MBps=1000, # TODO: it is hardcoded right now
@@ -164,7 +163,7 @@ def init_fedavg_components(config, model):
     strategy = FedAvgStrategy(
         model=model,
         optimizer_config=OmegaConf.to_container(config.optimizer),
-        **OmegaConf.to_container(config.strategy),
+        **OmegaConf.to_container(config.strategy, resolve=True),
         **OmegaConf.to_container(config.algorithm.strategy_init_args),
     )
     client_layer_allocator = FedAvgClientLayerAllocator(
@@ -179,8 +178,7 @@ def init_splitfed_components(config, model):
     strategy = SplitFedStrategy(
         model=model,
         optimizer_config=OmegaConf.to_container(config.optimizer),
-        **OmegaConf.to_container(config.strategy),
-        **OmegaConf.to_container(config.algorithm.strategy_init_args),
+        **OmegaConf.to_container(config.strategy, resolve=True),
     )
 
     client_layer_allocator = SplitFedClientLayerAllocator(

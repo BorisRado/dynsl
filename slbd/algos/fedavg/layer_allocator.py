@@ -41,3 +41,6 @@ class FedAvgClientLayerAllocator(ClientLayerAllocator):
 
     def update_server_metrics(self, num_offloaded_layers: int, elapsed_time: float):
         self.raise_exception()
+
+    def collect_epoch_metrics(self):
+        return {}

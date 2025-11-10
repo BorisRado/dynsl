@@ -26,6 +26,7 @@ strategy:
   min_fit_clients: 1
   min_evaluate_clients: 0
   min_available_clients: 1
+  num_server_models: ${algorithm.num_server_models}
 server_model_servicer:
   servicer_name: queue
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model

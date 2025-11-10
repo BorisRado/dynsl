@@ -2,3 +2,4 @@ name: oracle
 layer_allocator_init_args:
   device_mapping:
     {}
+num_server_models: 1

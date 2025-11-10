@@ -24,21 +24,16 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 class DynSLStrategy(BaseStrategy):
 
-    def __init__(self, fork_server_model: bool, num_server_models: int, **kwargs):
+    def __init__(self, fork_server_model: bool, **kwargs):
         """Initialize
 
         Parameters
         ----------
         fork_server_model : bool
             If true, the latest weights of the server model will be sent to the client whenever increasing the number of layers
-        num_server_models : int
-            For now possible values as 1 and -1. 1: there is a common model on the server. -1: every client has its own server model
         """
         super().__init__(**kwargs)
-        print("----INIT STRATEGY", fork_server_model)
         self._fork_server_model = fork_server_model
-        self._num_server_models = num_server_models
-        assert num_server_models in {1, -1}
 
     def _aggregate_layer_parameters_with_forking(self, all_trained_values, forking_data, key):
         trained_values = all_trained_values[key]
@@ -97,14 +92,19 @@ class DynSLStrategy(BaseStrategy):
                 fit_ins.config[CLIENT_NUM_RECEIVED_LAYERS] = fit_ins.config[CLIENT_LAST_LAYER_IDX_KEY]
                 fit_ins.config[CLIENT_LAST_LAYER_IDX_KEY] = nitl
 
-        if self._num_server_models == 1:
+        if self.num_server_models == 1:
+            min_layers = min(client_layer_allocator.get_min_client_layers(proxy.cid) for proxy in clients)
             all_server_models_fit_ins = self._setup_epoch_server_models(
-                [("", min(num_initial_client_layers), [proxy.cid for proxy in clients])],
+                [("", min_layers, [proxy.cid for proxy in clients])],
                 model_state_dict, True, config
             )
-        elif self._num_server_models == -1:
-            all_server_models_fit_ins = self._setup_epoch_server_models(
-                [(proxy.cid, min(num_initial_client_layers), [proxy.cid]) for proxy in clients],
+        elif self.num_server_models == -1:
+            all_server_models_fit_ins = self._setup_epoch_server_models([
+                (
+                    proxy.cid,
+                    client_layer_allocator.get_min_client_layers(proxy.cid),
+                    [proxy.cid]
+                ) for proxy in clients],
                 model_state_dict, True, config
             )
 
@@ -120,7 +120,6 @@ class DynSLStrategy(BaseStrategy):
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )
 
-        print(self)
         if not self._fork_server_model:
             # if there is no forking, we can aggregate the usual way
             for s_res in server_results:

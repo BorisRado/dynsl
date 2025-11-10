@@ -92,7 +92,7 @@ def run(cfg: DictConfig):
             loss.backward()
             optimizer.step()
             tot_loss += loss.item()
-        print(f"Loss {tot_loss / len(trainloader):.3f}")
+        print(f"Loss {tot_loss / len(trainloader)}")
 
     evaluate_model(model, trainloader, device)
     print(f"Runtime {time.time() - start_time:.2f}")

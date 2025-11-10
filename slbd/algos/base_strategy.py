@@ -27,7 +27,7 @@ from slbd.common import (
     ServerModelFitRes,
 )
 from slbd.server.strategy import Strategy
-from slbd.torch.model_utils import get_model_layer_keys, get_num_layers
+from slbd.torch.model_utils import get_model_layer_keys, get_num_layers, get_layer_idx
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.torch.utils import OptimizerGenerator
 from slbd.torch.sequential_model import FlexibleSequential
@@ -62,6 +62,7 @@ class BaseStrategy(Strategy):
         *,
         model: FlexibleSequential,
         optimizer_config,
+        num_server_models: int,
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,
         config_client_fit_fn: Optional[Callable[[str], Dict[str, Scalar]]] = None,
@@ -82,6 +83,8 @@ class BaseStrategy(Strategy):
         self.min_evaluate_clients = min_evaluate_clients
         self.min_available_clients = min_available_clients
         self._cid_to_sid_mapping = {}
+        self.num_server_models = num_server_models
+        assert num_server_models in {1, 0, -1}
         self.optimizer_config_generator = OptimizerGenerator(
             optimizer_cfg=optimizer_config["optimizer"],
             scheduler_cfg=optimizer_config["scheduler"],
@@ -174,10 +177,19 @@ class BaseStrategy(Strategy):
         all_clients_fit_ins = self._setup_epoch_clients(
             server_round, clients, num_initial_client_layers, model_state_dict, True, config
         )
-        all_server_models_fit_ins = self._setup_epoch_server_models(
-            [("", min(num_initial_client_layers), [proxy.cid for proxy in clients])],
-            model_state_dict, True, config
-        )
+        if self.num_server_models == 1:
+            all_server_models_fit_ins = self._setup_epoch_server_models(
+                [("", min(num_initial_client_layers), [proxy.cid for proxy in clients])],
+                model_state_dict, True, config
+            )
+        elif self.num_server_models == -1:
+            all_server_models_fit_ins = self._setup_epoch_server_models(
+                [
+                    (proxy.cid, nicl, [proxy.cid])
+                    for proxy, nicl in zip(clients, num_initial_client_layers)
+                ],
+                model_state_dict, True, config
+            )
         return all_clients_fit_ins, all_server_models_fit_ins
 
     def sample_epoch_clients(self, client_manager, is_training):
@@ -252,7 +264,7 @@ class BaseStrategy(Strategy):
 
             # convert parameter list to dictionary with keys as the state_dict()
             client_trained_statedict = {
-                key: (torch.from_numpy(array), processed_data_points_per_layer[int(key.split(".")[0])])
+                key: (torch.from_numpy(array), processed_data_points_per_layer[get_layer_idx(key)])
                 for key, array in zip(
                     self.model.state_dict().keys(),
                     client_finetuned_ndarrays
@@ -269,7 +281,7 @@ class BaseStrategy(Strategy):
             processed_data_points_per_layer = res.per_layer_training_examples
             for key, tensor in res.model_state_dict.items():
                 per_parameter_trained_values[key].append(
-                    (tensor.detach().cpu(), processed_data_points_per_layer[int(key.split(".")[0])])
+                    (tensor.detach().cpu(), processed_data_points_per_layer[get_layer_idx(key)])
                 )
         out_state_dict = OrderedDict([
             (key, self._aggregate_layer_parameters(per_parameter_trained_values[key]))

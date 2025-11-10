@@ -1,5 +1,6 @@
 name: dynsl_v2
 forking: false  # if true, we "fork" the server model. Otherwise (false), we send the weights of the initial model in that epoch and train those
+num_server_models: 1
 layer_allocator_init_args:
   reallocation_frequency: 8.0
   max_client_layers: -1
@@ -9,6 +10,5 @@ layer_allocator_init_args:
   layer_allocation_optimizer: genetic
 strategy_init_args:
   fork_server_model: ${algorithm.forking}
-  num_server_models: 1 # how many models are to be trained on the server. -1 if every client should have its own model on the server
 client_adapted_args:
   server_forking: ${algorithm.forking}

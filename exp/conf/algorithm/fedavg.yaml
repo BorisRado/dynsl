@@ -1,3 +1,4 @@
 name: fedavg
+num_server_models: 0
 layer_allocator_init_args: {}
 strategy_init_args: {}

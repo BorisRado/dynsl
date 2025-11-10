@@ -52,7 +52,8 @@ class TimingMetrics:
 
     def compute_throughput(self, num_bytes):
         # communication time includes forward and backward computation, thus we multiply times 2
-        self.throughput = 2 * (num_bytes * 8 / self.communication_time) / 1e6
+        # expressed in bits per second
+        self.throughput = 2 * (num_bytes * 8 / self.communication_time)
 
 
 @dataclass

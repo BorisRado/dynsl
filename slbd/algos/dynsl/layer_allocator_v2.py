@@ -133,6 +133,10 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             k: 2 * 4 * per_layer_communication_volume[k] * 8 / throughput_Gbps
             for k in self.meaningful_split_points
         }
+        self._per_batch_bits = {
+            k: per_layer_communication_volume[k] * 32
+            for k in self.meaningful_split_points
+        }
         print("Communication:", self.per_batch_server_communication_time)
 
     def _get_client_properties(self, client_proxy: ClientProxy) -> int:
@@ -237,6 +241,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         print({self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
         print({self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
         print({self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
+        print({self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
         self._allocated_layer_history.append(self._client_allocated_layers.copy())
         if any(v < 6 for v in self._client_train_batches_count.values()):
             print("Not enough data to try reallocating...")
@@ -359,9 +364,13 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             factor *= 2.0
         if self.meaningful_split_points.index(L) - self.meaningful_split_points.index(self._client_allocated_layers[cid]) > 2:
             factor *= 1.5
+        # client computation
         per_batch_time = self._client_training_times[cid] * factor # client training
+        # server computation
         per_batch_time += self._server_training_times[L] # server training
-        per_batch_time += (self.per_batch_server_communication_time[L] * 1.2) # * 1.2 to account for server overhead for serialization/deserialization
+        # communication
+        per_batch_time += self._per_batch_bits[L] * self._client_throughput[cid]
+        print(f"Espected communicatin time: {per_batch_time}")
         reg_term = 0. if L == self._client_allocated_layers[cid] else 2.0
         return self._pending_batches[cid] * per_batch_time + reg_term
 
@@ -447,3 +456,6 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
 
     def get_max_client_layers(self, cid):
         return min(self._per_client_max_layers[cid], self._max_client_layers)
+
+    def get_min_client_layers(self, cid):
+        return self._per_client_min_layers[cid]
