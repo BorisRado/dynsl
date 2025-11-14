@@ -10,6 +10,7 @@ from exp.src.sl.mo_client import MOTorchClient
 from exp.src.common.other import set_torch_flags
 from exp.src.common.k8s import get_all_pods_and_nodes, get_node_name
 from exp.src.model.utils import warmup_device
+from exp.src.data.loading import load_client_trainset
 
 
 def handle_bg_process_config_colext(client_init_kwargs, cfg):
@@ -45,6 +46,7 @@ def run(cfg: DictConfig):
     if "COLEXT_SERVER_ADDRESS" in os.environ:
         print("Overriding server address with CoLExT configuration")
         cfg.client.server_address = os.environ["COLEXT_SERVER_ADDRESS"]
+        cfg.client.init_kwargs.cid = int(os.environ["COLEXT_CLIENT_ID"])
         print("Server address:", cfg.client.server_address)
 
     client_init_kwargs = OmegaConf.to_container(cfg.client.init_kwargs)
@@ -52,13 +54,19 @@ def run(cfg: DictConfig):
     print("Client init kwargs:", client_init_kwargs)
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
+    trainset = load_client_trainset(
+        client_idx=client_init_kwargs["cid"],
+        dataset_config=cfg.data,
+        partitioning_config=cfg.partitioning,
+        seed=cfg.general.seed,
+    )
+
     model = instantiate(cfg.model)
     warmup_device(steps=30)
     client = MOTorchClient(
         **client_init_kwargs,
-        dataset_config=cfg.data,
-        partitioning_config=cfg.partitioning,
-        seed=cfg.general.seed
+        trainset=trainset,
+        seed=cfg.general.seed,
     )
 
     # NOTE!!! if passing `client` the same client will be used

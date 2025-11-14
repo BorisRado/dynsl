@@ -134,7 +134,7 @@ class ModelTrainer:
                 print("Server is NOT forking, just increasing counter", self._last_layer_idx)
                 assert self._last_layer_idx <= get_num_layers(self._model)
 
-            print("Increased model size", self._model)
+            print(f"Increased model size to {self._last_layer_idx}")
         else:
             # need to better think how to properly handle this. For now, we store the
             # weights locally and upload to the server at the end of the training round

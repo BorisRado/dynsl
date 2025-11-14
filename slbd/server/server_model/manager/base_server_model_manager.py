@@ -4,7 +4,7 @@ import collections
 import torch
 
 from slbd.server.server_model.manager import ServerModelManager
-from slbd.torch.model_utils import extract_submodel_weights, get_num_layers
+from slbd.torch.model_utils import get_num_layers
 
 
 class BaseServerModelManager(ServerModelManager):
@@ -48,16 +48,6 @@ class BaseServerModelManager(ServerModelManager):
 
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
-
-    def extract_layer_weights(self, layer_from, layer_to):
-        # returns a copy of the model weights
-        raise Exception("")
-        assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
-        model = self.spanned_server_models[""]
-        shift = model.first_server_layer
-        return extract_submodel_weights(
-            model.get_model(), layer_from-shift, layer_to-shift
-        )
 
     def create_fork(self, forking_clients_and_layers):
         # forking_clients_and_layers contains for every client idx a set of layers that

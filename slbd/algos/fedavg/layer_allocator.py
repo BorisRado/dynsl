@@ -12,7 +12,9 @@ class FedAvgClientLayerAllocator(ClientLayerAllocator):
     def __init__(
         self,
         num_model_layers,
+        meaningful_split_points,
     ):
+        _ = (meaningful_split_points, )
         self._num_model_layers = num_model_layers
 
     def initialize_epoch(

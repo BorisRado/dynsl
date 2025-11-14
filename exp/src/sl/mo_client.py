@@ -4,7 +4,6 @@ from slbd.client.abstract_torch_client import AbstractTorchClient
 
 from exp.src.common.stochasticity import set_seed
 from exp.src.common.background_process_manager import BackgroundProcessManager
-from exp.src.data.loading import load_client_trainset
 from exp.src.data.utils import get_dataloader
 
 
@@ -15,24 +14,17 @@ class MOTorchClient(AbstractTorchClient):
         cid,
         min_layers,
         batch_size,
-        dataset_config,
-        partitioning_config,
+        trainset,
         seed,
         bg_proc_delay=0.,
         bg_proc_duration=0.,
         bg_num_procs=0,
         bg_device="cpu"
     ):
-        self.cid = int(cid)
         self.min_layers = min_layers
         self.batch_size = batch_size
         self.seed = seed
-        self.trainset = load_client_trainset(
-            client_idx=self.cid,
-            dataset_config=dataset_config,
-            partitioning_config=partitioning_config,
-            seed=seed
-        )
+        self.trainset = trainset
         self.bg_proc_delay = bg_proc_delay
         self.bg_proc_duration = bg_proc_duration
         self.bg_num_procs = bg_num_procs

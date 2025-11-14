@@ -16,10 +16,12 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         self,
         num_model_layers,
         num_client_layers,
+        meaningful_split_points,
     ):
         self._num_client_layers = num_client_layers
         self._num_offloaded_layers = num_model_layers - num_client_layers
 
+        assert num_client_layers in meaningful_split_points
         self._server_training_time = []
         self._wait_time_in_ready_state = []
         self._batch_preparation_times = []

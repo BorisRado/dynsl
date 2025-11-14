@@ -1,0 +1,11 @@
+name: oracle
+layer_allocator_init_args:
+  client_configuration:
+    - ids: "0-7"
+      num_layers: 3
+    - ids: "7-20"
+      num_layers: 6
+    - ids: "20-60"
+      num_layers: 9
+strategy_init_args: {}
+num_server_models: -1

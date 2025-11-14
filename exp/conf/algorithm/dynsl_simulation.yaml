@@ -1,0 +1,27 @@
+name: dynsl_simulation
+forking: false  # if true, we "fork" the server model. Otherwise (false), we send the weights of the initial model in that epoch and train those
+num_server_models: -1
+layer_allocator_init_args:
+  client_configuration:
+    - ids: "0-10"
+      evolution:
+        - start: 0.0
+          num_layers: 4
+        - start: 0.5
+          num_layers: 6
+    - ids: "10-25"
+      evolution:
+        - start: 0.0
+          num_layers: 4
+        - start: 0.2
+          num_layers: 8
+    - ids: "25-60"
+      evolution:
+        - start: 0.0
+          num_layers: 4
+        - start: 0.1
+          num_layers: 8
+        - start: 0.7
+          num_layers: 5
+strategy_init_args:
+  fork_server_model: false

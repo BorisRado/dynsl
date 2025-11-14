@@ -1,2 +1,3 @@
 strategy: cosine
 T_max: 200
+eta_min: 1e-10

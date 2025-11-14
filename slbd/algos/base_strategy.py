@@ -300,7 +300,10 @@ class BaseStrategy(Strategy):
             wandb.log(
                 aggregated_metrics |
                 layer_allocator.collect_epoch_metrics() |
-                {"fit_round_time": self._fit_epoch_duration}
+                {
+                    "fit_round_time": self._fit_epoch_duration
+                    if hasattr(self, "_fit_epoch_duration") else -1.
+                }
             )
         return out_state_dict, aggregated_metrics
 
