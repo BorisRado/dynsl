@@ -10,8 +10,6 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
 from flwr.common import log
 
-from slbd.common.constants import CLIENT_ID_CONFIG_KEY
-
 from slbd.algos.dynsl import DynSLStrategy
 from slbd.algos.dynsl.simulation_layer_allocator import DynSLSimulationClientLayerAllocator
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
@@ -46,10 +44,7 @@ def run(cfg: DictConfig):
     del cfg.server_model_servicer.request_group_timeout
 
     # sanity checks
-    assert cfg.algorithm.num_server_models in {0, -1}, \
-        "This simulation can only be run if every client has its own server model, so that every" \
-        " client has an independent training process"
-    assert cfg.algorithm.name in {"splitfed_v1", "dynsl_simulation", "fedavg", "oracle"}
+    assert cfg.algorithm.name in {"splitfed_v1", "splitfed_v2", "dynsl_simulation", "fedavg", "oracle"}
     assert len([v for v in cfg.client.init_kwargs.keys() if v.startswith("bg_")]) == 0, \
         "Makes no sense to use background processes when using simulations"
 
@@ -86,6 +81,7 @@ def run(cfg: DictConfig):
     strategy = {
         "dynsl_simulation": DynSLStrategy,
         "splitfed_v1": SplitFedStrategy,
+        "splitfed_v2": SplitFedStrategy,
         "oracle": OracleStrategy,
         "fedavg": FedAvgStrategy,
     }[cfg.algorithm.name](
@@ -98,6 +94,7 @@ def run(cfg: DictConfig):
     client_layer_allocator = {
         "dynsl_simulation": DynSLSimulationClientLayerAllocator,
         "splitfed_v1": SplitFedClientLayerAllocator,
+        "splitfed_v2": SplitFedClientLayerAllocator,
         "oracle": OracleSimulationClientLayerAllocator,
         "fedavg": FedAvgClientLayerAllocator
     }[cfg.algorithm.name](
