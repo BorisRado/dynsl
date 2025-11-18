@@ -10,12 +10,15 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
 from flwr.common import log
 
+from slbd.common.constants import CLIENT_ID_CONFIG_KEY
+
 from slbd.algos.dynsl import DynSLStrategy
 from slbd.algos.dynsl.simulation_layer_allocator import DynSLSimulationClientLayerAllocator
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
 from slbd.algos.oracle import OracleSimulationClientLayerAllocator, OracleStrategy
 from slbd.torch.model_utils import get_num_layers
+from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
 
 from exp.src.common.wandb import init_wandb, finish_wandb, run_exists_already
 from exp.src.common.stochasticity import set_seed
@@ -27,9 +30,9 @@ from exp.src.model.utils import test_model
 from exp.src.sl.mo_client import MOTorchClient
 from exp.src.sl.simulation import (
     SimulationClientManager,
-    SimulationServerModelManager,
     fit_clients_simulation,
     SimulationClientProxy,
+    SimulationServicer,
 )
 
 
@@ -41,7 +44,6 @@ def run(cfg: DictConfig):
     del cfg.server
     del cfg.server_model_manager
     del cfg.server_model_servicer.servicer_name
-    del cfg.server_model_servicer.request_group_timeout
 
     # sanity checks
     assert cfg.algorithm.name in {"splitfed_v1", "splitfed_v2", "dynsl_simulation", "fedavg", "oracle"}
@@ -104,9 +106,17 @@ def run(cfg: DictConfig):
     )
 
     client_manager = SimulationClientManager(clients)
-    server_model_manager = SimulationServerModelManager(
+    server_model_manager = MultithreadingServerModelManager(
         model=copy.deepcopy(model),
-        client_layer_allocator=client_layer_allocator
+        exp_config=None,
+    )
+
+    servicer = SimulationServicer(
+        server_model_manager=server_model_manager,
+        client_layer_allocator=client_layer_allocator,
+        strategy=strategy,
+        request_group_timeout=cfg.server_model_servicer.request_group_timeout,
+        num_concat_batches=cfg.server_model_servicer.num_concat_batches,
     )
 
     model_state_dict = model.state_dict()
@@ -135,12 +145,13 @@ def run(cfg: DictConfig):
 
         server_model_manager.initialize_server_models(server_model_configs, is_training=True)
 
+        assert server_model_manager.get_num_server_models() in {0, 1, len(client_instructions)}
+
         # Collect `fit` results from all clients participating in this round
         results = fit_clients_simulation(
             client_instructions=client_instructions,
-            strategy=strategy,
-            server_model_manager=server_model_manager,
             whole_model=model,
+            servicer=servicer,
         )
         server_fit_res = server_model_manager.collect_server_fit_results()
         aggregated_result = strategy.aggregate_fit(

@@ -1,5 +1,4 @@
 import copy
-import time
 import asyncio
 from typing import Union, List
 
@@ -19,17 +18,15 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     def __init__(
         self,
         model: FlexibleSequential,
-        shuffle_data: bool,
         exp_config,
     ) -> None:
-        super().__init__(model, shuffle_data)
+        super().__init__(model, )
         _ = (exp_config,)
         self.spanned_server_models = {}
         self._model_locks = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # caching -- if parameters were extracted very recently, instead of extracting them again,
         # and converting them to bytes from scratch, we re-use recently extracted ones -- Faster
-        self._cached_binarized_parameters = {}
 
     async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
@@ -38,7 +35,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         else:
             embeddings = embeddings.to(self.device, non_blocking=True)
         labels = labels.to(self.device, non_blocking=True)
-
 
         async with self._model_locks[model_id]:
             gradient, loss = self.spanned_server_models[model_id].train_and_compute_gradient(
@@ -60,7 +56,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         for sid, model in self.spanned_server_models.items():
             res: ServerModelFitRes = model.get_fit_result()
             res.sid = sid
-            res.forking_data = self.forking_data
+            res.forking_data = {}
             out.append(res)
 
         return out
@@ -79,7 +75,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         configs: Union[List[ServerModelFitIns], List[ServerModelEvaluateIns]],
         is_training: bool,
     ):
-        self.forking_data = self.initialize_forking_data()
         if len(configs) == 0:
             # no need for any server model
             return
@@ -99,14 +94,15 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     async def extract_layer_weights(self, layer_from, layer_to):
         # returns a copy of the model weights
         assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
-        key = (layer_from, layer_to)
-        if key not in self._cached_binarized_parameters or time.time() - self._cached_binarized_parameters[key][1] > 2.0:
-            model = self.spanned_server_models[""]
-            shift = model.first_server_layer
-            async with self._model_locks[""]:
-                params = extract_submodel_weights(
-                    model.get_model(), layer_from-shift, layer_to-shift
-                )
-            params = torch_list_to_bytes(params)
-            self._cached_binarized_parameters[key] = (params, time.time())
-        return self._cached_binarized_parameters[key][0]
+        model = self.spanned_server_models[""]
+        shift = model.first_server_layer
+        async with self._model_locks[""]:
+            params = extract_submodel_weights(
+                model.get_model(), layer_from-shift, layer_to-shift
+            )
+        params = torch_list_to_bytes(params)
+        return params
+
+    def get_num_server_models(self):
+        assert len(self.spanned_server_models) == len(self._model_locks)
+        return len(self.spanned_server_models)

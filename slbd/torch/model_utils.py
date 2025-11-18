@@ -52,9 +52,8 @@ def extract_submodel_weights(model: FlexibleSequential, start_idx: int, end_idx:
     Returns:
         List of tensors containing the model weights
     """
-    max_num_layers = get_num_layers(model)
     if end_idx == -1:
-        end_idx = max_num_layers
+        end_idx = get_num_layers(model)
     layers_to_copy = list(model.children())[start_idx:end_idx]
 
     return [tensor.detach().cpu() for layer in layers_to_copy for tensor in layer.state_dict().values()]

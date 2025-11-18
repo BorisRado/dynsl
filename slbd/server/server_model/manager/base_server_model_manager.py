@@ -12,19 +12,9 @@ class BaseServerModelManager(ServerModelManager):
     def __init__(
         self,
         model,
-        shuffle_data: bool,
     ) -> None:
         super().__init__()
         self.base_model = model
-        self._shuffle_data = shuffle_data
-        self.forking_data = self.initialize_forking_data()
-
-    def initialize_forking_data(self):
-        # forking data is a dictionary that for every layer contains a list of tuples
-        # every tuple is a pair containing a set of clients that offloaded that layer
-        # and the number of data points that were processed by the layer when the fork
-        # happened
-        return {layer_idx: [] for layer_idx in range(get_num_layers(self.base_model))}
 
     def _concat_and_shuffle_data(self, embeddings, labels):
         sizes = [b.shape[0] for b in labels]
@@ -37,8 +27,6 @@ class BaseServerModelManager(ServerModelManager):
             )
 
         labels = torch.cat(labels, dim=0)
-        if self._shuffle_data:
-            raise Exception("Not implemented yet")
         return embeddings, labels, (sizes,)
 
     def _split_and_unshuffle_data(self, loss, gradient, control):

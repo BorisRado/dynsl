@@ -63,7 +63,7 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         # initialize the model trainer
         model_trainer = ModelTrainer(
             whole_model=self.whole_model,
-            last_layer_idx=last_client_layer_idx,
+            num_training_layers=last_client_layer_idx,
             num_received_layers=num_received_layers,
             init_parameters=parameters,
             server_model_proxy=self.server_model_proxy,
@@ -71,7 +71,7 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
             sending_transform_fn=self.sending_transform_fn,
             receiving_transform_fn=self.receiving_transform_fn,
             is_training=True,
-            server_forking=self._server_forking,
+            decrease_layers_strategy=None,
         )
 
         # call the model-owner training logic, and measure the time it takes
@@ -100,7 +100,7 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         # initialize the model trainer
         model_trainer = ModelTrainer(
             whole_model=self.whole_model,
-            last_layer_idx=last_client_layer_idx,
+            num_training_layers=last_client_layer_idx,
             init_parameters=parameters,
             server_model_proxy=self.server_model_proxy,
             is_training=False
