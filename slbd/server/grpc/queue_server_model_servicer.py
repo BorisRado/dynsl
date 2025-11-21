@@ -38,28 +38,54 @@ class BatchingWorkerManager:
         self,
         server_model_manager: ServerModelManager,
         client_layer_allocator: ClientLayerAllocator,
-        request_queues: Dict[Tuple[int, str], asyncio.Queue],
         num_concat_batches: int,
         request_group_timeout: float,
         sending_transform_fn: Optional[Callable],
         receiving_transform_fn: Optional[Callable],
-        send_server_parameters_when_forking: bool,
+        dynamic_layers_strategy: str,
         is_cuda_available: bool,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
         self.server_model_manager = server_model_manager
         self.client_layer_allocator = client_layer_allocator
-        self._request_queues = request_queues
+        self._request_queues: Dict[Tuple[int, str], asyncio.Queue] = defaultdict(asyncio.Queue)
         self._num_concat_batches = num_concat_batches
         self.request_group_timeout = request_group_timeout
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
-        self._send_server_parameters_when_forking = send_server_parameters_when_forking
+        self._dynamic_layers_strategy = dynamic_layers_strategy
         self._is_cuda_available = is_cuda_available
+        self._workers = {}
         # Use provided event loop if available (helps running in background
         # threads or simulation contexts). Fall back to the current running
         # loop in the caller's thread.
         self._loop = event_loop if event_loop is not None else asyncio.get_running_loop()
+
+    def enqueue_and_get_future(
+        self,
+        client_id: str,
+        data: BatchDataForward,
+    ) -> BatchDataBackward:
+
+        future = self._loop.create_future()
+        server_id = self.server_model_manager.strategy \
+            .route_client_request_to_server_model(client_id)
+
+        self.client_layer_allocator.update_client_metrics(
+            client_id=client_id,
+            metrics=data.client_timing_metrics,
+            num_received_bytes=len(data.data["embeddings"])
+        )
+        num_offloaded_layers = self.client_layer_allocator \
+            .get_client_offloaded_layer_count(client_id)
+        key = (num_offloaded_layers, server_id)
+
+        if key not in self._workers or self._workers[key].done():
+            # start the consumer process using the batching worker
+            self._workers[key] = self._loop.create_task(self.run(*key))
+        self._request_queues[key].put_nowait((data.data, future, client_id))
+
+        return future
 
     async def run(self, num_offloaded_layers: int, server_id: str):
         q = self._request_queues[(num_offloaded_layers, server_id)]
@@ -74,8 +100,14 @@ class BatchingWorkerManager:
                 for _ in range(self._num_concat_batches):
                     remaining_time = self.request_group_timeout - (self._loop.time() - start_time)
                     if remaining_time <= 0:
+                        start_time = self._loop.time()
                         break
-                    kwargs, future, client_id = await asyncio.wait_for(q.get(), remaining_time)
+                    received_data = await asyncio.wait_for(q.get(), remaining_time)
+                    if received_data is None:
+                        assert len(futures) == 0
+                        return
+
+                    kwargs, future, client_id = received_data
                     kwargs_list.append(kwargs)
                     futures.append(future)
                     client_ids.append(client_id)
@@ -96,6 +128,11 @@ class BatchingWorkerManager:
             # Clean up completed tasks to prevent memory leaks
             computation_tasks = [task for task in computation_tasks if not task.done()]
 
+    def shutdown_all_workers(self):
+        for key in self._request_queues:
+            self._request_queues[key].put_nowait(None)
+            self._loop.run_until_complete(self._workers[key])
+
     async def _run_computation_and_distribute_results(
         self, kwargs_list, futures, client_ids, num_offloaded_layers, server_id
     ):
@@ -106,15 +143,23 @@ class BatchingWorkerManager:
             )
             # distribute results back to futures
             for fut, res in zip(futures, result):
-                if not fut.done():  # Check if future wasn't cancelled
-                    fut.set_result(res)
+                assert not fut.done()
+                fut.set_result(res)
+
         except Exception as e:
             # Set exception on all futures
             for fut in futures:
-                if not fut.done():
-                    fut.set_exception(e)
+                assert not fut.done()
+                fut.set_exception(e)
 
     async def _run_computation(self, kwargs_list, client_ids, num_offloaded_layers, server_id):
+
+        for cid, client_kwargs in zip(client_ids, kwargs_list):
+            client_parameters = client_kwargs.pop("__removed_parameters", None)
+            if client_parameters:
+                log(INFO, "Server has received client parameters. Integrating them...")
+                await self.server_model_manager \
+                    .marshall_weight_integration_request(server_id, client_parameters, cid)
 
         kwargs = {}
         for key in kwargs_list[0]:
@@ -141,7 +186,6 @@ class BatchingWorkerManager:
         self.client_layer_allocator.update_server_metrics(num_offloaded_layers, timer.elapsed)
 
         results = []
-        forking_data = {}
         for result_item, client_id, received_data in zip(grad_results, client_ids, kwargs_list):
             gradient, training_loss = result_item
             if self.sending_transform_fn is not None:
@@ -158,20 +202,17 @@ class BatchingWorkerManager:
                 previous, num_layers_diff = diff_data
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
                     client_id, num_layers_diff)
-                if num_layers_diff > 0 and self._send_server_parameters_when_forking:
-                    forking_data[client_id] = list(range(previous, previous+num_layers_diff))
+                if num_layers_diff > 0 and self._dynamic_layers_strategy == "afl":
                     params = await self.server_model_manager \
-                        .extract_layer_weights(previous, previous+num_layers_diff)
+                        .extract_layer_weights(previous, previous+num_layers_diff, server_id, client_id)
 
             results.append(BatchDataBackward(
                 data=gradient,
-                control_code=ControlCode.OK,
                 layers_diff=num_layers_diff,
                 additional_layers_parameters=params,
                 training_loss=training_loss,
             ))
 
-        self.server_model_manager.create_fork(forking_data)
         return results
 
 class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
@@ -181,7 +222,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         server_model_manager: ServerModelManager,
         client_layer_allocator: ClientLayerAllocator,
         num_concat_batches: int,
-        send_server_parameters_when_forking: bool,
+        dynamic_layers_strategy: str,
         request_group_timeout: float,
         sending_transform_fn_config: Optional[Callable],
         receiving_transform_fn_config: Optional[Callable],
@@ -189,11 +230,10 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         super().__init__()
         self.server_model_manager = server_model_manager
         self.request_group_timeout = request_group_timeout
-        self._send_server_parameters_when_forking = send_server_parameters_when_forking
+        assert dynamic_layers_strategy in {None, "cnt", "afl"}
+        self._dynamic_layers_strategy = dynamic_layers_strategy
         self._is_cuda_available = torch.cuda.is_available()
         self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
-        self._request_queues: Dict[Tuple[int, str], asyncio.Queue] = defaultdict(asyncio.Queue)
-        self._workers = {}
 
         self._num_concat_batches = num_concat_batches
         self._loop = asyncio.get_running_loop()
@@ -204,54 +244,23 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         self._batching_worker = BatchingWorkerManager(
             server_model_manager=server_model_manager,
             client_layer_allocator=client_layer_allocator,
-            request_queues=self._request_queues,
             num_concat_batches=num_concat_batches,
             request_group_timeout=request_group_timeout,
             sending_transform_fn=self.sending_transform_fn,
             receiving_transform_fn=self.receiving_transform_fn,
-            send_server_parameters_when_forking=send_server_parameters_when_forking,
+            dynamic_layers_strategy=dynamic_layers_strategy,
             is_cuda_available=self._is_cuda_available,
         )
 
-    async def _compute_response(
-        self,
-        client_id: str,
-        request: server_model_pb2.BatchDataForward,
-        timing_metrics: TimingMetrics,
-    ) -> BatchDataBackward:
-        data = BatchDataForward(
-            data = from_grpc_format(request.data),
-            control_code=control_code_from_proto(request.control_code),
-            is_training=request.training,
-            local_computation_time=request.local_computation_time
-        )
-        future = self._loop.create_future()
-        server_id = self.server_model_manager.strategy.route_client_request_to_server_model(client_id)
-
-        self.client_layer_allocator.update_client_metrics(
-            client_id=client_id,
-            metrics=timing_metrics,
-            num_received_bytes=len(data.data["embeddings"])
-        )
-        num_offloaded_layers = self.client_layer_allocator.get_client_offloaded_layer_count(client_id)
-        key = (num_offloaded_layers, server_id)
-
-        if key not in self._workers or self._workers[key].done():
-            # start the consumer process using the batching worker
-            self._workers[key] = self._loop.create_task(self._batching_worker.run(*key))
-        await self._request_queues[key].put((bytes_to_ndarray_dict(data.data), future, client_id))
-
-        res = await future
-        res.data = ndarray_dict_to_bytes(res.data)
-        return res
-
     def _to_grpc(self, data: BatchDataBackward) -> server_model_pb2.BatchDataBackward:
-
-        layer_params = bytes_list_to_grpc_format(data.additional_layers_parameters) \
-            if data.additional_layers_parameters is not None else None
+        layer_params = None
+        if data.additional_layers_parameters is not None:
+            layer_params = bytes_list_to_grpc_format(
+                torch_list_to_bytes(data.additional_layers_parameters)
+            )
         return server_model_pb2.BatchDataBackward(
-            data=to_grpc_format(data.data),
-            control_code=control_code_to_proto(data.control_code),
+            data=to_grpc_format(ndarray_dict_to_bytes(data.data)),
+            control_code=control_code_to_proto(ControlCode.OK),
             layers_diff=data.layers_diff,
             additional_layers_parameters=layer_params,
             training_loss=data.training_loss,
@@ -279,7 +288,13 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 client_round_time=data_received_time - data_sending_time,
                 client_tot_local_time=req.tot_local_time,
             ) if data_sending_time > 0 else None
-            res = await self._compute_response(client_id, req, timing_metrics)
+            data_fwd = BatchDataForward(
+                data = bytes_to_ndarray_dict(from_grpc_format(req.data)),
+                is_training=req.training,
+                client_timing_metrics=timing_metrics
+            )
+            future = self._batching_worker.enqueue_and_get_future(client_id, data_fwd)
+            res = await future
 
             assert res is not None
             tmp = self._to_grpc(res)

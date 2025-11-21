@@ -1,3 +1,4 @@
+from typing import List, Dict
 from collections import defaultdict
 
 import torch
@@ -24,9 +25,8 @@ class TorchServerModel:
         self._num_model_layers = get_num_layers(model)
         self._optimizer = None
         self._criterion = torch.nn.CrossEntropyLoss()
-        self._per_parameter_data_points = defaultdict(int)
+        self._per_layer_data_points = defaultdict(int)
         self._metrics_dict = {}
-        self._mix_before_model = False
 
     def get_train_results(self):
         state_dict = shift_state_dict(
@@ -35,7 +35,7 @@ class TorchServerModel:
         )
         return ServerModelFitRes(
             model_state_dict=state_dict,
-            per_layer_training_examples=self._per_parameter_data_points,
+            per_layer_training_examples=self._per_layer_data_points,
             metrics=self._metrics_dict,
         )
 
@@ -104,12 +104,12 @@ class TorchServerModel:
             bs = x.shape[0]
             for idx, layer in enumerate(layers, start=self._num_model_layers - num_offloaded_layers):
                 x = layer(x)
-                self._per_parameter_data_points[idx] += bs
+                self._per_layer_data_points[idx] += bs
         else:
             bs = x[0].shape[0]
             for idx, layer in enumerate(layers, start=self._num_model_layers - num_offloaded_layers):
                 x = layer(*x)
-                self._per_parameter_data_points[idx] += bs
+                self._per_layer_data_points[idx] += bs
         return x
 
     def eval_get_logits(self, batches, num_offloaded_layers):
@@ -126,4 +126,20 @@ class TorchServerModel:
         return self._model
 
     def get_layer_processed_data_points(self, layer_idx):
-        return self._per_parameter_data_points[layer_idx]
+        return self._per_layer_data_points[layer_idx]
+
+    def integrate_client_parameters(
+        self,
+        parameters: List[torch.Tensor],
+        num_dp_per_layer: Dict[int, int],
+        num_dp_when_forked: Dict[int, int],
+    ):
+        # for now we just replace the server weights with the client ones
+        # LOOK FOR BETTER AFL METHODS!!!!
+        idx = 0
+
+        layers = sorted(num_dp_per_layer.keys())
+        for param_key in self._model.state_dict():
+            if int(param_key.split(".")[0]) + self.first_server_layer in layers:
+                self._model.state_dict()[param_key].data.copy_(torch.from_numpy(parameters[idx]))
+                idx += 1

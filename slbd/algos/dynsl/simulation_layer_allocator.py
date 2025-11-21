@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Tuple
 
 import numpy as np
 from flwr.server.client_proxy import ClientProxy
@@ -31,7 +31,6 @@ class DynSLSimulationClientLayerAllocator:
                     client_config.append((evol_step["start"], evol_step["num_layers"]))
                 client_config.append((1.0, -1))
                 self.client_configuration[cid] = client_config
-        print(self.client_configuration)
         assert set(self.client_configuration.keys()) == set(range(len(self.client_configuration)))
         self.epoch_progression = {}
 
@@ -76,14 +75,17 @@ class DynSLSimulationClientLayerAllocator:
     def get_min_client_layers(self, cid):
         return self.meaningful_split_points[0]
 
-    def simulation_get_post_computation_reallocation(self, sid):
-        self.num_batches_per_client[sid] += 1
-        idx = self.num_batches_per_client[sid]
-        if self.epoch_progression[sid][idx] == self.epoch_progression[sid][idx -1]:
+    def update_client_metrics(self, *args, **kwargs):
+        return
+
+    def update_server_metrics(self, *args, **kwargs):
+        return
+
+    def get_post_reallocation_layer_difference(self, cid) -> Optional[Tuple[int, int]]:
+        self.num_batches_per_client[cid] += 1
+        idx = self.num_batches_per_client[cid]
+        if self.epoch_progression[cid][idx] == self.epoch_progression[cid][idx -1]:
             return None
-        diff = self.epoch_progression[sid][idx] - self.epoch_progression[sid][idx -1]
-        self._num_offloaded_layers[sid] -= diff
-        return LayerChangeInfo(
-            layers_diff=diff,
-            additional_layers_parameters=None
-        )
+        diff = self.epoch_progression[cid][idx] - self.epoch_progression[cid][idx-1]
+        self._num_offloaded_layers[cid] -= diff
+        return self.epoch_progression[cid][idx-1], diff

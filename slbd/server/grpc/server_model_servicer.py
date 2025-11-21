@@ -167,7 +167,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
                 additional_layers_parameters=torch_list_to_bytes(params),
                 training_loss=training_loss,
             ))
-        # self.server_model_manager.create_fork(forking_data)
 
     def _to_grpc(self, data: BatchDataBackward) -> server_model_pb2.BatchDataBackward:
 

@@ -1,10 +1,8 @@
 import copy
-import collections
 
 import torch
 
 from slbd.server.server_model.manager import ServerModelManager
-from slbd.torch.model_utils import get_num_layers
 
 
 class BaseServerModelManager(ServerModelManager):
@@ -37,29 +35,5 @@ class BaseServerModelManager(ServerModelManager):
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
 
-    def create_fork(self, forking_clients_and_layers):
-        # forking_clients_and_layers contains for every client idx a set of layers that
-        # were sent to that client. For instance,
-        # {1: [2,3], 2: [2]} means that client 1 was sent layer 2 and 3
-        # client 2 was only sent layer 2
-
-        # create an "inverse" dictionary, that for every layer, it states which
-        # clients were offloaded this layer
-        inverse_dictionary = collections.defaultdict(list)
-        if not bool(forking_clients_and_layers):
-            return
-
-        # for now we assume that there is a single model on the server, but the logic
-        # can in theory be generalized
-        assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
-
-        for client, layers in forking_clients_and_layers.items():
-            for layer in layers:
-                inverse_dictionary[layer].append(client)
-
-        for layer_idx in inverse_dictionary.keys():
-
-            self.forking_data[layer_idx].append((
-                inverse_dictionary[layer_idx],
-                self.spanned_server_models[""].get_layer_processed_data_points(layer_idx)
-            ))
+    async def marshall_weight_integration_request(self, model_id, client_parameters):
+        pass

@@ -59,9 +59,12 @@ class GrpcServerModelProxy(ServerModelProxy):
         return gradient, layer_change_info, res.training_loss
 
     def __call__(self, embeddings, labels, local_computation_time, tot_local_time, client_model_weights, training=True):
-        _ = (client_model_weights, )
         # return self.unary_request(embeddings, labels, local_computation_time, training)
-        batch_data = torch_to_bytes(embeddings=embeddings, labels=labels)
+        batch_data = torch_to_bytes(
+            embeddings=embeddings,
+            labels=labels,
+            __removed_parameters=client_model_weights
+        )
         if self.request_queue is None:
             self._initialize_stream()
 

@@ -44,3 +44,12 @@ class OracleSimulationClientLayerAllocator:
 
     def collect_epoch_metrics(self):
         return {}
+
+    def update_client_metrics(self, *args, **kwargs):
+        return
+
+    def update_server_metrics(self, *args, **kwargs):
+        return
+
+    def get_post_reallocation_layer_difference(self, *args, **kwargs):
+        return

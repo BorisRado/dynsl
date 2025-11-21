@@ -1,8 +1,8 @@
-
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 from collections import OrderedDict
 import copy
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -40,7 +40,7 @@ def extract_submodel(model: FlexibleSequential, start_idx: int, end_idx: int) ->
     return submodel
 
 
-def extract_submodel_weights(model: FlexibleSequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
+def extract_submodel_weights(model: FlexibleSequential, start_idx: int, end_idx: int) -> List[np.ndarray]:
     """
     Extract weights from a submodel defined by layer indices.
 
@@ -56,7 +56,7 @@ def extract_submodel_weights(model: FlexibleSequential, start_idx: int, end_idx:
         end_idx = get_num_layers(model)
     layers_to_copy = list(model.children())[start_idx:end_idx]
 
-    return [tensor.detach().cpu() for layer in layers_to_copy for tensor in layer.state_dict().values()]
+    return [tensor.detach().cpu().numpy() for layer in layers_to_copy for tensor in layer.state_dict().values()]
 
 
 def extract_submodel_state_dict(model: FlexibleSequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
@@ -131,6 +131,38 @@ def param_list_to_state_dict(param_list, model):
     return OrderedDict([
         (key, torch.from_numpy(param)) for param, key in zip(param_list, model.state_dict().keys())
     ])
+
+
+def remove_layers_from_model(
+    model: nn.Sequential,
+    optimizer: torch.optim.Optimizer,
+    remove_from: int
+) -> Tuple[FlexibleSequential, List[torch.Tensor]]:
+    # Remove layers from the model
+    layers_to_keep = list(model.children())[:remove_from]
+    layers_to_remove = list(model.children())[remove_from:]
+    removed_parameters = [
+        tensor.detach().cpu().numpy() for layer in layers_to_remove
+        for tensor in layer.state_dict().values()
+    ]
+    model = FlexibleSequential(*layers_to_keep)
+
+    # 1. Get the parameter IDs that the new model keeps
+    keep_params = {id(p) for p in model.parameters()}
+
+    # 2. Remove optimizer state for parameters that are no longer used
+    new_state = {}
+    for param, state in optimizer.state.items():
+        if id(param) in keep_params:
+            new_state[param] = state
+    optimizer.state = new_state
+
+    # 3. Filter parameter groups as well
+    for group in optimizer.param_groups:
+        group['params'] = [p for p in group['params'] if id(p) in keep_params]
+
+
+    return model, removed_parameters
 
 
 def concat_sequential_models(

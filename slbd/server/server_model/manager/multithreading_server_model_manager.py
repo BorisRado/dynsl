@@ -2,9 +2,9 @@ import copy
 import asyncio
 from typing import Union, List
 
+import numpy as np
 import torch
 
-from slbd.common.parameter import torch_list_to_bytes
 from slbd.server.server_model.torch_server_model import TorchServerModel
 from slbd.server.server_model.manager.multiprocessing.model_worker import TaskType
 from slbd.server.server_model.manager import BaseServerModelManager
@@ -25,8 +25,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         self.spanned_server_models = {}
         self._model_locks = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # caching -- if parameters were extracted very recently, instead of extracting them again,
-        # and converting them to bytes from scratch, we re-use recently extracted ones -- Faster
+        self._afl_coord_data = {} # data for enabling AFL integration of model weights
 
     async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
@@ -48,6 +47,24 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             TaskType.EVALUATE,
             (embeddings, num_offloaded_layers)
         ))
+
+    async def marshall_weight_integration_request(
+        self,
+        model_id: str,
+        client_parameters: List[np.ndarray],
+        cid: str,
+    ):
+        *client_parameters, num_dp_per_layer = client_parameters
+        num_layers = len(num_dp_per_layer)
+        received_layers = sorted(self._afl_coord_data[cid])[-num_layers:]
+        num_client_dp_per_layer = {k: v for k, v in zip(received_layers, num_dp_per_layer)}
+        num_dp_when_forked = {k: self._afl_coord_data[cid].pop(k) for k in received_layers}
+        async with self._model_locks[model_id]:
+            self.spanned_server_models[model_id].integrate_client_parameters(
+                parameters=client_parameters,
+                num_dp_per_layer=num_client_dp_per_layer,
+                num_dp_when_forked=num_dp_when_forked,
+            )
 
     def collect_server_fit_results(
         self
@@ -91,16 +108,24 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
 
-    async def extract_layer_weights(self, layer_from, layer_to):
+    async def extract_layer_weights(
+        self,
+        layer_from: int,
+        layer_to: int,
+        server_id: str,
+        cid: str
+    ) -> List[np.ndarray]:
         # returns a copy of the model weights
-        assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
-        model = self.spanned_server_models[""]
+        model = self.spanned_server_models[server_id]
         shift = model.first_server_layer
-        async with self._model_locks[""]:
+        async with self._model_locks[server_id]:
+            self._afl_coord_data[cid] = {
+                idx: model._per_layer_data_points[idx]
+                for idx in range(layer_from, layer_to)
+            }
             params = extract_submodel_weights(
                 model.get_model(), layer_from-shift, layer_to-shift
             )
-        params = torch_list_to_bytes(params)
         return params
 
     def get_num_server_models(self):

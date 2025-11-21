@@ -30,9 +30,8 @@ from exp.src.model.utils import test_model
 from exp.src.sl.mo_client import MOTorchClient
 from exp.src.sl.simulation import (
     SimulationClientManager,
-    fit_clients_simulation,
     SimulationClientProxy,
-    SimulationServicer,
+    SLExecutor,
 )
 
 
@@ -110,13 +109,16 @@ def run(cfg: DictConfig):
         model=copy.deepcopy(model),
         exp_config=None,
     )
+    server_model_manager.set_strategy(strategy)
 
-    servicer = SimulationServicer(
+    sl_executor = SLExecutor(
         server_model_manager=server_model_manager,
         client_layer_allocator=client_layer_allocator,
         strategy=strategy,
         request_group_timeout=cfg.server_model_servicer.request_group_timeout,
         num_concat_batches=cfg.server_model_servicer.num_concat_batches,
+        whole_model=model,
+        dynamic_layers_strategy=cfg.algorithm.get("dynamic_layers_strategy", None)
     )
 
     model_state_dict = model.state_dict()
@@ -148,22 +150,18 @@ def run(cfg: DictConfig):
         assert server_model_manager.get_num_server_models() in {0, 1, len(client_instructions)}
 
         # Collect `fit` results from all clients participating in this round
-        results = fit_clients_simulation(
+        results = sl_executor.fit_clients_simulation(
             client_instructions=client_instructions,
-            whole_model=model,
-            servicer=servicer,
         )
         server_fit_res = server_model_manager.collect_server_fit_results()
-        aggregated_result = strategy.aggregate_fit(
+        model_state_dict, metrics = strategy.aggregate_fit(
             server_round=epoch_idx,
             client_results=results,
             server_results=server_fit_res,
             layer_allocator=client_layer_allocator,
             failures=[],
         )
-        loss = aggregated_result[1]["training_loss"]
-
-        model_state_dict = aggregated_result[0]
+        loss = metrics["training_loss"]
         model.load_state_dict(model_state_dict)
         test_loss, test_acc= test_model(model, testloader)
 
@@ -178,6 +176,7 @@ def run(cfg: DictConfig):
         client_layer_allocator.finalize_epoch()
     print(f"Total runtime {time.time() - start_time:.2f}")
     print(all_losses)
+    sl_executor.shutdown()
     finish_wandb()
 
 
