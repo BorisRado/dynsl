@@ -148,19 +148,15 @@ def remove_layers_from_model(
     model = FlexibleSequential(*layers_to_keep)
 
     # 1. Get the parameter IDs that the new model keeps
-    keep_params = {id(p) for p in model.parameters()}
+    remove_parameters = {p for l in layers_to_remove for p in l.parameters()}
 
     # 2. Remove optimizer state for parameters that are no longer used
-    new_state = {}
-    for param, state in optimizer.state.items():
-        if id(param) in keep_params:
-            new_state[param] = state
-    optimizer.state = new_state
-
+    for p in remove_parameters:
+        if p in optimizer.state:
+            del optimizer.state[p]
     # 3. Filter parameter groups as well
     for group in optimizer.param_groups:
-        group['params'] = [p for p in group['params'] if id(p) in keep_params]
-
+        group['params'] = [p for p in group['params'] if p not in remove_parameters]
 
     return model, removed_parameters
 

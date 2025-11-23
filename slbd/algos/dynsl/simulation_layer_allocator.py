@@ -4,12 +4,11 @@ import numpy as np
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
-from slbd.common import LayerChangeInfo
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.common.constants import CLIENT_DATASET_SIZE
 
 
-class DynSLSimulationClientLayerAllocator:
+class DynSLSimulationClientLayerAllocator(ClientLayerAllocator):
 
     def __init__(
         self,
@@ -24,7 +23,7 @@ class DynSLSimulationClientLayerAllocator:
         self.client_configuration = {}
         for config in client_configuration:
             client_ids = tuple(map(int, config["ids"].split("-")))
-            for cid in range(*client_ids):
+            for cid in range(client_ids[0], client_ids[1]+1):
                 client_config = []
                 assert cid not in self.client_configuration
                 for evol_step in config["evolution"]:

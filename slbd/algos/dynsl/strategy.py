@@ -107,6 +107,17 @@ class DynSLStrategy(BaseStrategy):
             )
 
         # assert False, "Need to implement AFL aggregation strategy"
+        assert len(server_results) == len(client_results)
+        for server_res in server_results:
+            assert hasattr(server_res, "afl_data")
+            client_res = [cr for cr in client_results if cr[0].cid == server_res.sid]
+            assert len(client_res) == 1
+            client_res = client_res[0]
+            if len(server_res.afl_data) == 0:
+                continue
+            for k in server_res.afl_data:
+                client_res[1].metrics[f"_proc{k}"] += server_res.afl_data[k]
+
         return super().aggregate_fit(
             server_round, client_results, server_results, layer_allocator, failures
         )

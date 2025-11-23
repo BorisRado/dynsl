@@ -139,7 +139,23 @@ class TorchServerModel:
         idx = 0
 
         layers = sorted(num_dp_per_layer.keys())
+
+        named_params = dict(self._model.named_parameters())
         for param_key in self._model.state_dict():
             if int(param_key.split(".")[0]) + self.first_server_layer in layers:
-                self._model.state_dict()[param_key].data.copy_(torch.from_numpy(parameters[idx]))
+                tensor_value = torch.from_numpy(parameters[idx])
                 idx += 1
+                if param_key in named_params:
+                    parameter = named_params[param_key]
+                    if len(self._optimizer.state) > 0:
+                        del self._optimizer.state[parameter]
+                    parameter.data.copy_(tensor_value)
+                else:
+                    self._model.state_dict()[param_key].copy_(tensor_value)
+
+    def reset_per_layer_counters(self, layer_from, layer_to):
+        for idx in range(layer_from, layer_to):
+            self._per_layer_data_points[idx] = 0
+
+    def set_per_layer_counter(self, idx, value):
+        self._per_layer_data_points[idx] = value

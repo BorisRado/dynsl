@@ -3,7 +3,6 @@ from logging import DEBUG
 from typing import Optional
 from collections import defaultdict
 
-import numpy as np
 import torch
 from flwr.common import log
 
@@ -84,8 +83,7 @@ class ModelTrainer:
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
 
-        print("Received number of layers: ", num_received_layers)
-        print("Num train layers", num_training_layers)
+        print(f"Received number of layers: {num_received_layers} ({num_training_layers})")
         self._init_model(num_received_layers, init_parameters, optimizer_config)
 
         self._iter_since_last_model_change = 0
@@ -134,6 +132,9 @@ class ModelTrainer:
                     control.additional_layers_parameters,
                     self._optimizer,
                 )
+                # reset counter
+                for k in range(prev_num_of_layers, self._num_training_layers):
+                    self._per_layer_data_points[k] = 0
             else:
                 assert self._dynamic_layers_strategy == "cnt"
                 print("Server is NOT forking, just increasing counter", self._num_training_layers)
@@ -156,6 +157,8 @@ class ModelTrainer:
                 ]),]
 
                 log(DEBUG, "Reduced model size to %d", get_num_layers(self._model))
+                for k in range(self._num_training_layers, prev_num_of_layers):
+                    self._per_layer_data_points[k] = 0
 
         if self._dynamic_layers_strategy == "afl":
             assert self._num_training_layers == get_num_layers(self._model)
@@ -257,8 +260,8 @@ class ModelTrainer:
         }
 
     def get_training_metrics(self):
-        print("Total local computation time", self._tot_local_computation_time)
-        print({"training_loss": self._metrics["loss"] / self._dataset_size})
+        # print("Total local computation time", self._tot_local_computation_time)
+        # print({"training_loss": self._metrics["loss"] / self._dataset_size})
         return {
             "training_loss": self._metrics["loss"] / self._dataset_size,
             "local_computation_time": self._tot_local_computation_time
@@ -272,6 +275,7 @@ class ModelTrainer:
                 # we did not train any further model parameters
                 break
             params.append(param.detach().cpu().numpy())
+            print(k, params[-1].flatten().tolist()[:2])
 
         return (
             params,

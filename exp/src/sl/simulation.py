@@ -211,6 +211,9 @@ class SLExecutor:
                     remaining[idx] = 0
                     continue
 
+                if payload is None:
+                    continue
+
                 payload = torch_to_numpy(payload)
                 del payload["local_computation_time"]
                 del payload["tot_local_time"]

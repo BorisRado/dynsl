@@ -60,6 +60,11 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         num_client_dp_per_layer = {k: v for k, v in zip(received_layers, num_dp_per_layer)}
         num_dp_when_forked = {k: self._afl_coord_data[cid].pop(k) for k in received_layers}
         async with self._model_locks[model_id]:
+            for k in num_dp_when_forked:
+                self.spanned_server_models[model_id].set_per_layer_counter(
+                    idx=k,
+                    value=num_client_dp_per_layer[k] + num_dp_when_forked[k]
+                )
             self.spanned_server_models[model_id].integrate_client_parameters(
                 parameters=client_parameters,
                 num_dp_per_layer=num_client_dp_per_layer,
@@ -74,6 +79,8 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             res: ServerModelFitRes = model.get_fit_result()
             res.sid = sid
             res.forking_data = {}
+            if sid in self._afl_coord_data:
+                res.afl_data = self._afl_coord_data[sid]
             out.append(res)
 
         return out
@@ -118,14 +125,16 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         # returns a copy of the model weights
         model = self.spanned_server_models[server_id]
         shift = model.first_server_layer
+        if cid not in self._afl_coord_data:
+            self._afl_coord_data[cid] = {}
+
         async with self._model_locks[server_id]:
-            self._afl_coord_data[cid] = {
-                idx: model._per_layer_data_points[idx]
-                for idx in range(layer_from, layer_to)
-            }
+            for idx in range(layer_from, layer_to):
+                self._afl_coord_data[cid][idx] = model._per_layer_data_points[idx]
             params = extract_submodel_weights(
                 model.get_model(), layer_from-shift, layer_to-shift
             )
+            model.reset_per_layer_counters(layer_from, layer_to)
         return params
 
     def get_num_server_models(self):

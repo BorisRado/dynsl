@@ -100,7 +100,6 @@ class BatchingWorkerManager:
                 for _ in range(self._num_concat_batches):
                     remaining_time = self.request_group_timeout - (self._loop.time() - start_time)
                     if remaining_time <= 0:
-                        start_time = self._loop.time()
                         break
                     received_data = await asyncio.wait_for(q.get(), remaining_time)
                     if received_data is None:
@@ -108,6 +107,7 @@ class BatchingWorkerManager:
                         return
 
                     kwargs, future, client_id = received_data
+                    start_time = self._loop.time()
                     kwargs_list.append(kwargs)
                     futures.append(future)
                     client_ids.append(client_id)
@@ -115,7 +115,7 @@ class BatchingWorkerManager:
             except asyncio.TimeoutError:
                 if len(kwargs_list) == 0:
                     return
-                log(WARNING, f"Did not attain sufficient number of batches. Processing {len(kwargs_list)}...")
+                log(WARNING, f"Did not attain sufficient number of batches. Processing {len(kwargs_list)} {num_offloaded_layers} {server_id} {client_ids}...")
 
             # Start computation as a separate task and continue immediately
             computation_task = self._loop.create_task(
@@ -197,7 +197,7 @@ class BatchingWorkerManager:
 
             diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
 
-            num_layers_diff, params = 0, None
+            num_layers_diff, params = 0, []
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",

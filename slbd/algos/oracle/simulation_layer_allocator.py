@@ -18,7 +18,7 @@ class OracleSimulationClientLayerAllocator:
         self.client_configuration = {}
         for config in client_configuration:
             client_ids = tuple(map(int, config["ids"].split("-")))
-            for cid in range(*client_ids):
+            for cid in range(client_ids[0], client_ids[1]+1):
                 assert cid not in self.client_configuration
                 self.client_configuration[cid] = config["num_layers"]
         assert set(self.client_configuration.keys()) == set(range(len(self.client_configuration)))
