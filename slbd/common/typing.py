@@ -53,12 +53,14 @@ class BatchDataBackward:
     layers_diff: int
     training_loss: float
     additional_layers_parameters: List[np.ndarray] = None
+    additional_optimizer_states: List[np.ndarray] = None
 
 
 @dataclass
 class LayerChangeInfo:
     layers_diff: int
     additional_layers_parameters: List[torch.Tensor] = None
+    additional_optimizer_states: List[torch.Tensor] = None
 
 
 @dataclass

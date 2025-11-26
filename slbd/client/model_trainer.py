@@ -40,6 +40,7 @@ class ModelTrainer:
         sending_transform_fn,
         receiving_transform_fn,
         dynamic_layers_strategy,
+        exchange_optimizer_states,
     ):
         """
         Initialize the ModelTrainer.
@@ -62,6 +63,7 @@ class ModelTrainer:
         self._num_layers_entire_model = get_num_layers(self._whole_model)
         self._num_training_layers = num_training_layers
         self._num_received_layers = num_received_layers
+        self.exchange_optimizer_states = exchange_optimizer_states
         self._model: Optional[FlexibleSequential] = None
         self._optimizer: Optional[torch.optim.Optimizer] = None
         self._device = torch.device("cuda" if self._use_cuda else "cpu")
@@ -70,6 +72,7 @@ class ModelTrainer:
         self._dynamic_layers_strategy = dynamic_layers_strategy
         self._criterion = torch.nn.CrossEntropyLoss()
         self._removed_weights = []
+        self._removed_optimizer_states = []
 
         # Collected metrics
         self._metrics = {"loss": 0., "accuracy": 0.}
@@ -125,12 +128,15 @@ class ModelTrainer:
             self._iter_since_last_model_change = 0
             if len(control.additional_layers_parameters) > 0:
                 assert self._dynamic_layers_strategy == "afl"
+                # Use optimizer states if they are provided and exchange is enabled
+                optimizer_states = control.additional_optimizer_states if self.exchange_optimizer_states else None
                 self._model = attach_layers(
                     self._whole_model,
                     self._model,
                     control.layers_diff,
                     control.additional_layers_parameters,
                     self._optimizer,
+                    optimizer_states_list=optimizer_states,
                 )
                 # reset counter
                 for k in range(prev_num_of_layers, self._num_training_layers):
@@ -148,13 +154,22 @@ class ModelTrainer:
                 return
 
             elif self._dynamic_layers_strategy == "afl":
-                self._model, self._removed_weights = \
-                    remove_layers_from_model(self._model, self._optimizer, self._num_training_layers)
+                # Extract optimizer states if exchange is enabled
+                self._model, self._removed_weights, removed_optimizer_states = \
+                    remove_layers_from_model(
+                        self._model,
+                        self._optimizer,
+                        self._num_training_layers,
+                        extract_optimizer_states=self.exchange_optimizer_states
+                    )
                 # attach a vector stating how many data points have been processed by these layers
                 self._removed_weights += [torch.tensor([
                     self._per_layer_data_points[k]
                     for k in range(self._num_training_layers, prev_num_of_layers)
                 ]),]
+
+                # Store optimizer states to send to server
+                self._removed_optimizer_states = removed_optimizer_states if removed_optimizer_states is not None else []
 
                 log(DEBUG, "Reduced model size to %d", get_num_layers(self._model))
                 for k in range(self._num_training_layers, prev_num_of_layers):
@@ -208,10 +223,12 @@ class ModelTrainer:
             "local_computation_time": -1 if self._iter_since_last_model_change < 4 else client_time,
             "tot_local_time": time.perf_counter() - self._last_server_msg_time,
             "__removed_parameters": self._removed_weights,
+            "__removed_optimizer_states": self._removed_optimizer_states,
         }, client_output
 
     def backward_pass(self, gradient, control, loss, client_output):
         self._removed_weights = []
+        self._removed_optimizer_states = []
         self._last_server_msg_time = time.perf_counter()
         if self.receiving_transform_fn is not None:
             gradient = self.receiving_transform_fn(gradient, client_output=client_output)
@@ -275,7 +292,6 @@ class ModelTrainer:
                 # we did not train any further model parameters
                 break
             params.append(param.detach().cpu().numpy())
-            print(k, params[-1].flatten().tolist()[:2])
 
         return (
             params,

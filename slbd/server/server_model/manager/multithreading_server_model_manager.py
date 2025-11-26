@@ -1,6 +1,6 @@
 import copy
 import asyncio
-from typing import Union, List
+from typing import Union, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -53,6 +53,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         model_id: str,
         client_parameters: List[np.ndarray],
         cid: str,
+        client_optimizer_states: Optional[List[np.ndarray]] = None,
     ):
         *client_parameters, num_dp_per_layer = client_parameters
         num_layers = len(num_dp_per_layer)
@@ -69,6 +70,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
                 parameters=client_parameters,
                 num_dp_per_layer=num_client_dp_per_layer,
                 num_dp_when_forked=num_dp_when_forked,
+                optimizer_states=client_optimizer_states,
             )
 
     def collect_server_fit_results(
@@ -136,6 +138,81 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             )
             model.reset_per_layer_counters(layer_from, layer_to)
         return params
+
+    async def extract_layer_weights_and_optimizer_states(
+        self,
+        layer_from: int,
+        layer_to: int,
+        server_id: str,
+        cid: str,
+        extract_optimizer_states: bool = False
+    ) -> Tuple[List[np.ndarray], Optional[List[np.ndarray]]]:
+        """
+        Extract layer weights and optionally optimizer states.
+
+        Returns:
+            Tuple of (parameters, optimizer_states)
+        """
+        model = self.spanned_server_models[server_id]
+        shift = model.first_server_layer
+        if cid not in self._afl_coord_data:
+            self._afl_coord_data[cid] = {}
+
+        async with self._model_locks[server_id]:
+            for idx in range(layer_from, layer_to):
+                self._afl_coord_data[cid][idx] = model._per_layer_data_points[idx]
+
+            # Extract parameters
+            params = extract_submodel_weights(
+                model.get_model(), layer_from-shift, layer_to-shift
+            )
+
+            # Extract optimizer states if requested
+            optimizer_states = None
+            if extract_optimizer_states:
+                optimizer_states = self._extract_optimizer_states_for_layers(
+                    model, layer_from, layer_to
+                )
+
+            model.reset_per_layer_counters(layer_from, layer_to)
+
+        return params, optimizer_states
+
+    def _extract_optimizer_states_for_layers(
+        self,
+        model: TorchServerModel,
+        layer_from: int,
+        layer_to: int
+    ) -> List[np.ndarray]:
+        """
+        Extract optimizer states for specific layers.
+        """
+        optimizer_states = []
+
+        # Get parameters for the specified layer range
+        layer_params = []
+        for layer_idx in range(layer_from - model.first_server_layer, layer_to - model.first_server_layer):
+            layer = list(model.get_model().children())[layer_idx]
+            layer_params.extend(layer.parameters())
+
+        # Extract optimizer states for these parameters
+        for param in layer_params:
+            if param in model._optimizer.state:
+                state = model._optimizer.state[param]
+
+                # Extract state tensors based on optimizer type
+                if isinstance(model._optimizer, torch.optim.SGD):
+                    if 'momentum_buffer' in state:
+                        optimizer_states.append(state['momentum_buffer'].detach().cpu().numpy())
+                elif isinstance(model._optimizer, torch.optim.Adam):
+                    if 'step' in state:
+                        optimizer_states.append(np.array([state['step']]))
+                    if 'exp_avg' in state:
+                        optimizer_states.append(state['exp_avg'].detach().cpu().numpy())
+                    if 'exp_avg_sq' in state:
+                        optimizer_states.append(state['exp_avg_sq'].detach().cpu().numpy())
+
+        return optimizer_states
 
     def get_num_server_models(self):
         assert len(self.spanned_server_models) == len(self._model_locks)

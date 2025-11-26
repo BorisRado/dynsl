@@ -117,8 +117,9 @@ def run(cfg: DictConfig):
         strategy=strategy,
         request_group_timeout=cfg.server_model_servicer.request_group_timeout,
         num_concat_batches=cfg.server_model_servicer.num_concat_batches,
-        whole_model=model,
-        dynamic_layers_strategy=cfg.algorithm.get("dynamic_layers_strategy", None)
+        whole_model=copy.deepcopy(model),
+        dynamic_layers_strategy=cfg.algorithm.get("dynamic_layers_strategy", None),
+        exchange_optimizer_states=cfg.algorithm.get("exchange_optimizer_states", None),
     )
 
     model_state_dict = model.state_dict()

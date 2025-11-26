@@ -1,6 +1,7 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from collections import defaultdict
 
+import numpy as np
 import torch
 
 from slbd.torch.model_utils import shift_state_dict
@@ -35,7 +36,7 @@ class TorchServerModel:
         )
         return ServerModelFitRes(
             model_state_dict=state_dict,
-            per_layer_training_examples=self._per_layer_data_points,
+            per_layer_training_examples={k: int(v) for k, v in self._per_layer_data_points.items()},
             metrics=self._metrics_dict,
         )
 
@@ -133,14 +134,24 @@ class TorchServerModel:
         parameters: List[torch.Tensor],
         num_dp_per_layer: Dict[int, int],
         num_dp_when_forked: Dict[int, int],
+        optimizer_states: Optional[List[torch.Tensor]] = None,
     ):
-        # for now we just replace the server weights with the client ones
-        # LOOK FOR BETTER AFL METHODS!!!!
         idx = 0
-
         layers = sorted(num_dp_per_layer.keys())
-
         named_params = dict(self._model.named_parameters())
+
+        # Collect parameters that will be updated in layer order (consistent with extraction)
+        updated_params = []
+
+        # Get parameters in the same order as extraction (layer by layer)
+        for layer_idx in layers:
+            actual_layer_idx = layer_idx - self.first_server_layer
+            if actual_layer_idx >= 0 and actual_layer_idx < len(list(self._model.children())):
+                layer = list(self._model.children())[actual_layer_idx]
+                updated_params.extend(list(layer.parameters()))
+
+        # Update parameters using state_dict order (as before)
+        idx = 0
         for param_key in self._model.state_dict():
             if int(param_key.split(".")[0]) + self.first_server_layer in layers:
                 tensor_value = torch.from_numpy(parameters[idx])
@@ -153,9 +164,70 @@ class TorchServerModel:
                 else:
                     self._model.state_dict()[param_key].copy_(tensor_value)
 
+        # Restore optimizer states if provided
+        if optimizer_states is not None:
+            self._restore_optimizer_states_for_params(updated_params, optimizer_states)
+
     def reset_per_layer_counters(self, layer_from, layer_to):
         for idx in range(layer_from, layer_to):
             self._per_layer_data_points[idx] = 0
 
     def set_per_layer_counter(self, idx, value):
         self._per_layer_data_points[idx] = value
+
+    def _restore_optimizer_states_for_params(self, parameters, optimizer_states_list):
+        """
+        Restore optimizer states for the given parameters from a flattened list of states.
+
+        Args:
+            parameters: The parameters to restore states for (should be in consistent order)
+            optimizer_states_list: Flattened list of optimizer state tensors from client
+        """
+        if not optimizer_states_list:
+            return
+
+        state_idx = 0
+        # Ensure consistent ordering of parameters
+        param_list = list(parameters) if not isinstance(parameters, list) else parameters
+
+        for param in param_list:
+            if state_idx >= len(optimizer_states_list):
+                break
+
+            # Initialize optimizer state for this parameter if it doesn't exist
+            if param not in self._optimizer.state:
+                self._optimizer.state[param] = {}
+
+            state = self._optimizer.state[param]
+
+            # Restore states in the same order they were extracted
+            if isinstance(self._optimizer, torch.optim.SGD):
+                # Only momentum_buffer for SGD
+                if state_idx < len(optimizer_states_list):
+                    momentum_tensor = torch.from_numpy(optimizer_states_list[state_idx])
+                    if momentum_tensor.shape != param.shape:
+                        # Skip this mismatched state
+                        state_idx += 1
+                        continue
+                    # Only set momentum_buffer if it's not all zeros (wasn't a placeholder)
+                    if not np.allclose(momentum_tensor.numpy(), 0):
+                        state['momentum_buffer'] = momentum_tensor.to(param.device)
+                        assert momentum_tensor.shape == param.shape
+                    state_idx += 1
+            elif isinstance(self._optimizer, torch.optim.Adam):
+                # Adam: step (scalar), exp_avg, exp_avg_sq in that order
+                if state_idx < len(optimizer_states_list):
+                    step_val = int(optimizer_states_list[state_idx][0])
+                    if step_val > 0:  # Only set if not a placeholder
+                        state['step'] = step_val
+                    state_idx += 1
+                if state_idx < len(optimizer_states_list):
+                    exp_avg_tensor = torch.from_numpy(optimizer_states_list[state_idx])
+                    if not np.allclose(exp_avg_tensor.numpy(), 0):  # Only set if not a placeholder
+                        state['exp_avg'] = exp_avg_tensor.to(param.device)
+                    state_idx += 1
+                if state_idx < len(optimizer_states_list):
+                    exp_avg_sq_tensor = torch.from_numpy(optimizer_states_list[state_idx])
+                    if not np.allclose(exp_avg_sq_tensor.numpy(), 0):  # Only set if not a placeholder
+                        state['exp_avg_sq'] = exp_avg_sq_tensor.to(param.device)
+                    state_idx += 1

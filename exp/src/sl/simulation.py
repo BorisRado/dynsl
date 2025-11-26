@@ -106,12 +106,14 @@ class SLExecutor:
         num_concat_batches: int,
         request_group_timeout: float,
         dynamic_layers_strategy=None,
+        exchange_optimizer_states=None,
     ):
         self.strategy = strategy
         self.server_model_manager = server_model_manager
         self.whole_model = whole_model
         self.client_layer_allocator = client_layer_allocator
         self.dynamic_layers_strategy = dynamic_layers_strategy
+        self.exchange_optimizer_states = exchange_optimizer_states
         self.event_loop = asyncio.new_event_loop()
         self._worker_manager = BatchingWorkerManager(
             server_model_manager=server_model_manager,
@@ -121,6 +123,7 @@ class SLExecutor:
             sending_transform_fn=None,
             receiving_transform_fn=None,
             dynamic_layers_strategy=dynamic_layers_strategy,
+            exchange_optimizer_states=exchange_optimizer_states,
             is_cuda_available=torch.cuda.is_available(),
             event_loop=self.event_loop,
         )
@@ -153,6 +156,7 @@ class SLExecutor:
                 sending_transform_fn=None,
                 receiving_transform_fn=None,
                 dynamic_layers_strategy=self.dynamic_layers_strategy,
+                exchange_optimizer_states=self.exchange_optimizer_states,
             )
 
             # build dataloader for this client so we can step through batches in lockstep
@@ -234,7 +238,8 @@ class SLExecutor:
                 gradient = torch.from_numpy(gradient)
                 layer_change_info = LayerChangeInfo(
                     layers_diff=num_layers_diff,
-                    additional_layers_parameters=backward_data.additional_layers_parameters
+                    additional_layers_parameters=backward_data.additional_layers_parameters,
+                    additional_optimizer_states=backward_data.additional_optimizer_states
                 )
                 trainer.backward_pass(
                     gradient=gradient,

@@ -43,6 +43,7 @@ class BatchingWorkerManager:
         sending_transform_fn: Optional[Callable],
         receiving_transform_fn: Optional[Callable],
         dynamic_layers_strategy: str,
+        exchange_optimizer_states: Optional[bool],
         is_cuda_available: bool,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ) -> None:
@@ -54,6 +55,7 @@ class BatchingWorkerManager:
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
         self._dynamic_layers_strategy = dynamic_layers_strategy
+        self._exchange_optimizer_states = exchange_optimizer_states
         self._is_cuda_available = is_cuda_available
         self._workers = {}
         # Use provided event loop if available (helps running in background
@@ -156,10 +158,13 @@ class BatchingWorkerManager:
 
         for cid, client_kwargs in zip(client_ids, kwargs_list):
             client_parameters = client_kwargs.pop("__removed_parameters", None)
+            client_optimizer_states = client_kwargs.pop("__removed_optimizer_states", None)
             if client_parameters:
                 log(INFO, "Server has received client parameters. Integrating them...")
                 await self.server_model_manager \
-                    .marshall_weight_integration_request(server_id, client_parameters, cid)
+                    .marshall_weight_integration_request(
+                        server_id, client_parameters, cid, client_optimizer_states
+                    )
 
         kwargs = {}
         for key in kwargs_list[0]:
@@ -197,19 +202,23 @@ class BatchingWorkerManager:
 
             diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
 
-            num_layers_diff, params = 0, []
+            num_layers_diff, params, optimizer_states = 0, [], []
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
                     client_id, num_layers_diff)
                 if num_layers_diff > 0 and self._dynamic_layers_strategy == "afl":
-                    params = await self.server_model_manager \
-                        .extract_layer_weights(previous, previous+num_layers_diff, server_id, client_id)
+                    params, optimizer_states = await self.server_model_manager \
+                        .extract_layer_weights_and_optimizer_states(
+                            previous, previous+num_layers_diff, server_id, client_id,
+                            extract_optimizer_states=self._exchange_optimizer_states
+                        )
 
             results.append(BatchDataBackward(
                 data=gradient,
                 layers_diff=num_layers_diff,
                 additional_layers_parameters=params,
+                additional_optimizer_states=optimizer_states,
                 training_loss=training_loss,
             ))
 
@@ -258,8 +267,13 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             layer_params = bytes_list_to_grpc_format(
                 torch_list_to_bytes(data.additional_layers_parameters)
             )
+
+        send_data = {"grad": data.data}
+        if len(data.additional_optimizer_states) > 0:
+            send_data["optim_states"] = torch_list_to_bytes(data.additional_optimizer_states)
+
         return server_model_pb2.BatchDataBackward(
-            data=to_grpc_format(ndarray_dict_to_bytes(data.data)),
+            data=to_grpc_format(ndarray_dict_to_bytes(send_data)),
             control_code=control_code_to_proto(ControlCode.OK),
             layers_diff=data.layers_diff,
             additional_layers_parameters=layer_params,

@@ -35,5 +35,5 @@ class BaseServerModelManager(ServerModelManager):
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
 
-    async def marshall_weight_integration_request(self, model_id, client_parameters):
+    async def marshall_weight_integration_request(self, model_id, client_parameters, cid=None, client_optimizer_states=None):
         pass
