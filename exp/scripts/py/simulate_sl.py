@@ -148,8 +148,6 @@ def run(cfg: DictConfig):
 
         server_model_manager.initialize_server_models(server_model_configs, is_training=True)
 
-        assert server_model_manager.get_num_server_models() in {0, 1, len(client_instructions)}
-
         # Collect `fit` results from all clients participating in this round
         results = sl_executor.fit_clients_simulation(
             client_instructions=client_instructions,

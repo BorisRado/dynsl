@@ -1,1 +1,2 @@
 strategy: constant
+T_max: ... # just for compatibility. In practice it is ignored

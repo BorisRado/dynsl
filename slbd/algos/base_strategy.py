@@ -166,7 +166,10 @@ class BaseStrategy(Strategy):
         client_manager.wait_for(self.min_available_clients)
         config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
-            config |= self.config_client_fit_fn(server_round)
+            if isinstance(self.config_client_fit_fn, dict):
+                config |= self.config_client_fit_fn
+            else:
+                config |= self.config_client_fit_fn(server_round)
 
         clients = self.sample_epoch_clients(client_manager, True)
         if len(clients) == 0:
