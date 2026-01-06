@@ -37,7 +37,6 @@ from slbd.torch.utils import init_optimizer, OptimizerGenerator
 # import of algorithm components
 from slbd.common.profiling import (
     measure_per_layer_time,
-    get_flops_per_layer_fvcore,
     measure_per_layer_complexity
 )
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
@@ -183,6 +182,7 @@ def init_splitfed_components(config, model):
 
     client_layer_allocator = SplitFedClientLayerAllocator(
         num_model_layers=get_num_layers(model),
+        meaningful_split_points=model.meaningful_split_points,
         **OmegaConf.to_container(config.algorithm.layer_allocator_init_args),
     )
 

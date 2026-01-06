@@ -79,7 +79,7 @@ class MpServerModelManager(BaseServerModelManager):
         for sid in self._worker_pool.get_active_sids():
             res: ServerModelFitRes = \
                 self._worker_pool.marshall_request(sid, (TaskType.GET_FIT_RESULT, None))
-            res.forking_data = self.forking_data
+            res.forking_data = {}
             out.append(res)
             self._worker_pool.release_process(sid)
 
@@ -100,7 +100,6 @@ class MpServerModelManager(BaseServerModelManager):
         configs: Union[List[ServerModelFitIns], List[ServerModelEvaluateIns]],
         is_training: bool,
     ):
-        self.forking_data = self.initialize_forking_data()
         if len(configs) == 0:
             # no need for any server model
             return

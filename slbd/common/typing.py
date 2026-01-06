@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Union, List, Optional, Tuple
 
+import numpy as np
 import torch
 
 from flwr.common import Config
@@ -14,29 +15,6 @@ class ControlCode(Enum):
     STREAM_CLOSED_OK = 2
     ERROR_PROCESSING_STREAM = 3
     INIT_STREAM = 4
-
-
-@dataclass
-class BatchDataForward:
-    """
-    Generic class being passed between client and server during training/evaluation
-    """
-    data: Dict[str, Union[bytes, List[bytes]]]
-    control_code: ControlCode
-    is_training: bool
-    local_computation_time: float
-
-
-@dataclass
-class BatchDataBackward:
-    """
-    Generic class being passed between client and server during training/evaluation
-    """
-    data: Dict[str, Union[bytes, List[bytes]]]
-    control_code: ControlCode
-    layers_diff: int
-    training_loss: float
-    additional_layers_parameters: List[bytes] = None
 
 
 @dataclass
@@ -57,9 +35,32 @@ class TimingMetrics:
 
 
 @dataclass
+class BatchDataForward:
+    """
+    Generic class being passed between client and server during training/evaluation
+    """
+    data: Dict[str, Union[np.ndarray, List[np.ndarray]]]
+    is_training: bool
+    client_timing_metrics: Optional[TimingMetrics] = None
+
+
+@dataclass
+class BatchDataBackward:
+    """
+    Generic class being passed between client and server during training/evaluation
+    """
+    data: Dict[str, Union[np.ndarray, List[np.ndarray]]]
+    layers_diff: int
+    training_loss: float
+    additional_layers_parameters: List[np.ndarray] = None
+    additional_optimizer_states: List[np.ndarray] = None
+
+
+@dataclass
 class LayerChangeInfo:
     layers_diff: int
     additional_layers_parameters: List[torch.Tensor] = None
+    additional_optimizer_states: List[torch.Tensor] = None
 
 
 @dataclass

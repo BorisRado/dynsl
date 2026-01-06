@@ -4,10 +4,11 @@ import torch
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
+from tqdm import tqdm
 
 from slbd.torch.utils import OptimizerGenerator, init_optimizer
 
-from exp.src.data.loading import load_client_trainset
+from exp.src.data.loading import load_client_trainset, load_cv_testset
 from exp.src.data.utils import get_dataloader
 from exp.src.common.stochasticity import set_seed
 from exp.src.common.other import set_torch_flags
@@ -20,7 +21,7 @@ def evaluate_model(model, dataloader, device):
     total = 0
 
     with torch.no_grad():
-        for batch in dataloader:
+        for batch in tqdm(dataloader):
             if "img" in batch:
                 img = batch["img"].to(device)
                 logits = model(img)
@@ -57,11 +58,10 @@ def run(cfg: DictConfig):
     print("Device: ", device)
 
     dataset = load_client_trainset(0, cfg.data, cfg.partitioning, cfg.general.seed)
+    testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=256, shuffle=False)
     print("Centralized dataset size", len(dataset))
     trainloader = get_dataloader(dataset, batch_size=cfg.client.init_kwargs.batch_size)
     criterion = torch.nn.CrossEntropyLoss()
-
-    evaluate_model(model, trainloader, device)
 
     optimizer_config_generator = OptimizerGenerator(cfg.optimizer.optimizer, cfg.optimizer.scheduler)
     start_time = time.time()
@@ -69,13 +69,15 @@ def run(cfg: DictConfig):
     for epoch in range(1, cfg.general.rounds + 1):
         set_seed(cfg.general.seed+epoch)
 
+        optimization_config = optimizer_config_generator.get_optimizer_config()
         optimizer = init_optimizer(
             model.parameters(),
-            **optimizer_config_generator.get_optimizer_config()
+            **optimization_config,
         )
+        print(optimization_config)
         model.train()
         tot_loss = 0.
-        for batch in trainloader:
+        for batch in tqdm(trainloader):
             if "img" in batch:
                 img = batch["img"].to(device)
                 logits = model(img)
@@ -94,7 +96,12 @@ def run(cfg: DictConfig):
             tot_loss += loss.item()
         print(f"Loss {tot_loss / len(trainloader)}")
 
-    evaluate_model(model, trainloader, device)
+        optimizer_config_generator.end_epoch_callback()
+        if epoch % 5 == 0:
+            print("===Test")
+            evaluate_model(model, testloader, device)
+
+    evaluate_model(model, testloader, device)
     print(f"Runtime {time.time() - start_time:.2f}")
 
 

@@ -1,4 +1,5 @@
 name: splitfed_v1
 layer_allocator_init_args:
   num_client_layers: 3
+strategy_init_args: {}
 num_server_models: -1

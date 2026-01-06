@@ -166,7 +166,10 @@ class BaseStrategy(Strategy):
         client_manager.wait_for(self.min_available_clients)
         config = self.optimizer_config_generator.get_optimizer_config()
         if self.config_client_fit_fn:
-            config |= self.config_client_fit_fn(server_round)
+            if isinstance(self.config_client_fit_fn, dict):
+                config |= self.config_client_fit_fn
+            else:
+                config |= self.config_client_fit_fn(server_round)
 
         clients = self.sample_epoch_clients(client_manager, True)
         if len(clients) == 0:
@@ -235,6 +238,7 @@ class BaseStrategy(Strategy):
 
     def _aggregate_layer_parameters(self, trained_values: List[Tuple[torch.tensor, int]]):
         assert len(trained_values) > 0
+        trained_values = [tv for tv in trained_values if tv[1] > 0]
         total_weights = sum(weight for _, weight in trained_values)
         if total_weights == 0:
             return None
@@ -258,7 +262,7 @@ class BaseStrategy(Strategy):
         for _, fit_res in client_results:
             client_finetuned_ndarrays = parameters_to_ndarrays(fit_res.parameters)
             processed_data_points_per_layer = {
-                int(k[len("_proc"):]): v for k, v in fit_res.metrics.items()
+                int(k[len("_proc"):]): int(v) for k, v in fit_res.metrics.items()
                 if k.startswith("_proc")
             }
 
@@ -281,7 +285,7 @@ class BaseStrategy(Strategy):
             processed_data_points_per_layer = res.per_layer_training_examples
             for key, tensor in res.model_state_dict.items():
                 per_parameter_trained_values[key].append(
-                    (tensor.detach().cpu(), processed_data_points_per_layer[get_layer_idx(key)])
+                    (tensor.detach().cpu(), int(processed_data_points_per_layer[get_layer_idx(key)]))
                 )
         out_state_dict = OrderedDict([
             (key, self._aggregate_layer_parameters(per_parameter_trained_values[key]))
@@ -300,7 +304,10 @@ class BaseStrategy(Strategy):
             wandb.log(
                 aggregated_metrics |
                 layer_allocator.collect_epoch_metrics() |
-                {"fit_round_time": self._fit_epoch_duration}
+                {
+                    "fit_round_time": self._fit_epoch_duration
+                    if hasattr(self, "_fit_epoch_duration") else -1.
+                }
             )
         return out_state_dict, aggregated_metrics
 

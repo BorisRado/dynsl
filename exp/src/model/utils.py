@@ -42,3 +42,28 @@ def warmup_device(steps: int = 10):
         torch.cuda.synchronize()
 
     print("[Warm-up] Completed.")
+
+
+def test_model(model, dataloader):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    model.eval()
+    total_loss = 0.0
+    correct = 0
+    total_samples = 0
+    criterion = nn.CrossEntropyLoss()
+
+    with torch.no_grad():
+        for batch in dataloader:
+            inputs, targets = batch["img"].to(device), batch["label"].to(device)
+            outputs = model(inputs)
+            loss = criterion(outputs, targets)
+            total_loss += loss.item() * inputs.size(0)
+            _, predicted = outputs.max(1)
+            correct += predicted.eq(targets).sum().item()
+            total_samples += targets.size(0)
+
+    avg_loss = total_loss / total_samples
+    accuracy = correct / total_samples
+    print(f"Average Loss: {avg_loss:.4f}, Accuracy: {accuracy:.4f}")
+    return avg_loss, accuracy

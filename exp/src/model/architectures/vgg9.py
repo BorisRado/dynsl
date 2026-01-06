@@ -40,3 +40,4 @@ class VGG9(FlexibleSequential):
 
         )
         self._data_type = "cv"
+        self.meaningful_split_points = [3, 6, 9, 11]

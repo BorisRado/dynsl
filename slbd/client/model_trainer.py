@@ -1,5 +1,4 @@
 import time
-import psutil
 from logging import DEBUG
 from typing import Optional
 from collections import defaultdict
@@ -12,10 +11,10 @@ from slbd.torch.sequential_model import FlexibleSequential
 from slbd.torch.utils import init_optimizer
 from slbd.torch.model_utils import (
     extract_submodel,
+    remove_layers_from_model,
     param_list_to_state_dict,
     attach_layers,
     get_num_layers,
-    extract_submodel_state_dict,
 )
 
 
@@ -32,7 +31,7 @@ class ModelTrainer:
         self,
         *,
         whole_model: FlexibleSequential,
-        last_layer_idx: int,
+        num_training_layers: int,
         num_received_layers: int,
         init_parameters,
         server_model_proxy,
@@ -40,60 +39,64 @@ class ModelTrainer:
         is_training,
         sending_transform_fn,
         receiving_transform_fn,
-        server_forking=False,
+        dynamic_layers_strategy,
+        exchange_optimizer_states,
     ):
         """
         Initialize the ModelTrainer.
 
         Args:
             whole_model: The complete model architecture
-            last_layer_idx: Index of the last layer to train on client
+            num_training_layers: Index of the last layer to train on client
             init_parameters: Initial parameters for client layers
             server_model_proxy: Proxy for server communication
             is_training: Whether in training or evaluation mode
             learning_rate: Learning rate for optimizer
             momentum: Momentum for SGD optimizer
         """
+        # sanity checks
+        assert dynamic_layers_strategy in {None, "cnt", "afl"}
+        assert num_training_layers <= num_received_layers
+
         self._use_cuda = torch.cuda.is_available()
         self._whole_model = whole_model
-        self._num_layers_whole_model = get_num_layers(self._whole_model)
-        self._last_layer_idx = last_layer_idx
+        self._num_layers_entire_model = get_num_layers(self._whole_model)
+        self._num_training_layers = num_training_layers
         self._num_received_layers = num_received_layers
+        self.exchange_optimizer_states = exchange_optimizer_states
         self._model: Optional[FlexibleSequential] = None
         self._optimizer: Optional[torch.optim.Optimizer] = None
         self._device = torch.device("cuda" if self._use_cuda else "cpu")
         self._server_model_proxy = server_model_proxy
         self._is_training = is_training
-        self._server_forking = server_forking
+        self._dynamic_layers_strategy = dynamic_layers_strategy
         self._criterion = torch.nn.CrossEntropyLoss()
+        self._removed_weights = []
+        self._removed_optimizer_states = []
 
         # Collected metrics
         self._metrics = {"loss": 0., "accuracy": 0.}
         self._dataset_size = 0
-        self._per_parameter_data_points = defaultdict(int)
-        self._num_dp_when_removed = defaultdict(int)
+        self._per_layer_data_points = defaultdict(int)
         self._forward_time: float = -1.
         self._backward_time: float = -1.
         self._last_server_msg_time: float = -1.
-        self._removed_parameters = {}
         self._tot_local_computation_time = 0.
 
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
 
-        print("Received number of layers: ", num_received_layers)
-        print("Num train layers", last_layer_idx)
+        print(f"Received number of layers: {num_received_layers} ({num_training_layers})")
         self._init_model(num_received_layers, init_parameters, optimizer_config)
 
         self._iter_since_last_model_change = 0
-        self._num_model_layers = get_num_layers(self._model)
 
     def _init_model(self, num_received_layers: int, init_parameters, optimizer_config) -> None:
         """
         Initialize the client-side model.
 
         Args:
-            last_layer_idx: Index of the last layer to include in client model
+            num_training_layers: Index of the last layer to include in client model
             init_parameters: Initial parameters for the model
         """
         self._model = extract_submodel(self._whole_model, 0, num_received_layers)
@@ -115,66 +118,77 @@ class ModelTrainer:
             # i.e., either add or remove some layers
             return
 
+        assert self._dynamic_layers_strategy is not None
+
+        prev_num_of_layers = self._num_training_layers
+        self._num_training_layers += control.layers_diff
+
         if control.layers_diff > 0:
             log(DEBUG, "Receiving %d new layers" % control.layers_diff)
             self._iter_since_last_model_change = 0
-            additional_layers_parameters = control.additional_layers_parameters
-            if self._server_forking:
-                assert additional_layers_parameters is not None
+            if len(control.additional_layers_parameters) > 0:
+                assert self._dynamic_layers_strategy == "afl"
+                # Use optimizer states if they are provided and exchange is enabled
+                optimizer_states = control.additional_optimizer_states if self.exchange_optimizer_states else None
                 self._model = attach_layers(
                     self._whole_model,
                     self._model,
                     control.layers_diff,
                     control.additional_layers_parameters,
                     self._optimizer,
+                    optimizer_states_list=optimizer_states,
                 )
+                # reset counter
+                for k in range(prev_num_of_layers, self._num_training_layers):
+                    self._per_layer_data_points[k] = 0
             else:
-                assert len(additional_layers_parameters) == 0, str(len(additional_layers_parameters))
+                # TODO: CHECK
+                assert len(control.additional_layers_parameters) == 0, str(len(control.additional_layers_parameters))
                 self._last_layer_idx = self._last_layer_idx + control.layers_diff
                 print("Server is NOT forking, just increasing counter", self._last_layer_idx)
                 assert self._last_layer_idx <= get_num_layers(self._model)
 
-            print("Increased model size", self._model)
         else:
-            # need to better think how to properly handle this. For now, we store the
-            # weights locally and upload to the server at the end of the training round
-            # along with the other layers
+
             log(DEBUG, "Removing %d layers from client model" % -control.layers_diff)
-            self._last_layer_idx = self._last_layer_idx + control.layers_diff
-            if not self._server_forking:
-                print("Server is NOT forking, just decreasing counter", self._last_layer_idx)
+            if self._dynamic_layers_strategy == "cnt":
+                log(DEBUG, "Using CNT strategy, just decreasing counter %d", self._num_training_layers)
                 return
-            new_num_layers = self._num_model_layers + control.layers_diff
 
-            assert False
-            params = extract_submodel_state_dict(self._model, new_num_layers, self._num_model_layers)
-
-            for removed_key, removed_param in params.state_dict():
-                if removed_key in self._removed_parameters:
-                    assert removed_key in self._num_dp_when_removed
-                    value = self._weighted_average(
-                        old_value=self._removed_parameters[removed_key],
-                        new_value=removed_param,
-                        old_weight=self._num_dp_when_removed[removed_key],
-                        new_weight=self._per_parameter_data_points[removed_key]-self._num_dp_when_removed[removed_key]
+            elif self._dynamic_layers_strategy == "afl":
+                # Extract optimizer states if exchange is enabled
+                self._model, self._removed_weights, removed_optimizer_states = \
+                    remove_layers_from_model(
+                        self._model,
+                        self._optimizer,
+                        self._num_training_layers,
+                        extract_optimizer_states=self.exchange_optimizer_states
                     )
+                # attach a vector stating how many data points have been processed by these layers
+                self._removed_weights += [torch.tensor([
+                    self._per_layer_data_points[k]
+                    for k in range(self._num_training_layers, prev_num_of_layers)
+                ]),]
 
-                    self._removed_parameters[removed_key] = value
-                    self._num_dp_when_removed[removed_key] = self._per_parameter_data_points[removed_key]
+                # Store optimizer states to send to server
+                self._removed_optimizer_states = removed_optimizer_states if removed_optimizer_states is not None else []
 
-                else:
-                    self._removed_parameters[removed_key] = removed_param
-                    self._num_dp_when_removed[removed_key] = self._per_parameter_data_points[removed_key]
+                log(DEBUG, "Reduced model size to %d", get_num_layers(self._model))
+                for k in range(self._num_training_layers, prev_num_of_layers):
+                    self._per_layer_data_points[k] = 0
 
-            self._model = extract_submodel(self._model, 0, new_num_layers)
-            print("Reduced model size", self._model)
-
-    def _weighted_average(self, old_value, new_value, old_weight, new_weight):
-        value = (old_value * old_weight + new_value * new_weight) / (old_weight + new_weight)
-        return value.detach().cpu()
+        if self._dynamic_layers_strategy == "afl":
+            assert self._num_training_layers == get_num_layers(self._model)
 
     def __call__(self, input_vars, labels):
-        self._iter_since_last_model_change = self._iter_since_last_model_change + 1
+        payload, client_output = self.forward_pass(input_vars, labels)
+        if payload is None:
+            return
+        gradient, control, loss = self._server_model_proxy(**payload)
+        self.backward_pass(gradient, control, loss, client_output)
+
+    def forward_pass(self, input_vars, labels):
+        self._iter_since_last_model_change += + 1
 
         # forward on client model
         with measure_time(self._use_cuda) as timer:
@@ -190,7 +204,7 @@ class ModelTrainer:
         self._forward_time = timer.elapsed # perhaps could have a rolling average
         self._tot_local_computation_time += self._forward_time
 
-        if self._last_layer_idx == self._num_layers_whole_model:
+        if self._num_training_layers == self._num_layers_entire_model:
             # if model is in its entirety on the client, compute the loss on the client
             with measure_time(self._use_cuda) as timer:
                 loss = self._criterion(client_output, labels.to(self._device))
@@ -198,41 +212,42 @@ class ModelTrainer:
                 self._optimizer.step()
             self._backward_time = timer.elapsed
             loss = loss.item()
-            control = None
-        else:
-            # request over network to the server -- SL step
-            send_client_output = client_output
-            if self.sending_transform_fn is not None:
-                send_client_output = self.sending_transform_fn(client_output)
-            client_time = self._backward_time + self._forward_time
-            if psutil.virtual_memory().percent > 90:
-                client_time *= 3.0
-            if psutil.cpu_percent(interval=None) > 90:
-                client_time *= 1.5
-            gradient, control, loss = self._server_model_proxy(
-                embeddings=send_client_output,
-                labels=labels,
-                local_computation_time=-1 if self._iter_since_last_model_change < 4 else client_time,
-                tot_local_time=time.perf_counter() - self._last_server_msg_time,
-            )
-            self._last_server_msg_time = time.perf_counter()
-            if self.receiving_transform_fn is not None:
-                gradient = self.receiving_transform_fn(gradient, client_output=client_output)
-            with measure_time(self._use_cuda) as timer:
-                if is_tuple:
-                    # TODO: for now let's assume that the first tensor is the one that requires grad
-                    client_output[0].backward(gradient.to(self._device))
-                else:
-                    client_output.backward(gradient.to(self._device))
-                self._optimizer.step()
-            self._backward_time = timer.elapsed
+            self._update_metrics(loss, labels.shape[0])
+            return None, None
+
+        send_client_output = client_output
+        if self.sending_transform_fn is not None:
+            send_client_output = self.sending_transform_fn(client_output)
+        client_time = self._backward_time + self._forward_time
+        return {
+            "embeddings": send_client_output,
+            "labels": labels,
+            "local_computation_time": -1 if self._iter_since_last_model_change < 4 else client_time,
+            "tot_local_time": time.perf_counter() - self._last_server_msg_time,
+            "__removed_parameters": self._removed_weights,
+            "__removed_optimizer_states": self._removed_optimizer_states,
+        }, client_output
+
+    def backward_pass(self, gradient, control, loss, client_output):
+        self._removed_weights = []
+        self._removed_optimizer_states = []
+        self._last_server_msg_time = time.perf_counter()
+        if self.receiving_transform_fn is not None:
+            gradient = self.receiving_transform_fn(gradient, client_output=client_output)
+        with measure_time(self._use_cuda) as timer:
+            if not isinstance(client_output, torch.Tensor):
+                client_output[0].backward(gradient.to(self._device))
+            else:
+                client_output.backward(gradient.to(self._device))
+            self._optimizer.step()
+        self._backward_time = timer.elapsed
         self._tot_local_computation_time += self._backward_time
-
         self._update_model(control)
+        self._update_metrics(loss, gradient.shape[0])
 
-        _this_batch_size = labels.shape[0]
-        self._metrics["loss"] += loss * _this_batch_size
-        self._dataset_size += _this_batch_size
+    def _update_metrics(self, loss, batch_size):
+        self._metrics["loss"] += loss * batch_size
+        self._dataset_size += batch_size
 
     def evaluate(self, input_vars, output_vars):
         input_vars = input_vars.to(self._device)
@@ -264,71 +279,40 @@ class ModelTrainer:
         }
 
     def get_training_metrics(self):
-        print("Total local computation time", self._tot_local_computation_time)
-        print({"training_loss": self._metrics["loss"] / self._dataset_size})
+        # print("Total local computation time", self._tot_local_computation_time)
+        # print({"training_loss": self._metrics["loss"] / self._dataset_size})
         return {
             "training_loss": self._metrics["loss"] / self._dataset_size,
             "local_computation_time": self._tot_local_computation_time
         }
 
     def get_fit_results(self):
-
-        # Convert the combined state dict to list of numpy arrays
         params = []
-
         for k, param in self._model.state_dict().items():
             layer_idx = int(k.split(".")[0])
-            if self._per_parameter_data_points[layer_idx] == 0:
+            if self._per_layer_data_points[layer_idx] == 0:
                 # we did not train any further model parameters
                 break
-            elif k not in self._removed_parameters:
-                # we have never removed the layer from local training
-                params.append(param.detach().cpu().numpy())
-            elif self._num_dp_when_removed[k] == self._per_parameter_data_points[k]:
-                assert False
-                params.append(self._removed_parameters[k])
-            else:
-                # we have removed it, and trained again. Thus, we need a weighted average
-                assert False
-                value = self._weighted_average(
-                    old_value=self._removed_parameters[k],
-                    new_value=param,
-                    old_weight=self._num_dp_when_removed[k],
-                    new_weight=self._per_parameter_data_points[k]-self._num_dp_when_removed[k]
-                )
-                params.append(value.detach().cpu().numpy())
+            params.append(param.detach().cpu().numpy())
 
         return (
             params,
-            {f"_proc{k}": v for k, v in self._per_parameter_data_points.items()},
+            {f"_proc{k}": v for k, v in self._per_layer_data_points.items()},
             self.get_training_metrics()
         )
 
-    def stupid_forward(self, x, y):
-        # for testing the server... just send the data to the server
-        # without any local computation
-        _ = self._server_model_proxy(
-            embeddings=x,
-            labels=y,
-            local_computation_time=-1
-        )
-        # dummy values
-        self._dataset_size += 1
-        for layer_idx in range(get_num_layers(self._model)):
-            self._per_parameter_data_points[layer_idx] += 1
-
     def _forward_sequence_of_layers(self, data):
-        layers = list(self._model)[:self._last_layer_idx]
+        layers = list(self._model)[:self._num_training_layers]
 
         x = data
         if isinstance(x, torch.Tensor):
             bs = x.shape[0]
             for idx, layer in enumerate(layers):
                 x = layer(x)
-                self._per_parameter_data_points[idx] += bs
+                self._per_layer_data_points[idx] += bs
         else:
             bs = x[0].shape[0]
             for idx, layer in enumerate(layers):
                 x = layer(*x)
-                self._per_parameter_data_points[idx] += bs
+                self._per_layer_data_points[idx] += bs
         return x

@@ -1,11 +1,10 @@
 import copy
-import time
 import asyncio
-from typing import Union, List
+from typing import Union, List, Optional, Tuple
 
+import numpy as np
 import torch
 
-from slbd.common.parameter import torch_list_to_bytes
 from slbd.server.server_model.torch_server_model import TorchServerModel
 from slbd.server.server_model.manager.multiprocessing.model_worker import TaskType
 from slbd.server.server_model.manager import BaseServerModelManager
@@ -19,17 +18,14 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     def __init__(
         self,
         model: FlexibleSequential,
-        shuffle_data: bool,
         exp_config,
     ) -> None:
-        super().__init__(model, shuffle_data)
+        super().__init__(model, )
         _ = (exp_config,)
         self.spanned_server_models = {}
         self._model_locks = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # caching -- if parameters were extracted very recently, instead of extracting them again,
-        # and converting them to bytes from scratch, we re-use recently extracted ones -- Faster
-        self._cached_binarized_parameters = {}
+        self._afl_coord_data = {} # data for enabling AFL integration of model weights
 
     async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
@@ -38,7 +34,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         else:
             embeddings = embeddings.to(self.device, non_blocking=True)
         labels = labels.to(self.device, non_blocking=True)
-
 
         async with self._model_locks[model_id]:
             gradient, loss = self.spanned_server_models[model_id].train_and_compute_gradient(
@@ -53,6 +48,31 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             (embeddings, num_offloaded_layers)
         ))
 
+    async def marshall_weight_integration_request(
+        self,
+        model_id: str,
+        client_parameters: List[np.ndarray],
+        cid: str,
+        client_optimizer_states: Optional[List[np.ndarray]] = None,
+    ):
+        *client_parameters, num_dp_per_layer = client_parameters
+        num_layers = len(num_dp_per_layer)
+        received_layers = sorted(self._afl_coord_data[cid])[-num_layers:]
+        num_client_dp_per_layer = {k: v for k, v in zip(received_layers, num_dp_per_layer)}
+        num_dp_when_forked = {k: self._afl_coord_data[cid].pop(k) for k in received_layers}
+        async with self._model_locks[model_id]:
+            for k in num_dp_when_forked:
+                self.spanned_server_models[model_id].set_per_layer_counter(
+                    idx=k,
+                    value=num_client_dp_per_layer[k] + num_dp_when_forked[k]
+                )
+            self.spanned_server_models[model_id].integrate_client_parameters(
+                parameters=client_parameters,
+                num_dp_per_layer=num_client_dp_per_layer,
+                num_dp_when_forked=num_dp_when_forked,
+                optimizer_states=client_optimizer_states,
+            )
+
     def collect_server_fit_results(
         self
     ) -> List[ServerModelFitRes]:
@@ -60,7 +80,9 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         for sid, model in self.spanned_server_models.items():
             res: ServerModelFitRes = model.get_fit_result()
             res.sid = sid
-            res.forking_data = self.forking_data
+            res.forking_data = {}
+            if sid in self._afl_coord_data:
+                res.afl_data = self._afl_coord_data[sid]
             out.append(res)
 
         return out
@@ -79,7 +101,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         configs: Union[List[ServerModelFitIns], List[ServerModelEvaluateIns]],
         is_training: bool,
     ):
-        self.forking_data = self.initialize_forking_data()
         if len(configs) == 0:
             # no need for any server model
             return
@@ -96,17 +117,103 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
 
-    async def extract_layer_weights(self, layer_from, layer_to):
+    async def extract_layer_weights(
+        self,
+        layer_from: int,
+        layer_to: int,
+        server_id: str,
+        cid: str
+    ) -> List[np.ndarray]:
         # returns a copy of the model weights
-        assert len(self.spanned_server_models) == 1 and "" in self.spanned_server_models
-        key = (layer_from, layer_to)
-        if key not in self._cached_binarized_parameters or time.time() - self._cached_binarized_parameters[key][1] > 2.0:
-            model = self.spanned_server_models[""]
-            shift = model.first_server_layer
-            async with self._model_locks[""]:
-                params = extract_submodel_weights(
-                    model.get_model(), layer_from-shift, layer_to-shift
+        model = self.spanned_server_models[server_id]
+        shift = model.first_server_layer
+        if cid not in self._afl_coord_data:
+            self._afl_coord_data[cid] = {}
+
+        async with self._model_locks[server_id]:
+            for idx in range(layer_from, layer_to):
+                self._afl_coord_data[cid][idx] = model._per_layer_data_points[idx]
+            params = extract_submodel_weights(
+                model.get_model(), layer_from-shift, layer_to-shift
+            )
+            model.reset_per_layer_counters(layer_from, layer_to)
+        return params
+
+    async def extract_layer_weights_and_optimizer_states(
+        self,
+        layer_from: int,
+        layer_to: int,
+        server_id: str,
+        cid: str,
+        extract_optimizer_states: bool = False
+    ) -> Tuple[List[np.ndarray], Optional[List[np.ndarray]]]:
+        """
+        Extract layer weights and optionally optimizer states.
+
+        Returns:
+            Tuple of (parameters, optimizer_states)
+        """
+        model = self.spanned_server_models[server_id]
+        shift = model.first_server_layer
+        if cid not in self._afl_coord_data:
+            self._afl_coord_data[cid] = {}
+
+        async with self._model_locks[server_id]:
+            for idx in range(layer_from, layer_to):
+                self._afl_coord_data[cid][idx] = model._per_layer_data_points[idx]
+
+            # Extract parameters
+            params = extract_submodel_weights(
+                model.get_model(), layer_from-shift, layer_to-shift
+            )
+
+            # Extract optimizer states if requested
+            optimizer_states = None
+            if extract_optimizer_states:
+                optimizer_states = self._extract_optimizer_states_for_layers(
+                    model, layer_from, layer_to
                 )
-            params = torch_list_to_bytes(params)
-            self._cached_binarized_parameters[key] = (params, time.time())
-        return self._cached_binarized_parameters[key][0]
+
+            model.reset_per_layer_counters(layer_from, layer_to)
+
+        return params, optimizer_states
+
+    def _extract_optimizer_states_for_layers(
+        self,
+        model: TorchServerModel,
+        layer_from: int,
+        layer_to: int
+    ) -> List[np.ndarray]:
+        """
+        Extract optimizer states for specific layers.
+        """
+        optimizer_states = []
+
+        # Get parameters for the specified layer range
+        layer_params = []
+        for layer_idx in range(layer_from - model.first_server_layer, layer_to - model.first_server_layer):
+            layer = list(model.get_model().children())[layer_idx]
+            layer_params.extend(layer.parameters())
+
+        # Extract optimizer states for these parameters
+        for param in layer_params:
+            if param in model._optimizer.state:
+                state = model._optimizer.state[param]
+
+                # Extract state tensors based on optimizer type
+                if isinstance(model._optimizer, torch.optim.SGD):
+                    if 'momentum_buffer' in state:
+                        optimizer_states.append(state['momentum_buffer'].detach().cpu().numpy())
+                elif isinstance(model._optimizer, torch.optim.Adam):
+                    if 'step' in state:
+                        optimizer_states.append(np.array([state['step']]))
+                    if 'exp_avg' in state:
+                        optimizer_states.append(state['exp_avg'].detach().cpu().numpy())
+                    if 'exp_avg_sq' in state:
+                        optimizer_states.append(state['exp_avg_sq'].detach().cpu().numpy())
+
+        return optimizer_states
+
+    def get_num_server_models(self):
+        assert len(self.spanned_server_models) == len(self._model_locks)
+        return len(self.spanned_server_models)

@@ -1,7 +1,7 @@
 import os
 import time
 import traceback
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
 from hydra.utils import instantiate
 
@@ -35,15 +35,16 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         whole_model: FlexibleSequential,
         server_model_proxy: GrpcServerModelProxy,
         data_manipulation_config,
-        server_forking=False,
+        dynamic_layers_strategy: Optional[str],
+        exchange_optimizer_states: Optional[bool],
     ):
         self.torch_client = torch_client
         self.whole_model = whole_model
         self.server_model_proxy = server_model_proxy
         self.sending_transform_fn = instantiate(data_manipulation_config.sending_fn, _partial_=True)
         self.receiving_transform_fn = instantiate(data_manipulation_config.receiving_fn, _partial_=True)
-        assert not server_forking, "Need to fix code with server forking"
-        self._server_forking = server_forking
+        self.dynamic_layers_strategy = dynamic_layers_strategy
+        self.exchange_optimizer_states = exchange_optimizer_states
 
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         _ = (config, )
@@ -64,7 +65,7 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         # initialize the model trainer
         model_trainer = ModelTrainer(
             whole_model=self.whole_model,
-            last_layer_idx=last_client_layer_idx,
+            num_training_layers=last_client_layer_idx,
             num_received_layers=num_received_layers,
             init_parameters=parameters,
             server_model_proxy=self.server_model_proxy,
@@ -72,7 +73,8 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
             sending_transform_fn=self.sending_transform_fn,
             receiving_transform_fn=self.receiving_transform_fn,
             is_training=True,
-            server_forking=self._server_forking,
+            dynamic_layers_strategy=self.dynamic_layers_strategy,
+            exchange_optimizer_states=self.exchange_optimizer_states,
         )
 
         # call the model-owner training logic, and measure the time it takes
@@ -102,7 +104,7 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         # initialize the model trainer
         model_trainer = ModelTrainer(
             whole_model=self.whole_model,
-            last_layer_idx=last_client_layer_idx,
+            num_training_layers=last_client_layer_idx,
             init_parameters=parameters,
             server_model_proxy=self.server_model_proxy,
             is_training=False

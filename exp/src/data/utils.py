@@ -17,8 +17,9 @@ def get_dataloader(dataset, batch_size, shuffle=True):
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        num_workers=0,
+        num_workers=1,
         pin_memory=torch.cuda.is_available(),
         drop_last=True,
+        persistent_workers=True,
         **kwargs
     )

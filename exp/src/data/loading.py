@@ -1,5 +1,6 @@
 from functools import partial
 
+from datasets import load_dataset
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from flwr_datasets import FederatedDataset
@@ -16,9 +17,19 @@ def _apply_transforms_fn(batch, transforms):
   return batch
 
 
+def load_cv_testset(dataset_config):
+    test_transforms = instantiate(dataset_config.test_transforms)
+    dataset = load_dataset(dataset_config.name, split="test")
+
+    apply_test_transforms = partial(_apply_transforms_fn, transforms=test_transforms)
+
+    dataset = dataset.with_transform(apply_test_transforms)
+    dataset = dataset.select_columns(["img", "label"])
+    dataset._dataset_type = "cv"
+    return dataset
 
 
-def _load_cv_dataset(client_idx, dataset_config, partitioning_config, seed):
+def _load_cv_dataset(client_idxs, dataset_config, partitioning_config, seed):
     train_transforms = instantiate(dataset_config.train_transforms)
     partitioner = instantiate(partitioning_config)
 
@@ -30,12 +41,14 @@ def _load_cv_dataset(client_idx, dataset_config, partitioning_config, seed):
     )
 
     apply_train_transforms = partial(_apply_transforms_fn, transforms=train_transforms)
+    assert isinstance(client_idxs, list)
 
-    trainset = fds.load_partition(client_idx)
-    trainset = trainset.select_columns(["img", "label"])
-    trainset = trainset.with_transform(apply_train_transforms)
+    trainsets = [fds.load_partition(idx) for idx in client_idxs]
+    trainsets = [ts.select_columns(["img", "label"]) for ts in trainsets]
+    trainsets = [ts.with_transform(apply_train_transforms) for ts in trainsets]
 
-    return trainset
+    return trainsets
+
 
 def _load_nlp_dataset(client_idx, dataset_config, partitioning_config, seed):
     partitioner = instantiate(partitioning_config)
@@ -62,13 +75,25 @@ def _load_nlp_dataset(client_idx, dataset_config, partitioning_config, seed):
 
 
 def load_client_trainset(client_idx, dataset_config, partitioning_config, seed):
+    if isinstance(client_idx, int):
+        client_idx = [client_idx]
+        is_single = True
+    else:
+        is_single = False
+
     if dataset_config.type == "cv":
         dataset = _load_cv_dataset(client_idx, dataset_config, partitioning_config, seed)
     elif dataset_config.type == "nlp":
         dataset = _load_nlp_dataset(client_idx, dataset_config, partitioning_config, seed)
     else:
         raise Exception(f"Unknown dataset type {dataset_config.type}")
-    dataset._dataset_type = dataset_config.type
+
+    for ds in dataset:
+        ds._dataset_type = dataset_config.type
+
+    if is_single:
+        return dataset[0]
+
     return dataset
 
 
