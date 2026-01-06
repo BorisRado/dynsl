@@ -43,9 +43,11 @@ def run(cfg: DictConfig):
     del cfg.strategy
     del cfg.optimizer
     if "COLEXT_SERVER_ADDRESS" in os.environ:
-        print("Overriding server address with CoLExT configuration")
+        print("Overriding server address and client ID with CoLExT configuration")
         cfg.client.server_address = os.environ["COLEXT_SERVER_ADDRESS"]
+        cfg.client.init_kwargs.cid = int(os.environ["COLEXT_CLIENT_ID"])
         print("Server address:", cfg.client.server_address)
+        print("This client CID:", cfg.client.init_kwargs.cid)
 
     client_init_kwargs = OmegaConf.to_container(cfg.client.init_kwargs)
     handle_bg_process_config_colext(client_init_kwargs, cfg)

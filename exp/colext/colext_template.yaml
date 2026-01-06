@@ -20,16 +20,17 @@ code:
       sed -i '/FLOWER_LOGGER.addHandler(console_handler)/d' /opt/conda/lib/python3.10/site-packages/flwr/common/logger.py && PYTHONPATH=$PYTHONPATH:. python3 -u exp/scripts/py/server.py
       general.rounds={{ num_rounds }}
       algorithm={{ algorithm }}
+      algorithm.num_server_models={{ num_server_models }}
       strategy.min_available_clients=${COLEXT_N_CLIENTS}
       server.port=8080
       wandb=true
       model={{ model_name }}
       partitioning.num_partitions={{ num_partitions }}
       experiment_name={{ experiment_name }}
-      {%- if algo_config %}{{ algo_config }}{% endif %}
+      {% if algo_config %}{{ algo_config }}{% endif %}
       {{ device_listing }}
-      {%- if bg_devices %}{{ bg_devices }}{% endif %}
-      {%- if bg_configuration %}{{ bg_configuration }}{% endif %}
+      {% if bg_devices %}{{ bg_devices }}{% endif %}
+      {% if bg_configuration %}{{ bg_configuration }}{% endif %}
 
 clients:
   - dev_type: JetsonAGXOrin

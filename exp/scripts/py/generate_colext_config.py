@@ -14,11 +14,14 @@ def generate():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--algorithm", required=True, type=str, help="FL algorithm to be tested",
-                        choices=["splitfed_v1", "splitfed_v2", "ares", "dynsl_v2"])
+                        choices=["splitfed_v1", "splitfed_v2", "ares", "dynsl_v2", "oracle"])
     parser.add_argument("--model-name", required=True, type=str, help="Model to be trained")
     parser.add_argument("--num-rounds", required=False, type=int, default=1, help="Number of training rounds")
     parser.add_argument("--num-partitions", required=False, type=int, default=10, help="Number of partitions of the training dataset")
     parser.add_argument("--experiment-name", required=False, type=str, default="colext", help="Name of experiment on wandb")
+
+    # common arguments for all algorithms
+    parser.add_argument("--num-server-models", required=True, type=int, help="Number of models to be trained on the server")
 
     # number of devices
     parser.add_argument("--num-jao", required=False, type=int, default=2, help="Number of agx devices to use")
@@ -37,6 +40,7 @@ def generate():
     parser.add_argument("--dynsl-gamma", required=False, type=float, default=8.0, help="... [DYNSL]")
     parser.add_argument("--dynsl-cache-client-configuration", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
     parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="genetic", choices=["genetic"], help="... [DYNSL]")
+    parser.add_argument("--dynsl-forking", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
 
     # algorithm specific configuration -- ORACLE
     parser.add_argument("--oracle-nl-jao", required=False, type=int, default=-1, help="... [ORACLE]")
@@ -66,10 +70,15 @@ def generate():
 
     if args.algorithm.startswith("dynsl"):
         predix_len = len("dynsl_")
-        args_dict["algo_config"] = "\n      ".join([
-            f"algorithm.layer_allocator_init_args.{key[predix_len:]}={args_dict[key]}"
-            for key in args_dict if key.startswith("dynsl")
-        ])
+        algo_args = []
+        for key in args_dict:
+            if not key.startswith("dynsl"):
+                continue
+            prefix = "algorithm."
+            if key[predix_len:] != "forking":
+                prefix += "layer_allocator_init_args."
+            algo_args.append(f"{prefix}{key[predix_len:]}={args_dict[key]}")
+        args_dict["algo_config"] = "\n      ".join(algo_args)
 
     if args.algorithm.startswith("oracle"):
         tmp = []

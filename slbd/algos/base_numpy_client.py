@@ -1,5 +1,6 @@
 import os
 import time
+import traceback
 from typing import Dict, Tuple
 
 from hydra.utils import instantiate
@@ -79,7 +80,8 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         try:
             self.torch_client.fit(config, model_trainer)
         except Exception as e:
-            print("Exception!!", e)
+            print("Exception!!")
+            traceback.print_exc()
             self.server_model_proxy.close_stream(error=True)
         runtime = time.time() - start_time
 

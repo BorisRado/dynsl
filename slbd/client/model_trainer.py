@@ -129,7 +129,7 @@ class ModelTrainer:
                     self._optimizer,
                 )
             else:
-                assert additional_layers_parameters is None
+                assert len(additional_layers_parameters) == 0, str(len(additional_layers_parameters))
                 self._last_layer_idx = self._last_layer_idx + control.layers_diff
                 print("Server is NOT forking, just increasing counter", self._last_layer_idx)
                 assert self._last_layer_idx <= get_num_layers(self._model)

@@ -24,7 +24,9 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         self._wait_time_in_ready_state = []
         self._batch_preparation_times = []
         self._cid_to_device_type_mapping = {}
+        self._client_throughputs = {}
         self.tot_server_computation_time = None
+        self.stop_measuring_throughput = False
 
     def _get_properties(self, client_proxies):
         get_properties_instructions = GetPropertiesIns({})
@@ -46,6 +48,8 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         if len(self._cid_to_device_type_mapping) == 0:
             self._get_properties(epoch_clients)
         self.tot_server_computation_time = 0.
+        self._client_throughputs = {}
+        self.stop_measuring_throughput = False
 
         self._server_training_time = []
         self._wait_time_in_ready_state = []
@@ -65,6 +69,12 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         return self._num_offloaded_layers
 
     def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes: int):
+        if metrics is None or metrics.client_local_computation_time < 0 or self.stop_measuring_throughput:
+            return
+        metrics.compute_throughput(num_received_bytes)
+        self._client_throughputs.setdefault(client_id, metrics.throughput)
+        self._client_throughputs[client_id] = \
+            0.8 * self._client_throughputs[client_id] + 0.2 * metrics.throughput
         return
 
     def update_server_metrics(
@@ -80,4 +90,8 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
     def collect_epoch_metrics(self):
         return {
             "tot_server_training_time": self.tot_server_computation_time,
+            "client_throughputs": self._client_throughputs,
         }
+
+def remove_client(self, cid):
+    self.stop_measuring_throughput = True

@@ -54,8 +54,11 @@ class MOTorchClient(AbstractTorchClient):
             )
         set_seed(self.seed + config["epoch_idx"])
         if self.trainset._dataset_type == "cv":
+            n = 0
             for batch in trainloader:
                 model_trainer(batch["img"], batch["label"])
+                n += 1
+            print("Have completed the entire trainloader!", n, len(trainloader))
         else:
             for batch in trainloader:
                 model_trainer(
@@ -64,6 +67,7 @@ class MOTorchClient(AbstractTorchClient):
                 )
         if self.bg_num_procs > 0:
             self.bg_proc_mng.pause_processes()
+        print("MO FIT FINISHED")
 
     def evaluate(self, config, model_trainer):
         valloader = get_dataloader(self.trainset, batch_size=self.batch_size, shuffle=False)

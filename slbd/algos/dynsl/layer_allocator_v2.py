@@ -70,7 +70,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self.meaningful_split_points = [
             msp for msp in meaningful_split_points if msp <= max_client_layers
         ]
-        self._max_client_layers: int = self.get_previous_split_point(max_client_layers)
+        self._max_client_layers: int = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers), None)
+        assert self._max_client_layers is not None
 
         # safety checks
         assert self.layer_allocation_optimizer in {"genetic"}
@@ -369,8 +370,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # server computation
         per_batch_time += self._server_training_times[L] # server training
         # communication
-        per_batch_time += self._per_batch_bits[L] * self._client_throughput[cid]
-        print(f"Espected communicatin time: {per_batch_time}")
+        per_batch_time += self._per_batch_bits[L] / self._client_throughput[cid]
         reg_term = 0. if L == self._client_allocated_layers[cid] else 2.0
         return self._pending_batches[cid] * per_batch_time + reg_term
 
@@ -455,6 +455,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         return 0.8 * average + 0.2 * new_value
 
     def get_max_client_layers(self, cid):
+        print("Getting max number of layers for", cid, self._per_client_max_layers[cid], self._max_client_layers)
         return min(self._per_client_max_layers[cid], self._max_client_layers)
 
     def get_min_client_layers(self, cid):
