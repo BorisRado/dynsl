@@ -74,6 +74,7 @@ def init_oracle_components(config, model):
         model=model,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
+        **OmegaConf.to_container(config.algorithm.strategy_init_args, resolve=True),
     )
     client_layer_allocator = OracleClientLayerAllocator(
         num_model_layers=get_num_layers(model),

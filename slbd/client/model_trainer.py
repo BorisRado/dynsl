@@ -224,8 +224,8 @@ class ModelTrainer:
             "labels": labels,
             "local_computation_time": -1 if self._iter_since_last_model_change < 4 else client_time,
             "tot_local_time": time.perf_counter() - self._last_server_msg_time,
-            "__removed_parameters": self._removed_weights,
-            "__removed_optimizer_states": self._removed_optimizer_states,
+            "client_model_weights": self._removed_weights,
+            "removed_optimizer_states": self._removed_optimizer_states,
         }, client_output
 
     def backward_pass(self, gradient, control, loss, client_output):

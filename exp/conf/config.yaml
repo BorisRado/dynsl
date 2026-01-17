@@ -31,6 +31,7 @@ server_model_servicer:
   servicer_name: queue
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
   request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model
-  send_server_parameters_when_forking: ... # set during runtime to algorithm.forking if it exists
+  dynamic_layers_strategy: ${oc.select:algorithm.dynamic_layers_strategy,null}
+  exchange_optimizer_states: ${oc.select:algorithm.exchange_optimizer_states,false}
 wandb: false
 experiment_name: ... # helper to search experiments in wandb database

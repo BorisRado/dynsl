@@ -136,7 +136,7 @@ def _start_client_internal(
         "splitfed_v2": SplitFedClientAdapter,
         "oracle": SplitFedClientAdapter,
     }[config.algorithm.name]
-    client_adapter_kwargs = OmegaConf.to_container(config, resolve=True)["algorithm"].get("client_adapted_args", {})
+    client_adapter_kwargs = OmegaConf.to_container(config)["algorithm"].get("client_adapter_args", {})
     client_adapter_cls = partial(
         client_adapter_cls,
         data_manipulation_config=config.data_manipulation.client,

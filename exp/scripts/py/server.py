@@ -16,8 +16,7 @@ from exp.src.model.utils import warmup_device
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
-    if "forking" in cfg.algorithm:
-        cfg.server_model_servicer.send_server_parameters_when_forking = cfg.algorithm.forking
+    OmegaConf.resolve(cfg)
     if cfg.wandb:
         if run_exists_already(cfg):
             print("Run exists already")

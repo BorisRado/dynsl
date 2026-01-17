@@ -7,9 +7,23 @@ from slbd.torch.sequential_model import FlexibleSequential
 from exp.src.common.stochasticity import set_seed
 
 
+def replace_bn_with_gn(module, num_groups=2):
+    for name, child in module.named_children():
+        if isinstance(child, nn.BatchNorm2d):
+            gn = nn.GroupNorm(
+                num_groups=num_groups,
+                num_channels=child.num_features,
+                affine=True
+            )
+            setattr(module, name, gn)
+        else:
+            replace_bn_with_gn(child, num_groups)
+
+
 class ResNet18(FlexibleSequential):
     def __init__(self, num_classes):
         model = models.resnet18(weights=None, num_classes=num_classes)
+        replace_bn_with_gn(model, num_groups=2) # 2 groups as in adaptive federated optimization
         super().__init__(
             model.conv1,
             model.bn1,
@@ -30,6 +44,7 @@ class ResNet18(FlexibleSequential):
 if __name__ == "__main__":
     set_seed(10)
     model = models.resnet18(weights=None, num_classes=10)
+    replace_bn_with_gn(model, num_groups=2)
     print(sum(p.numel() for p in model.parameters()))
     set_seed(10)
     seq_model = ResNet18(num_classes=10)

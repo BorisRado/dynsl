@@ -35,8 +35,8 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         whole_model: FlexibleSequential,
         server_model_proxy: GrpcServerModelProxy,
         data_manipulation_config,
-        dynamic_layers_strategy: Optional[str],
-        exchange_optimizer_states: Optional[bool],
+        dynamic_layers_strategy: Optional[str]=None,
+        exchange_optimizer_states: Optional[bool]=False,
     ):
         self.torch_client = torch_client
         self.whole_model = whole_model
@@ -45,6 +45,9 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         self.receiving_transform_fn = instantiate(data_manipulation_config.receiving_fn, _partial_=True)
         self.dynamic_layers_strategy = dynamic_layers_strategy
         self.exchange_optimizer_states = exchange_optimizer_states
+        print("Initialized client adapter")
+        print(f"\t\tDynamic layers strategy: {self.dynamic_layers_strategy}")
+        print(f"\t\tExchange optimizer states: {self.exchange_optimizer_states}")
 
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         _ = (config, )

@@ -39,6 +39,8 @@ def handle_bg_process_config_colext(client_init_kwargs, cfg):
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
+    OmegaConf.resolve(cfg)
+
     # remove configuration that does not pertain to the client
     del cfg.server
     del cfg.strategy

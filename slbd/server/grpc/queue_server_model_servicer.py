@@ -116,7 +116,7 @@ class BatchingWorkerManager:
 
             except asyncio.TimeoutError:
                 if len(kwargs_list) == 0:
-                    return
+                    continue
                 log(WARNING, f"Did not attain sufficient number of batches. Processing {len(kwargs_list)} {num_offloaded_layers} {server_id} {client_ids}...")
 
             # Start computation as a separate task and continue immediately
@@ -157,8 +157,8 @@ class BatchingWorkerManager:
     async def _run_computation(self, kwargs_list, client_ids, num_offloaded_layers, server_id):
 
         for cid, client_kwargs in zip(client_ids, kwargs_list):
-            client_parameters = client_kwargs.pop("__removed_parameters", None)
-            client_optimizer_states = client_kwargs.pop("__removed_optimizer_states", None)
+            client_parameters = client_kwargs.pop("client_model_weights", None)
+            client_optimizer_states = client_kwargs.pop("removed_optimizer_states", None)
             if client_parameters:
                 log(INFO, "Server has received client parameters. Integrating them...")
                 await self.server_model_manager \
@@ -235,6 +235,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         request_group_timeout: float,
         sending_transform_fn_config: Optional[Callable],
         receiving_transform_fn_config: Optional[Callable],
+        exchange_optimizer_states: bool
     ) -> None:
         super().__init__()
         self.server_model_manager = server_model_manager
@@ -259,6 +260,7 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             receiving_transform_fn=self.receiving_transform_fn,
             dynamic_layers_strategy=dynamic_layers_strategy,
             is_cuda_available=self._is_cuda_available,
+            exchange_optimizer_states=exchange_optimizer_states,
         )
 
     def _to_grpc(self, data: BatchDataBackward) -> server_model_pb2.BatchDataBackward:
