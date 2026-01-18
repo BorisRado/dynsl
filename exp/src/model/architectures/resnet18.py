@@ -21,9 +21,13 @@ def replace_bn_with_gn(module, num_groups=2):
 
 
 class ResNet18(FlexibleSequential):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, use_groupnorm):
         model = models.resnet18(weights=None, num_classes=num_classes)
-        replace_bn_with_gn(model, num_groups=2) # 2 groups as in adaptive federated optimization
+        # replace the first conv layers, otherwise the resolution is reduced too much
+        # same as in https://github.com/kuangliu/pytorch-cifar/blob/master/models/resnet.py
+        model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        if use_groupnorm:
+            replace_bn_with_gn(model, num_groups=2) # 2 groups as in adaptive federated optimization
         super().__init__(
             model.conv1,
             model.bn1,

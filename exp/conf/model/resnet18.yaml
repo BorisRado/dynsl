@@ -1,2 +1,3 @@
 _target_: exp.src.model.architectures.resnet18.ResNet18
 num_classes: ${data.num_classes}
+use_groupnorm: true
