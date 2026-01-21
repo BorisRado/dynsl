@@ -25,7 +25,10 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         self.spanned_server_models = {}
         self._model_locks = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._afl_coord_data = {} # data for enabling AFL integration of model weights
+        # data for enabling AFL integration of model weights
+        # specifically, for every client we store the number of DP processed on the server
+        # when a given layer forked
+        self._afl_coord_data = {}
 
     async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
         embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
@@ -57,19 +60,26 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     ):
         *client_parameters, num_dp_per_layer = client_parameters
         num_layers = len(num_dp_per_layer)
+        # received layers have an absolute value
         received_layers = sorted(self._afl_coord_data[cid])[-num_layers:]
         num_client_dp_per_layer = {k: v for k, v in zip(received_layers, num_dp_per_layer)}
-        num_dp_when_forked = {k: self._afl_coord_data[cid].pop(k) for k in received_layers}
+        num_server_dp_when_forked = {k: self._afl_coord_data[cid].pop(k) for k in received_layers}
         async with self._model_locks[model_id]:
-            for k in num_dp_when_forked:
-                self.spanned_server_models[model_id].set_per_layer_counter(
-                    idx=k,
-                    value=num_client_dp_per_layer[k] + num_dp_when_forked[k]
+            integration_model = self.spanned_server_models[model_id]
+            num_current_server_dp = {}
+            for layer_idx in num_server_dp_when_forked:
+                num_current_server_dp[layer_idx] = \
+                    integration_model.get_current_layer_data_points(layer_idx)
+                integration_model.increase_per_layer_counter(
+                    idx=layer_idx,
+                    increase=num_client_dp_per_layer[layer_idx]
                 )
-            self.spanned_server_models[model_id].integrate_client_parameters(
+
+            integration_model.integrate_client_parameters(
                 parameters=client_parameters,
-                num_dp_per_layer=num_client_dp_per_layer,
-                num_dp_when_forked=num_dp_when_forked,
+                received_layers=received_layers,
+                client_weights=num_client_dp_per_layer,
+                server_model_weights={idx: num_current_server_dp[idx] - num_server_dp_when_forked[idx] for idx in received_layers},
                 optimizer_states=client_optimizer_states,
             )
 
@@ -80,9 +90,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         for sid, model in self.spanned_server_models.items():
             res: ServerModelFitRes = model.get_fit_result()
             res.sid = sid
-            res.forking_data = {}
-            if sid in self._afl_coord_data:
-                res.afl_data = self._afl_coord_data[sid]
+            res.afl_data = self._afl_coord_data # simply set that all have the same AFL data
             out.append(res)
 
         return out
@@ -136,7 +144,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             params = extract_submodel_weights(
                 model.get_model(), layer_from-shift, layer_to-shift
             )
-            model.reset_per_layer_counters(layer_from, layer_to)
         return params
 
     async def extract_layer_weights_and_optimizer_states(
@@ -173,8 +180,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
                 optimizer_states = self._extract_optimizer_states_for_layers(
                     model, layer_from, layer_to
                 )
-
-            model.reset_per_layer_counters(layer_from, layer_to)
 
         return params, optimizer_states
 

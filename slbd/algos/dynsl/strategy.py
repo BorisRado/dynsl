@@ -82,6 +82,8 @@ class DynSLStrategy(BaseStrategy):
                 [("", min_layers, [proxy.cid for proxy in clients])],
                 model_state_dict, True, config
             )
+        if self.num_server_models == 0:
+            raise Exception("Cannot use model per split point --- would it make sense to integrate?")
         elif self.num_server_models == -1:
             all_server_models_fit_ins = self._setup_epoch_server_models([
                 (
@@ -93,6 +95,35 @@ class DynSLStrategy(BaseStrategy):
             )
 
         return all_clients_fit_ins, all_server_models_fit_ins
+
+    def _aggregate_hierarchical(self, key, afl_data, all_client_statedicts, server_state_dict, server_processed_dp_per_layer):
+        layer_idx = get_layer_idx(key)
+        clients_num_dp_when_forking = {
+            cid: afl_data[cid][layer_idx]
+            for cid in all_client_statedicts
+            if cid in afl_data and layer_idx in afl_data[cid]
+        }
+        if key not in server_state_dict:
+            # layer was not trained on the server, use averaging of client weights
+            tot_num_dp = sum([v[key][1] for v in all_client_statedicts.values()])
+            agg_weight = self._aggregate_layer_parameters([v[key] for v in all_client_statedicts.values()])
+            return agg_weight, tot_num_dp
+
+        iter_weight = server_state_dict[key]
+        previous_fork = server_processed_dp_per_layer[layer_idx]
+
+        for cid, num_cfdp in sorted(clients_num_dp_when_forking.items(), key=lambda x: x[1], reverse=True):
+            client_w, client_dp = all_client_statedicts[cid][key]
+            num_processed_on_server = previous_fork - num_cfdp
+            num_processed_on_client = client_dp
+
+            w1, w2 = num_processed_on_server, num_processed_on_client
+            w1, w2 = w1 / (w1 + w2), w2 / (w1 + w2)
+            assert client_w.shape == iter_weight.shape
+            client_w = client_w.to(iter_weight.device)
+            iter_weight = iter_weight.mul_(w1).add_(w2 * client_w)
+            previous_fork = previous_fork + num_processed_on_client
+        return iter_weight.cpu(), previous_fork
 
     def aggregate_fit(
         self,
@@ -109,18 +140,62 @@ class DynSLStrategy(BaseStrategy):
                 server_round, client_results, server_results, layer_allocator, failures
             )
 
-        # assert False, "Need to implement AFL aggregation strategy"
-        assert len(server_results) == len(client_results)
+        self.optimizer_config_generator.end_epoch_callback()
+
+        # Verify all server_res have afl_data attribute with same value
+        afl_data_values = [server_res.afl_data for server_res in server_results]
+        assert len(afl_data_values) == len(server_results), "Not all server_results have afl_data attribute"
+        assert all(afl_data == afl_data_values[0] for afl_data in afl_data_values), "Not all afl_data values are the same"
+
+        afl_data = {k: v for k, v in afl_data_values[0].items() if len(v) > 0}
+        per_parameter_trained_values = defaultdict(list)
         for server_res in server_results:
             assert hasattr(server_res, "afl_data")
-            client_res = [cr for cr in client_results if cr[0].cid == server_res.sid]
-            assert len(client_res) == 1
-            client_res = client_res[0]
-            if len(server_res.afl_data) == 0:
-                continue
-            for k in server_res.afl_data:
-                client_res[1].metrics[f"_proc{k}"] += server_res.afl_data[k]
+            client_res = [cr for cr in client_results if self._cid_to_sid_mapping[cr[0].cid] == server_res.sid]
 
-        return super().aggregate_fit(
-            server_round, client_results, server_results, layer_allocator, failures
-        )
+            all_client_statedicts = {}
+            for proxy, cr in client_res:
+                client_finetuned_ndarrays = parameters_to_ndarrays(cr.parameters)
+                processed_data_points_per_layer = {
+                    int(k[len("_proc"):]): int(v) for k, v in cr.metrics.items()
+                    if k.startswith("_proc")
+                }
+                all_client_statedicts[proxy.cid] = {
+                    key: (torch.from_numpy(array), processed_data_points_per_layer[get_layer_idx(key)])
+                    for key, array in zip(
+                        self.model.state_dict().keys(),
+                        client_finetuned_ndarrays
+                    )
+                }
+            server_processed_data_points_per_layer = server_res.per_layer_training_examples
+            server_state_dict = server_res.model_state_dict
+            for key in self.model.state_dict():
+                per_parameter_trained_values[key].append(
+                    self._aggregate_hierarchical(key, afl_data, all_client_statedicts, server_state_dict, server_processed_data_points_per_layer)
+                )
+
+        # ultimately, all the layers must have been trained on the same number of data points ==>
+        assert len(set([sum([int(a[1]) for a in v]) for v in per_parameter_trained_values.values()])) == 1
+        out_state_dict = OrderedDict([
+            (key, self._aggregate_layer_parameters(per_parameter_trained_values[key]))
+            for key in self.model.state_dict().keys()
+        ])
+        # Remove entries with None values
+        out_state_dict = OrderedDict([(k, v) for k, v in out_state_dict.items() if v is not None])
+
+        aggregated_metrics = {}
+        if self.fit_metrics_aggregation_fn is not None:
+            fit_metrics = [(res.num_examples, res.metrics) for _, res in client_results]
+            cids = [proxy.cid for proxy, _ in client_results]
+            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics, cids)
+
+        if wandb.run is not None:
+            wandb.log(
+                aggregated_metrics |
+                layer_allocator.collect_epoch_metrics() |
+                {
+                    "fit_round_time": self._fit_epoch_duration
+                    if hasattr(self, "_fit_epoch_duration") else -1.
+                }
+            )
+        return out_state_dict, aggregated_metrics

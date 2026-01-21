@@ -19,6 +19,7 @@ client:
     cid: 0 # should be set at runtime
     min_layers: 2
     batch_size: 16
+    num_epochs: 1
 strategy:
   fraction_fit: 1.0
   fraction_evaluate: 0.0

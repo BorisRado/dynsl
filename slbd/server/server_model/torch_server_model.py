@@ -26,7 +26,7 @@ class TorchServerModel:
         self._num_model_layers = get_num_layers(model)
         self._optimizer = None
         self._criterion = torch.nn.CrossEntropyLoss()
-        self._per_layer_data_points = defaultdict(int)
+        self._per_layer_data_points = defaultdict(int) # layer idxs are absolute!!!
         self._metrics_dict = {}
 
     def get_train_results(self):
@@ -126,54 +126,54 @@ class TorchServerModel:
     def get_model(self):
         return self._model
 
-    def get_layer_processed_data_points(self, layer_idx):
-        return self._per_layer_data_points[layer_idx]
-
     def integrate_client_parameters(
         self,
         parameters: List[torch.Tensor],
-        num_dp_per_layer: Dict[int, int],
-        num_dp_when_forked: Dict[int, int],
+        received_layers: List[int],
+        client_weights: Dict[int, int],
+        server_model_weights: Dict[int, int],
         optimizer_states: Optional[List[torch.Tensor]] = None,
     ):
+
         idx = 0
-        layers = sorted(num_dp_per_layer.keys())
-        named_params = dict(self._model.named_parameters())
+        for layer_idx in received_layers:
+            server_layer_idx = layer_idx - self.first_server_layer
+            s_weight = server_model_weights[layer_idx]
+            c_weight = client_weights[layer_idx]
+            tot_dp = s_weight + c_weight
+            s_weight, c_weight = s_weight / tot_dp, c_weight / tot_dp
 
-        # Collect parameters that will be updated in layer order (consistent with extraction)
-        updated_params = []
-
-        # Get parameters in the same order as extraction (layer by layer)
-        for layer_idx in layers:
-            actual_layer_idx = layer_idx - self.first_server_layer
-            if actual_layer_idx >= 0 and actual_layer_idx < len(list(self._model.children())):
-                layer = list(self._model.children())[actual_layer_idx]
-                updated_params.extend(list(layer.parameters()))
-
-        # Update parameters using state_dict order (as before)
-        idx = 0
-        for param_key in self._model.state_dict():
-            if int(param_key.split(".")[0]) + self.first_server_layer in layers:
-                tensor_value = torch.from_numpy(parameters[idx])
+            for server_param in self._model[server_layer_idx].state_dict().values():
+                client_param = parameters[idx]
+                assert client_param.shape == server_param.shape
+                # TODO: aggregate weights that are of type LONG
+                # compute (client_param * c_weight + server_param * s_weight) / (c_weight + s_weight)
+                # c_weight + s_weight == 1, so we don't need the final division => one spared operation
+                # if server_param.data.dtype == torch.long:
+                #     server_param.data = (server_param.data.float() * s_weight + (torch.from_numpy(client_param).to(server_param.device).float() * c_weight)).round().long()
+                # else:
+                server_param.data \
+                    .mul_(s_weight) \
+                    .add_(
+                        torch.from_numpy(client_param).to(server_param.device) * c_weight
+                    )
+                # since we "override" the weight, we reset the optimizer state for the considered parameter
+                self._optimizer.state[server_param] = {}
                 idx += 1
-                if param_key in named_params:
-                    parameter = named_params[param_key]
-                    if len(self._optimizer.state) > 0:
-                        del self._optimizer.state[parameter]
-                    parameter.data.copy_(tensor_value)
-                else:
-                    self._model.state_dict()[param_key].copy_(tensor_value)
+            if idx == len(parameters):
+                break
 
-        # Restore optimizer states if provided
-        if optimizer_states is not None:
-            self._restore_optimizer_states_for_params(updated_params, optimizer_states)
+        # Restore optimizer states if provided -- should only be used when clients are paired
+        # with a dedicated classificaiton head
+        # if optimizer_states is not None:
+        #     # TODO: does it even make sense to consider this???
+        #     self._restore_optimizer_states_for_params(updated_params, optimizer_states)
 
-    def reset_per_layer_counters(self, layer_from, layer_to):
-        for idx in range(layer_from, layer_to):
-            self._per_layer_data_points[idx] = 0
+    def get_current_layer_data_points(self, layer_idx):
+        return self._per_layer_data_points[layer_idx]
 
-    def set_per_layer_counter(self, idx, value):
-        self._per_layer_data_points[idx] = value
+    def increase_per_layer_counter(self, idx, increase):
+        self._per_layer_data_points[idx] += increase
 
     def _restore_optimizer_states_for_params(self, parameters, optimizer_states_list):
         """

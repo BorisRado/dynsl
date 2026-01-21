@@ -1,7 +1,7 @@
 #!/bin/bash -l
 
 #SBATCH --time=36:00:00
-#SBATCH --ntasks=6
+#SBATCH --ntasks=4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
 #SBATCH --gpus-per-task=1
@@ -16,7 +16,7 @@ mamba activate slower
 
 BATCH_SIZE=32
 NUM_CLIENTS=20
-NUM_ROUNDS=150
+NUM_ROUNDS=200
 MODEL=resnet18
 OPTIMIZER=adam
 INITIAL_LEARNING_RATE=0.001
@@ -34,6 +34,7 @@ elif [ "$MODEL" = "resnet18" ]; then
     echo "Setting resnet18 model args"
     MODEL_ARGS="
         model=$MODEL
+        model.use_groupnorm=true
         algorithm.layer_allocator_init_args.client_configuration.0.num_layers=4
         algorithm.layer_allocator_init_args.client_configuration.1.num_layers=6
         algorithm.layer_allocator_init_args.client_configuration.2.num_layers=8
@@ -47,7 +48,7 @@ run_bg() {
 
 for seed in 4 8 15; do
 for num_concat_batches in 1 2; do
-for num_server_models in 0 1 -1; do
+for num_server_models in 1 -1; do
 for lr_scheduling in cosine constant; do
 
 if [ $num_concat_batches -eq 2 ] && [ $num_server_models -eq -1 ]; then
@@ -68,7 +69,7 @@ run_bg python -u exp/scripts/py/simulate_sl.py algorithm=oracle_simulation  \
     optimizer=$OPTIMIZER                                                    \
     wandb=true                                                              \
     server_model_servicer.num_concat_batches=$num_concat_batches            \
-    experiment_name=simulation_oracle2                                      \
+    experiment_name=simulation_oracle3                                      \
     algorithm.num_server_models=$num_server_models
 
 done

@@ -281,7 +281,6 @@ class BaseStrategy(Strategy):
 
         for res in server_results:
             # method that employ plain aggregation must not have forking
-            assert all(len(v) == 0 for v in res.forking_data.values())
             processed_data_points_per_layer = res.per_layer_training_examples
             for key, tensor in res.model_state_dict.items():
                 per_parameter_trained_values[key].append(

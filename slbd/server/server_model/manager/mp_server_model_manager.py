@@ -79,7 +79,6 @@ class MpServerModelManager(BaseServerModelManager):
         for sid in self._worker_pool.get_active_sids():
             res: ServerModelFitRes = \
                 self._worker_pool.marshall_request(sid, (TaskType.GET_FIT_RESULT, None))
-            res.forking_data = {}
             out.append(res)
             self._worker_pool.release_process(sid)
 
