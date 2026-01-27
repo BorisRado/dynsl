@@ -1,0 +1,30 @@
+defaults:
+  - model: cnn
+  - optimizer: sgd
+  - data: cifar10 # not used, but required to initialize model
+  - profiled_times: ${model}
+  - data_manipulation: cv
+  - algorithm: splitfed_v2
+  - server_model_manager: multithreading
+  - _self_
+general:
+  seed: 10
+  rounds: 1
+
+experiment:
+  num_rounds: 10
+  batch_size: 32
+  device_counts:
+    device1: 20
+client:
+  num_iterations: 20
+  initial_num_layers: null
+  num_classes: ${data.num_classes}
+
+server_model_servicer: # these kwargs are acutally passed to the batching worker manager, but we keep the old name for backward compatibility
+  num_concat_batches: 1 # how many batches need to be received before sending the data to the model
+  request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model
+  dynamic_layers_strategy: ${oc.select:algorithm.dynamic_layers_strategy,null}
+  exchange_optimizer_states: ${oc.select:algorithm.exchange_optimizer_states,false}
+wandb: false
+experiment_name: ... # helper to search experiments in wandb database

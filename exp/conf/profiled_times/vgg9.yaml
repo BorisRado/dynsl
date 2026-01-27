@@ -1,0 +1,6 @@
+
+device1: # device types and their profiled times for VGG9 -- need to fill with real data
+  3: 0.1234
+  6: 0.2345
+  9: 0.3456
+  11: 0.4567
