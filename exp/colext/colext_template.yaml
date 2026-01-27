@@ -10,6 +10,7 @@ code:
       PYTHONPATH=$PYTHONPATH:. python3 exp/scripts/py/client.py
       model={{ model_name }}
       partitioning.num_partitions={{ num_partitions }}
+      client.init_kwargs.num_epochs={{ num_epochs_per_round }}
       algorithm={{ algorithm }}
       {%- if bg_devices %}{{ bg_devices }}{% endif %}
       {%- if bg_configuration %}{{ bg_configuration }}{% endif %}
@@ -20,12 +21,14 @@ code:
       sed -i '/FLOWER_LOGGER.addHandler(console_handler)/d' /opt/conda/lib/python3.10/site-packages/flwr/common/logger.py && PYTHONPATH=$PYTHONPATH:. python3 -u exp/scripts/py/server.py
       general.rounds={{ num_rounds }}
       algorithm={{ algorithm }}
+      client.init_kwargs.num_epochs={{ num_epochs_per_round }}
       algorithm.num_server_models={{ num_server_models }}
       strategy.min_available_clients=${COLEXT_N_CLIENTS}
       server.port=8080
       wandb=true
       model={{ model_name }}
       partitioning.num_partitions={{ num_partitions }}
+      server_model_servicer.num_concat_batches={{ num_concat_batches }}
       experiment_name={{ experiment_name }}
       {% if algo_config %}{{ algo_config }}{% endif %}
       {{ device_listing }}

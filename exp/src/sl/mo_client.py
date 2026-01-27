@@ -47,7 +47,8 @@ class MOTorchClient(AbstractTorchClient):
                 duration=self.bg_proc_duration,
             )
         set_seed(self.seed + config["epoch_idx"])
-        for _ in range(self.num_epochs):
+        for epoch_idx in range(self.num_epochs):
+            print("Running epoch", epoch_idx)
             if self.trainset._dataset_type == "cv":
                 n = 0
                 for batch in trainloader:
@@ -70,4 +71,6 @@ class MOTorchClient(AbstractTorchClient):
             model_trainer.evaluate(batch["img"], batch["label"])
 
     def get_trainloader_size(self):
+        print("Per-epoch batches", len(self.trainset) // self.batch_size)
+        print("Tot # batches:", self.num_epochs * (len(self.trainset) // self.batch_size))
         return self.num_epochs * (len(self.trainset) // self.batch_size)

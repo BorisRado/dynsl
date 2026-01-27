@@ -1,9 +1,9 @@
 import time
-import yaml
 
 import torch
 import hydra
 from hydra.utils import instantiate
+from omegaconf import OmegaConf
 
 from slbd.torch.model_utils import extract_submodel
 
@@ -13,19 +13,25 @@ from exp.src.model.utils import warmup_device
 
 @hydra.main(config_path="../../conf", config_name="config", version_base=None)
 def run(cfg):
+    OmegaConf.resolve(cfg)
+    print(OmegaConf.to_yaml(cfg))
+
     model = instantiate(cfg.model)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     assert tuple(cfg.data.input_shape) == (3, 32, 32)
 
     if torch.cuda.is_available():
+        print("Cuda is available... => Warming up divece")
         warmup_device()
 
     split_points = model.meaningful_split_points
-    num_iterations = 500
+    num_iterations = 500 if torch.cuda.is_available() else 100
     out_data = {}
     for batch_size in [4, 8, 16, 32, 64]:
+        print("Working with batch size:", batch_size)
         out_data[batch_size] = {}
         for split_point in split_points:
+            print("Split point", split_point)
             submodel = extract_submodel(model, 0, split_point)
             submodel.to(device)
             optimizer = torch.optim.Adam(submodel.parameters(), lr=0.001)
@@ -43,7 +49,9 @@ def run(cfg):
             out_data[batch_size][split_point] = (time.perf_counter() - start_time) / num_iterations
 
     out_data = {get_node_name(): out_data}
-    print(yaml.dump(out_data, indent=4))
+    print("========== START OF ACTUAL RESULTS\n")
+    print(OmegaConf.to_yaml(out_data))
+    print("========== END OF ACTUAL RESULTS")
 
 
 

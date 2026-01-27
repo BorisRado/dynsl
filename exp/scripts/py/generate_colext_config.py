@@ -19,6 +19,8 @@ def generate():
     parser.add_argument("--num-rounds", required=False, type=int, default=1, help="Number of training rounds")
     parser.add_argument("--num-partitions", required=False, type=int, default=10, help="Number of partitions of the training dataset")
     parser.add_argument("--experiment-name", required=False, type=str, default="colext", help="Name of experiment on wandb")
+    parser.add_argument("--num-concat-batches", required=False, type=int, default=1, help="Number of batches the server will concatenate before training")
+    parser.add_argument("--num-epochs-per-round", required=False, type=int, default=1, help="Number of client training epochs per server round")
 
     # common arguments for all algorithms
     parser.add_argument("--num-server-models", required=True, type=int, help="Number of models to be trained on the server")
@@ -40,7 +42,8 @@ def generate():
     parser.add_argument("--dynsl-gamma", required=False, type=float, default=8.0, help="... [DYNSL]")
     parser.add_argument("--dynsl-cache-client-configuration", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
     parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="genetic", choices=["genetic"], help="... [DYNSL]")
-    parser.add_argument("--dynsl-forking", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
+    parser.add_argument("--dynsl-dynamic-layers-strategy", required=False, type=str, default="afl", choices=["afl"], help="... [DYNSL]")
+    parser.add_argument("--dynsl-exchange-optimizer-states", required=False, type=str, default="false", choices=["false"], help="... [DYNSL]")
 
     # algorithm specific configuration -- ORACLE
     parser.add_argument("--oracle-nl-jao", required=False, type=int, default=-1, help="... [ORACLE]")
@@ -75,7 +78,8 @@ def generate():
             if not key.startswith("dynsl"):
                 continue
             prefix = "algorithm."
-            if key[predix_len:] != "forking":
+            print(key)
+            if key[predix_len:] not in {"exchange_optimizer_states", "dynamic_layers_strategy"}:
                 prefix += "layer_allocator_init_args."
             algo_args.append(f"{prefix}{key[predix_len:]}={args_dict[key]}")
         args_dict["algo_config"] = "\n      ".join(algo_args)

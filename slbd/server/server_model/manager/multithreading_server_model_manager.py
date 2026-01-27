@@ -90,8 +90,9 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         for sid, model in self.spanned_server_models.items():
             res: ServerModelFitRes = model.get_fit_result()
             res.sid = sid
-            res.afl_data = self._afl_coord_data # simply set that all have the same AFL data
+            res.afl_data = self._afl_coord_data.copy() # simply set that all have the same AFL data
             out.append(res)
+        self._afl_coord_data.clear()
 
         return out
 
