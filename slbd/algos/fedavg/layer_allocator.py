@@ -38,7 +38,7 @@ class FedAvgClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         self.raise_exception()
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes: int):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
         self.raise_exception()
 
     def update_server_metrics(self, num_offloaded_layers: int, elapsed_time: float):

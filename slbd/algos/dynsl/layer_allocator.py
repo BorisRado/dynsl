@@ -281,7 +281,7 @@ class DynSLClientLayerAllocator(ClientLayerAllocator):
             self._client_layer_diff[client_id] = 0
             return previous, diff
 
-    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics], num_received_bytes: int):
+    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics]):
         if metrics is None:
             return
 
@@ -441,7 +441,7 @@ class DynSLClientLayerAllocatorTest:
         else:
             return None
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
         _ = (metrics, )
         # print(metrics)
         self._per_client_processed_batches[client_id] += 1

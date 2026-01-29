@@ -76,7 +76,6 @@ class BatchingWorkerManager:
         self.client_layer_allocator.update_client_metrics(
             client_id=client_id,
             metrics=data.client_timing_metrics,
-            num_received_bytes=len(data.data["embeddings"])
         )
         num_offloaded_layers = self.client_layer_allocator \
             .get_client_offloaded_layer_count(client_id)
@@ -299,16 +298,21 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             if control_code_from_proto(req.control_code) in {ControlCode.DO_CLOSE_STREAM, ControlCode.ERROR_PROCESSING_STREAM}:
                 break
             data_received_time = time.perf_counter()
+            batch_data = bytes_to_ndarray_dict(from_grpc_format(req.data))
+            # NOTE: if local_computation_time is -1, the throughput will be set to -1
+            # thus, the response nbytes will only be considered for cases where the sent data
+            # is the same as the returned data, at least in terms of size
+            # we skip the iterations where sent data != received data as in this case the
+            # communication is not symmetric. +512 to account for the grpc framing overhead
+            # -- this is just an approximation!!!
+            response_nbytes = batch_data["embeddings"].nbytes + batch_data["labels"].nbytes + 512
             timing_metrics = TimingMetrics(
                 client_local_computation_time=req.local_computation_time,
                 client_round_time=data_received_time - data_sending_time,
                 client_tot_local_time=req.tot_local_time,
+                response_length=response_nbytes
             ) if data_sending_time > 0 else None
-            data_fwd = BatchDataForward(
-                data = bytes_to_ndarray_dict(from_grpc_format(req.data)),
-                is_training=req.training,
-                client_timing_metrics=timing_metrics
-            )
+            data_fwd = BatchDataForward(data=batch_data, is_training=req.training, client_timing_metrics=timing_metrics)
             future = self._batching_worker.enqueue_and_get_future(client_id, data_fwd)
             res = await future
 

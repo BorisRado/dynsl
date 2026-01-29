@@ -87,7 +87,7 @@ class ClientLayerAllocator(ABC):
         """
 
     @abstractmethod
-    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics], num_received_bytes: int):
+    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics]):
         """The layer allocator is given the training time of the client every time the
         client sends embeddings to the server
 

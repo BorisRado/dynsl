@@ -18,7 +18,7 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS
 )
 from slbd.common.profiling import measure_per_layer_complexity
-from slbd.common import BatchDataForward, BatchDataBackward, LayerChangeInfo, TimingMetrics
+from slbd.common import BatchDataForward, BatchDataBackward, TimingMetrics
 from slbd.server.grpc.queue_server_model_servicer import BatchingWorkerManager
 from slbd.torch.sequential_model import FlexibleSequential
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
@@ -80,7 +80,8 @@ class SimulationClient:
                 client_timing_metrics=TimingMetrics(
                     client_local_computation_time=local_computation_time,
                     client_tot_local_time=local_computation_time,
-                    client_round_time=local_computation_time+1e-10 # this way the throughput measured on the server will be very high
+                    client_round_time=local_computation_time+1e-10, # this way the throughput measured on the server will be very high
+                    response_length=1e8, # dummy value, not really important -> network is super fast either way
                 ),
             )
             _ = current_data.pop("client_model_weights", None)
@@ -219,7 +220,7 @@ def _initialize_layer_allocator(cfg, model):
             for idx, layer in enumerate(model.children())
         }
         layer_allocator_init_args["modeled_layer_complexities"] = layer_complexities
-        layer_allocator_init_args["per_layer_communication_volume"] = tensor_sizes
+        layer_allocator_init_args["per_layer_emb_sizes"] = tensor_sizes
         layer_allocator_init_args["static_server_computational_times"] = layer_complexities_cuda
         layer_allocator_init_args["per_layer_parameters"] = per_layer_parameters
     allocator = {

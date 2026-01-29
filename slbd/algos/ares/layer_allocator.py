@@ -111,7 +111,7 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         return self._num_model_layers - self._client_allocated_layers[client_id]
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes: int):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
         _ = (client_id, metrics)
 
     def update_server_metrics(self, *args, **kwargs):

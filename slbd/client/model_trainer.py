@@ -123,9 +123,9 @@ class ModelTrainer:
         prev_num_of_layers = self._num_training_layers
         self._num_training_layers += control.layers_diff
 
+        self._iter_since_last_model_change = 0
         if control.layers_diff > 0:
             log(DEBUG, "Receiving %d new layers" % control.layers_diff)
-            self._iter_since_last_model_change = 0
             if len(control.additional_layers_parameters) > 0:
                 assert self._dynamic_layers_strategy == "afl"
                 # Use optimizer states if they are provided and exchange is enabled
@@ -188,7 +188,7 @@ class ModelTrainer:
         self.backward_pass(gradient, control, loss, client_output)
 
     def forward_pass(self, input_vars, labels):
-        self._iter_since_last_model_change += + 1
+        self._iter_since_last_model_change += 1
 
         # forward on client model
         with measure_time(self._use_cuda) as timer:
@@ -222,7 +222,7 @@ class ModelTrainer:
         return {
             "embeddings": send_client_output,
             "labels": labels,
-            "local_computation_time": -1 if self._iter_since_last_model_change < 4 else client_time,
+            "local_computation_time": -1 if self._iter_since_last_model_change < 2 else client_time,
             "tot_local_time": time.perf_counter() - self._last_server_msg_time,
             "client_model_weights": self._removed_weights,
             "removed_optimizer_states": self._removed_optimizer_states,

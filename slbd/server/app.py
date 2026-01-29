@@ -112,15 +112,21 @@ def init_dynsl_v2_components(config, model):
         for k in layer_complexities_cpu
     }
     del tmp_optimizer
-    if layer_allocator_config["max_client_layers"] < 0:
+    if layer_allocator_config["max_client_layers"] < 0 or layer_allocator_config["max_client_layers"] > model.meaningful_split_points[-1]:
         layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
     assert layer_allocator_config["max_client_layers"] < get_num_layers(model)
+    per_layer_parameters = {
+        idx: sum(p.numel() for p in layer.state_dict().values())
+        for idx, layer in enumerate(model.children())
+    }
     client_layer_allocator = DynSLClientLayerAllocatorV2(
         num_model_layers=get_num_layers(model),
         meaningful_split_points=model.meaningful_split_points,
-        per_layer_communication_volume=tensor_sizes,
+        per_layer_emb_sizes=tensor_sizes,
+        per_layer_parameters=per_layer_parameters,
         **layer_allocator_config,
         modeled_layer_complexities=layer_complexities,
+        static_server_computational_times=layer_complexities_cuda,
     )
 
     return strategy, client_layer_allocator

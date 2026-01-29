@@ -70,13 +70,13 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         return self._num_offloaded_layers
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics, num_received_bytes: int):
+    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
         if metrics is None or metrics.client_local_computation_time < 0 or self.stop_measuring_throughput:
             return
-        metrics.compute_throughput(num_received_bytes)
-        self._client_throughputs.setdefault(client_id, metrics.throughput)
+        assert metrics.throughput_Mbps > 0
+        self._client_throughputs.setdefault(client_id, metrics.throughput_Mbps)
         self._client_throughputs[client_id] = \
-            0.8 * self._client_throughputs[client_id] + 0.2 * metrics.throughput
+            0.8 * self._client_throughputs[client_id] + 0.2 * metrics.throughput_Mbps
         return
 
     def update_server_metrics(

@@ -35,8 +35,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         cache_client_data: bool,
         modeled_layer_complexities: List[float],
         static_server_computational_times: List[float],
-        per_layer_communication_volume: List[int],
-        per_layer_parameters: List[int]
+        per_layer_emb_sizes: List[int],
+        per_layer_parameters: Dict[int, int]
     ):
         """Initialize the allocator
 
@@ -61,8 +61,10 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         modeled_layer_complexities : List[float]
             A "model" stating how complex every layer is (e.g., determined via FLOPS or by running
             the model on the server)
-        per_layer_communication_volume : List[int]
-            Size (# parameters) per every split point
+        per_layer_emb_sizes : List[int]
+            Size (# parameters) per every split point. Here we are talking about embeddings/gradients
+        per_layer_parameters : Dict[int]
+            Size of model layers. For each key (layer idx) we get the number of FP values
         """
         # safety checks
         assert layer_allocation_optimizer in {"genetic", "bottleneck_descent"}
@@ -122,25 +124,25 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             for start_idx in self.meaningful_split_points
         }
 
-        # per_layer_communication_volume contains number of parameters per layer
-        # =====>>>>>> in the formula:
-        # * 2 ... forward+backward
-        # * 4*8=*32 ... 32 bit representation
-        throughput_Gbps = 1e9
+        # compute the time the server will spend communicating every batch of data given the current split point
+        # ==>> in the formula:
+        # * 2 ... forward+backward // the server will have to send and recive the data over a single link
+        # * 32 ... 32 bit representation of FP values
         self.per_batch_server_communication_time = {
-            k: 2 * 4 * per_layer_communication_volume[k] * 8 / throughput_Gbps
+            k: 2 * 32 * per_layer_emb_sizes[k] / 1e9 # server has a 1Gbps connection link, which is shared across all clienst
             for k in self.meaningful_split_points
         }
         # print(per_layer_communication_volume)
-        self._per_batch_bits = {
-            k: per_layer_communication_volume[k] * 32
+        # * 32 as we use 32 bit FP representation,  / 1e6 to convert bits in megabits
+        self._per_batch_embedding_sizes_Mbits = {
+            k: per_layer_emb_sizes[k] * 32 / 1e6
             for k in self.meaningful_split_points
         }
-        # print("per batch", self._per_batch_bits)
+        # print("per batch", self._per_batch_embedding_sizes_Mbits)
         tmp_split_points = [0,] + list(meaningful_split_points)
         per_layer_parameters = [per_layer_parameters[idx] for idx in range(len(per_layer_parameters))]
-        self._per_layer_bits = {
-            (a, b): sum(per_layer_parameters[a:b]) * 32
+        self._per_layer_model_parameters_Mbits = {
+            (a, b): sum(per_layer_parameters[a:b]) * 32 / 1e6
             for a, b in itertools.product(tmp_split_points, tmp_split_points)
             if a < b
         }
@@ -363,8 +365,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         per_batch_time = self._client_training_times[cid] * factor # client training
         # server computation
         per_batch_time += self._server_training_times[L] # server training
-        # communication
-        per_batch_time += self._per_batch_bits[L] / self._client_throughput[cid]
+        # communication -- * 2 because we need to both send and receive the data
+        per_batch_time += 2 * self._per_batch_embedding_sizes_Mbits[L] / self._client_throughput[cid]
 
         current_num_layers_on_device = \
             0 if self._is_computing_configuration_from_cache else self._client_allocated_layers[cid]
@@ -373,10 +375,9 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # if current_num_layers_on_device > L -- layers are moved from device to server. This has to happend either
         #           at the end of the epoch, so we say that the layer_movement_time is still 0.
         if current_num_layers_on_device < L:
-            num_moved_layer_bits = self._per_layer_bits[(current_num_layers_on_device, L)]
-            layer_movement_time = 2 * num_moved_layer_bits / self._client_throughput[cid]
-        reg_term = float(current_num_layers_on_device != L) # slight penalization discouraging changing of num. layers on device
-        return self._pending_batches[cid] * per_batch_time + layer_movement_time + reg_term
+            num_moved_layer_Mbits = self._per_layer_model_parameters_Mbits[(current_num_layers_on_device, L)]
+            layer_movement_time = 2 * num_moved_layer_Mbits / self._client_throughput[cid]
+        return self._pending_batches[cid] * per_batch_time + layer_movement_time
 
     def update_server_metrics(
         self,
@@ -401,14 +402,14 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # we remove the cid from self._client_layer_diff
         # ==>> if a cid is not in self._client_layer_diff, it means the client has finished training
 
-    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics], num_received_bytes: int):
+    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics]):
         if metrics is None or metrics.client_local_computation_time < 0:
             self._pending_batches[client_id] -= 1
             return
 
         client_train_time = metrics.client_local_computation_time
-        metrics.compute_throughput(num_received_bytes)
-        client_Mbps = metrics.throughput
+        client_Mbps = metrics.throughput_Mbps
+        # we already handled the case where we could not handle the throughput
         assert client_train_time > 0. and client_Mbps > 0
         self._client_training_times.setdefault(client_id, client_train_time)
         self._client_throughput.setdefault(client_id, client_Mbps)
