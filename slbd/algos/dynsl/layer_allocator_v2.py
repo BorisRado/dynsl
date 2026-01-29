@@ -1,5 +1,4 @@
 import time
-import random
 import threading
 import itertools
 from logging import INFO
@@ -19,6 +18,8 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS,
 )
 
+from slbd.algos.dynsl.optimization_algorithms import genetic_reallocation, bottleneck_descent
+
 
 class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
 
@@ -31,9 +32,11 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         num_concat_batches: int,
         layer_allocation_optimizer: str,
         meaningful_split_points: List[int],
-        cache_client_configuration: bool,
+        cache_client_data: bool,
         modeled_layer_complexities: List[float],
+        static_server_computational_times: List[float],
         per_layer_communication_volume: List[int],
+        per_layer_parameters: List[int]
     ):
         """Initialize the allocator
 
@@ -53,7 +56,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             Strategy to be used for computing the new split vector
         meaningful_split_points : List[int]
             List of indices where it makes sense to split the model
-        cache_client_configuration : bool
+        cache_client_data : bool
             Whether to use info from previous epochs to determine the new configuration
         modeled_layer_complexities : List[float]
             A "model" stating how complex every layer is (e.g., determined via FLOPS or by running
@@ -61,23 +64,22 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         per_layer_communication_volume : List[int]
             Size (# parameters) per every split point
         """
+        # safety checks
+        assert layer_allocation_optimizer in {"genetic", "bottleneck_descent"}
+        assert reallocation_frequency > 0.
+
+        # store basic attributes
         self._gamma = gamma
         self._num_model_layers: int = num_model_layers
-        self.layer_allocation_optimizer = layer_allocation_optimizer
         self.reallocation_frequency = reallocation_frequency
         self._num_concat_batches = num_concat_batches
-        self.cache_client_configuration = cache_client_configuration
-        self.meaningful_split_points = [
-            msp for msp in meaningful_split_points if msp <= max_client_layers
-        ]
-        self._max_client_layers: int = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers), None)
-        assert self._max_client_layers is not None
+        self.cache_client_data = cache_client_data
+        self.layer_allocation_optimizer = layer_allocation_optimizer
+        self.meaningful_split_points = [msp for msp in meaningful_split_points if msp <= max_client_layers]
+        self._max_client_layers = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers))
+        self._is_computing_configuration_from_cache = False
 
-        # safety checks
-        assert self.layer_allocation_optimizer in {"genetic"}
-        assert self.reallocation_frequency > 0.
-
-        # client desides
+        # client desires -- client sets the maximum and minimum number of layers it is willing to train
         self._per_client_min_layers: Dict[str, int] = {}
         self._per_client_max_layers: Dict[str, int] = {}
 
@@ -89,23 +91,20 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._allocated_layer_history = []
         self._cid_to_device_type_mapping = {}
         self.tot_server_computation_time = None
+        self._cid_to_node_name = {}
 
-        # rolling averages
+        # rolling averages -- note, they get re-initialized every time the client changes its number of layers
+        # they are persisted across epochs if the allocator is configured with caching
         self._client_training_times: Dict[str, float] = {}
         self._client_throughput: Dict[str, float] = {}
 
-        # we will call the reallocation function with the following frequency
+        # event for starting stopping the thread that handles layer re-allocation
         self._reallocation_stop_event = None
 
-        self._cached_num_layers = {}
-        print("Caching?", self.cache_client_configuration)
-
         # self._baseline_computational_model_per_split_point is a dictionary that, for every split
-        # point (key), contains the computational requirements of training the model up to that
-        # point.
-        print(modeled_layer_complexities)
+        # point (key), contains the computational requirements of training the model up to that point
         modeled_layer_complexities = [modeled_layer_complexities[idx] for idx in range(len(modeled_layer_complexities))]
-        print(modeled_layer_complexities)
+        # print(modeled_layer_complexities)
         comput_compl_per_sp = {
             start_idx: sum(modeled_layer_complexities[:start_idx])
             for start_idx in self.meaningful_split_points
@@ -114,30 +113,40 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             (a, b): comput_compl_per_sp[a] / comput_compl_per_sp[b]
             for a, b in itertools.product(meaningful_split_points, meaningful_split_points)
         }
-        print(f"Complexity factors: {self.complexity_factors}")
 
+        # we assume that the training time on the server do not vary
+        static_server_computational_times = \
+            [static_server_computational_times[idx] for idx in range(len(static_server_computational_times))]
         self._server_training_times = {
-            start_idx: sum(modeled_layer_complexities[start_idx:])
+            start_idx: sum(static_server_computational_times[start_idx:])
             for start_idx in self.meaningful_split_points
         }
-        print("Meaningful split points: ", self.meaningful_split_points)
-        print("Static server training times:", self._server_training_times)
-        self._cid_to_node_name = {}
 
         # per_layer_communication_volume contains number of parameters per layer
         # =====>>>>>> in the formula:
         # * 2 ... forward+backward
-        # * 4 ... 32 bit representation
-        # * 8 ... we transform bytes to bits
+        # * 4*8=*32 ... 32 bit representation
         throughput_Gbps = 1e9
         self.per_batch_server_communication_time = {
             k: 2 * 4 * per_layer_communication_volume[k] * 8 / throughput_Gbps
             for k in self.meaningful_split_points
         }
+        # print(per_layer_communication_volume)
         self._per_batch_bits = {
             k: per_layer_communication_volume[k] * 32
             for k in self.meaningful_split_points
         }
+        # print("per batch", self._per_batch_bits)
+        tmp_split_points = [0,] + list(meaningful_split_points)
+        per_layer_parameters = [per_layer_parameters[idx] for idx in range(len(per_layer_parameters))]
+        self._per_layer_bits = {
+            (a, b): sum(per_layer_parameters[a:b]) * 32
+            for a, b in itertools.product(tmp_split_points, tmp_split_points)
+            if a < b
+        }
+        print("Meaningful split points: ", self.meaningful_split_points)
+        # print("Static server training times:", self._server_training_times)
+        # print(f"Complexity factors: {self.complexity_factors}")
         print("Communication:", self.per_batch_server_communication_time)
 
     def _get_client_properties(self, client_proxy: ClientProxy) -> int:
@@ -159,14 +168,12 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # model.meaningful_split_points that is larger or equal to min layers
         aligned_min_client_layers = \
             next((point for point in self.meaningful_split_points if point >= min_client_layers), None)
-        print(f"Corrected min client layer {min_client_layers} -> {aligned_min_client_layers}")
         assert aligned_min_client_layers is not None
 
         max_client_layers = int(result.properties[MAX_NUMBER_OF_CLIENT_LAYERS])
         # align max client layers to the model configuration. Find the first value in
         # model.meaningful_split_points that is smaller or equal to the max layers
         aligned_max_client_layers = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers), None)
-        print(f"Corrected MAX client layer {max_client_layers} -> {aligned_max_client_layers}")
 
         self._per_client_min_layers[client_proxy.cid] = aligned_min_client_layers
         self._per_client_max_layers[client_proxy.cid] = aligned_max_client_layers
@@ -176,8 +183,35 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._cid_to_node_name[client_proxy.cid] = node_name
         log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers [{result.properties[CLIENT_DEVICE_TYPE]} -- {node_name}]")
 
-    def _get_initial_number_of_layers_with_caching(self, epoch_clients):
-        raise Exception("Not implemented yet")
+    def _get_initial_number_of_layers_with_caching(self):
+        if len(self._client_training_times) == 0:
+            print("Warning: No client data is available. If it is the first epoch, it's fine. If not, not good...")
+            print("Warning: Returning minimum number of layers")
+            return self._per_client_min_layers
+        self._pending_batches = {cid: self._dataset_sizes[cid] for cid in self._epoch_clients} # batches the client still has to process
+        self._current_number_of_layers_on_devices = {cid: 0 for cid in self._epoch_clients}
+        self._is_computing_configuration_from_cache = True
+        if self.layer_allocation_optimizer == "genetic":
+            initial_configuration = genetic_reallocation(
+                clients=self._epoch_clients,
+                meaningful_split_points=self.meaningful_split_points,
+                allocated_layers_now=self._client_allocated_layers,
+                objective_fn=self._compute_objective
+            )
+        else:
+            initial_configuration = bottleneck_descent(
+                clients=self._epoch_clients,
+                meaningful_split_points=self.meaningful_split_points,
+                allocated_layers_now=self._client_allocated_layers,
+                objective_fn=self._compute_objective
+            )
+        # clear data from the previous epoch
+        self._is_computing_configuration_from_cache = False
+        self._client_allocated_layers.clear()
+        self._client_training_times.clear()
+        self._client_throughput.clear()
+        print("Using caching -- Got configuration:", initial_configuration)
+        return initial_configuration
 
     def _init_reallocation_thread(self):
         self._reallocation_stop_event = threading.Event()
@@ -214,14 +248,15 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]
 
         self._init_all_client_properties(epoch_clients)
-        if self.cache_client_configuration:
-            initial_config_dict = self._get_initial_number_of_layers_with_caching(epoch_clients)
+        if self.cache_client_data:
+            initial_config_dict = self._get_initial_number_of_layers_with_caching()
         else:
+            # if not caching, we set the clients to initially use the minimum number of layers
             initial_config_dict = self._per_client_min_layers
 
         # init dictionaries storing client configuration
-        self._client_layer_diff = {cid: 0 for cid in self._epoch_clients} # temporary difference in the number of layers of clients
-        self._client_train_batches_count = {cid: 0 for cid in self._epoch_clients} # batches the metrics per client are computed
+        self._client_layer_diff = {cid: 0 for cid in self._epoch_clients} # temp difference in the number of layers of clients
+        self._client_train_batches_count = {cid: 0 for cid in self._epoch_clients} # number of batches the client has processed since it last received a reallocation
         self._client_allocated_layers = {cid: initial_config_dict[cid] for cid in self._epoch_clients} # layers every client has
         self._pending_batches = {cid: self._dataset_sizes[cid] for cid in self._epoch_clients} # batches the client still has to process
 
@@ -229,29 +264,40 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._allocated_layer_history = []
         self.tot_server_computation_time = 0.
 
-        # reinitialize the client times
-        self._client_training_times = {}
-        self._client_throughput = {}
-
         self._init_reallocation_thread()
         return [self._client_allocated_layers[proxy.cid]  for proxy in epoch_clients]
 
     def trigger_reallocation(self) -> None:
         start_time = time.time()
+        # Uncomment following lines to log the tracked metrics
         # print(self._client_train_batches_count)
-        print({self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
+        # print({self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
         print({self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
-        print({self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
-        print({self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
+        # print({self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
+        # print({self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
         self._allocated_layer_history.append(self._client_allocated_layers.copy())
-        if any(v < 6 for v in self._client_train_batches_count.values()):
+        if any(v < 4 for v in self._client_train_batches_count.values()):
             print("Not enough data to try reallocating...")
             return
         if len(self._client_layer_diff) == 0:
             print("All have completed training. Exiting...")
             return
         if self.layer_allocation_optimizer == "genetic":
-            best_config = self._genetic_reallocation()
+            print("Using genetic algorithm")
+            best_config = genetic_reallocation(
+                clients=self._epoch_clients,
+                meaningful_split_points=self.meaningful_split_points,
+                allocated_layers_now=self._client_allocated_layers,
+                objective_fn=self._compute_objective
+            )
+        elif self.layer_allocation_optimizer == "bottleneck_descent":
+            print("Using bottleneck descent")
+            best_config = bottleneck_descent(
+                clients=self._epoch_clients,
+                meaningful_split_points=self.meaningful_split_points,
+                allocated_layers_now=self._client_allocated_layers,
+                objective_fn=self._compute_objective
+            )
 
         J_current = self._compute_objective(self._client_allocated_layers)
         J_new = self._compute_objective(best_config)
@@ -270,100 +316,48 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             print(f"[GA] Keep current configuration (ΔJ={delta:.3f} ≤ γ={self._gamma})")
         print(f"Total reallocation time: {time.time() - start_time:4f}")
 
-    def _genetic_reallocation(self, num_generations=1000, pop_size=50, mutation_rate=0.2):
-        clients = list(self._epoch_clients)
-        split_points = self.meaningful_split_points
-        baseline = [self._client_allocated_layers[cid] for cid in clients]
-
-        cache = {}
-        def fitness(L):
-            L = tuple(L)
-            if L in cache:
-                return cache[L]
-            layer_config = {cid: L[i] for i, cid in enumerate(clients)}
-            total_time = self._compute_objective(layer_config)
-            cache[L] = -total_time
-            return -total_time
-
-        def local_mutation(L):
-            """Mutate one or more clients by ±1 split point."""
-            new_L = L.copy()
-            for i in range(len(L)):
-                if random.random() < mutation_rate:
-                    pos = split_points.index(L[i])
-                    step = random.choice([-1, +1])
-                    new_pos = max(
-                        0,
-                        min(
-                            len(split_points) - 1,
-                            pos + step
-                        )
-                    )
-                    new_L[i] = split_points[new_pos]
-            return new_L
-
-        # --- Initialize population near baseline ---
-        population = [baseline.copy()]
-        while len(population) < pop_size:
-            child = local_mutation(baseline)
-            population.append(child)
-
-        # --- Evolution loop ---
-        best_solution = baseline.copy()
-        best_fitness = fitness(best_solution)
-        iter_wo_improvement = 0
-
-        for gen in range(num_generations):
-            scores = [fitness(ind) for ind in population]
-            ranked = sorted(zip(scores, population), reverse=True)
-            best_solution = ranked[0][1]
-            tmp_best_fitness = ranked[0][0]
-            # print(tmp_best_fitness, best_fitness)
-            if tmp_best_fitness > best_fitness:
-                iter_wo_improvement = 0
-            iter_wo_improvement += 1
-            best_fitness = ranked[0][0]
-            if iter_wo_improvement > 20:
-                print("Breaking", gen)
-                break
-
-            # print(f"[GA] Gen {gen}: best total_time = {-best_fitness:.3f}")
-            next_pop = [ind for _, ind in ranked[:4]]
-            # Generate mutants
-            while len(next_pop) < pop_size:
-                parent = random.choice(ranked[:10])[1]
-                child = local_mutation(parent)
-                next_pop.append(child)
-
-            population = next_pop
-
-        return {cid: best_solution[i] for i, cid in enumerate(clients)}
-
     def _compute_objective(self, layer_config):
-        pred_client_times = {}
-        server_time = 0.
-        communication_time = 0.
+        # computes the predicted epoch time for the current configuration given in layer_config
+        # layer_config is a dictionary that for every client states how many layers it trains in the
+        # evaluated configuration
+
+        pred_client_times = {} # compute the predicted time to finish training for every client
+        server_time = 0. # Compute the time the server needs to train with the current configuration
+        server_communication_time = 0. # time the server is communicating
+
         for cid, L in layer_config.items():
-            B = self._pending_batches[cid]
-            server_time += B * self._server_training_times[L] / self._num_concat_batches
+            B = self._pending_batches[cid] # number of batches the client still has to process
+            server_time += B * self._server_training_times[L] / self._num_concat_batches # time the server will be processing client batches
             pred_client_times[cid] = self.compute_client_time(cid, L)
-            communication_time += B * self.per_batch_server_communication_time[L]
+            server_communication_time += B * self.per_batch_server_communication_time[L]
 
-        # additionally penalize every layer change
-        server_time = max(server_time, communication_time * 1.2)
+        # slightly increase the server_communication_time to account for the overhead of serializing and deserializing
+        server_time = max(server_time, server_communication_time * 1.2)
 
+        # add a regularization term that penalizes the change of the current configuration
         reg_term = sum([
             layer_config[cid] != self._client_allocated_layers[cid] for cid in layer_config
         ])
+        # get the time of the slowest client, as in SL, we wait for the slowest client to finish training
+        # before we end the current epoch
         max_client_time = max(pred_client_times.values())
+
+        # the final objective is the maximum of the server time and the slowest client time + the regularization
         total_time = max(server_time, max_client_time) + reg_term
         return total_time
 
     def compute_client_time(self, cid, L):
+        # computes the remaining epoch time for the client if the client were to train L layers
+
+        # we have the training time of the client for the configuration `self._client_allocated_layers`
+        # that is, when the client has `self._client_allocated_layers[cid]` layers, its local training time
+        # is `self._client_training_times[cid]`. To compute the predicted training time for a different number
+        # of layers, we perform a simple linear interpolation.
+
         factor = self.complexity_factors[(L, self._client_allocated_layers[cid])]
-        if L in self.meaningful_split_points[3:]:
-            factor *= 2.0
         if self.meaningful_split_points.index(L) - self.meaningful_split_points.index(self._client_allocated_layers[cid]) > 2:
+            # if considing increasing the number of layers a lot, penalize the predicted increase, so
+            # as to make a more conservative choice
             factor *= 1.5
         # client computation
         per_batch_time = self._client_training_times[cid] * factor # client training
@@ -371,8 +365,18 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         per_batch_time += self._server_training_times[L] # server training
         # communication
         per_batch_time += self._per_batch_bits[L] / self._client_throughput[cid]
-        reg_term = 0. if L == self._client_allocated_layers[cid] else 2.0
-        return self._pending_batches[cid] * per_batch_time + reg_term
+
+        current_num_layers_on_device = \
+            0 if self._is_computing_configuration_from_cache else self._client_allocated_layers[cid]
+        layer_movement_time = 0.
+        # if current_num_layers_on_device == L -- there is no additional layer movement ==>> layer_movement_time=0
+        # if current_num_layers_on_device > L -- layers are moved from device to server. This has to happend either
+        #           at the end of the epoch, so we say that the layer_movement_time is still 0.
+        if current_num_layers_on_device < L:
+            num_moved_layer_bits = self._per_layer_bits[(current_num_layers_on_device, L)]
+            layer_movement_time = 2 * num_moved_layer_bits / self._client_throughput[cid]
+        reg_term = float(current_num_layers_on_device != L) # slight penalization discouraging changing of num. layers on device
+        return self._pending_batches[cid] * per_batch_time + layer_movement_time + reg_term
 
     def update_server_metrics(
         self,
@@ -393,10 +397,9 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
     def remove_client(self, cid):
         print(f"Removing {cid} as it has finished", self._pending_batches[cid])
         self._epoch_clients.remove(cid)
-        try:
-            del self._client_layer_diff[cid]
-        except:
-            pass
+        del self._client_layer_diff[cid]
+        # we remove the cid from self._client_layer_diff
+        # ==>> if a cid is not in self._client_layer_diff, it means the client has finished training
 
     def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics], num_received_bytes: int):
         if metrics is None or metrics.client_local_computation_time < 0:
@@ -419,10 +422,13 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._pending_batches[client_id] -= 1
 
     def finalize_epoch(self):
-        self._epoch_clients = None
-        self._client_allocated_layers = None
+        self._epoch_clients = []
         self._reallocation_stop_event.set()
         self._reallocation_thread.join(timeout=5.0)
+        if not self.cache_client_data:
+            self._client_allocated_layers.clear()
+            self._client_training_times.clear()
+            self._client_throughput.clear()
 
     def collect_epoch_metrics(self):
         return {
@@ -435,21 +441,6 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # returns the number of layers that the server needs to perform
         # i.e., """model[-this_number:](input)"""
         return self._num_model_layers - self._client_allocated_layers[client_id]
-
-    def get_next_split_point(self, current_idx):
-        for split_point in self.meaningful_split_points:
-            if split_point > current_idx:
-                return split_point
-        return current_idx
-
-    def get_previous_split_point(self, current_idx, client_id=None):
-        previous_split_point = self.meaningful_split_points[0]
-        for split_point in reversed(self.meaningful_split_points):
-            if split_point < current_idx:
-                previous_split_point = split_point
-                break
-        return previous_split_point if client_id is None \
-            else max(previous_split_point, self._per_client_min_layers[client_id])
 
     def _rolling_average(self, average, new_value):
         return 0.8 * average + 0.2 * new_value

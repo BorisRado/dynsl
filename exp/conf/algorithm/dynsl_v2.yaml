@@ -4,11 +4,11 @@ dynamic_layers_strategy: afl
 exchange_optimizer_states: false
 layer_allocator_init_args:
   reallocation_frequency: 8.0
-  max_client_layers: -1
+  max_client_layers: 1000
   gamma: 10.0
   num_concat_batches: ${server_model_servicer.num_concat_batches}
-  cache_client_configuration: false
-  layer_allocation_optimizer: genetic
+  cache_client_data: false
+  layer_allocation_optimizer: bottleneck_descent # much better than genetic
 strategy_init_args:
   dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
 client_adapter_args:

@@ -43,7 +43,6 @@ class SimulationClient:
         embedding_sizes: Dict[int, Tuple[int]],
         num_classes: int,
         base_training_times: Dict[str, Dict[int, float]],
-        initial_num_layers: Optional[int],
         model_weights_dictionary: Dict[int, List[np.ndarray]],
     ):
         self.cid = client_id
@@ -52,14 +51,16 @@ class SimulationClient:
         self.num_iterations = num_iterations
         self.num_classes = num_classes
         self.manager = None
-        self.initial_num_layers = initial_num_layers
         self.base_training_times = base_training_times[self.device_type]
         self.model_weights_dictionary = model_weights_dictionary
-        print(self.base_training_times)
         assert len(set([a[0] for a in self.embedding_sizes.values()])) == 1
+        print("Initialized virtual", device_type, flush=True)
 
     def set_batching_worker_manager(self, manager):
         self.manager = manager
+
+    def set_epoch_initial_num_layers(self, num_layers):
+        self.initial_num_layers = num_layers
 
     async def run(self):
         # Simulate sending data to the BatchingWorkerManager
@@ -73,7 +74,6 @@ class SimulationClient:
         for iter_idx in range(self.num_iterations):
             local_computation_time = self.base_training_times[current_num_layers]
             if iter_idx > 0: await asyncio.sleep(local_computation_time)
-            if iter_idx % 20 == 0: print(f"{self.cid}: {iter_idx}")
             batch = BatchDataForward(
                 data=current_data,
                 is_training=True,
@@ -96,7 +96,7 @@ class SimulationClient:
                 prev_num_layers = current_num_layers
                 current_num_layers += data_backward.layers_diff
                 local_computation_time = self.base_training_times[current_num_layers]
-                print(f"{self.cid} >>> Changed number of layers: {prev_num_layers} -> {current_num_layers}")
+                print(f"{self.cid} >>> Changed number of layers: {prev_num_layers} -> {current_num_layers}", flush=True)
                 current_data["embeddings"] = np.random.randn(*self.embedding_sizes[current_num_layers]).astype(np.float32)
                 if data_backward.layers_diff < 0:
                     # prepare the layer parameters to be sent to the server
@@ -115,12 +115,11 @@ class SimulationClient:
             MIN_NUMBER_OF_CLIENT_LAYERS: 2,
             CLIENT_DATASET_SIZE: self.num_iterations,
             MAX_NUMBER_OF_CLIENT_LAYERS: 100,
-            "node_name": "..."
+            "node_name": self.device_type + str(self.cid)
         })
 
 
 def _get_server_fit_ins(model, config):
-    print(config)
     config = {f"optim.{k}": v for k, v in config.items()}
     server_model_state_dict = OrderedDict(
         (key, model.state_dict()[key])
@@ -144,11 +143,13 @@ async def _train_epoch(model_manager, model, allocator, clients, optimization_co
         is_training=True
     )
 
-    allocator.initialize_epoch(clients, model_manager, True)
+    initial_allocation = allocator.initialize_epoch(clients, model_manager, True)
+    for client, initial_nl in zip(clients, initial_allocation):
+        client.set_epoch_initial_num_layers(initial_nl)
     start_time = time.perf_counter()
     await asyncio.gather(*[client.run() for client in clients])
     end_time = time.perf_counter()
-    print(f"Epoch time: {end_time - start_time:.3f}")
+    print(f"Epoch time: {end_time - start_time:.3f}", flush=True)
 
 
 def _initialize_clients(cfg, model):
@@ -213,8 +214,14 @@ def _initialize_layer_allocator(cfg, model):
             for k in layer_complexities_cpu
         }
         del tmp_optimizer
+        per_layer_parameters = {
+            idx: sum(p.numel() for p in layer.state_dict().values())
+            for idx, layer in enumerate(model.children())
+        }
         layer_allocator_init_args["modeled_layer_complexities"] = layer_complexities
         layer_allocator_init_args["per_layer_communication_volume"] = tensor_sizes
+        layer_allocator_init_args["static_server_computational_times"] = layer_complexities_cuda
+        layer_allocator_init_args["per_layer_parameters"] = per_layer_parameters
     allocator = {
         "ares": ARESClientLayerAllocator,
         "dynsl_v2": DynSLClientLayerAllocatorV2,
@@ -258,7 +265,13 @@ async def run_experiment(cfg):
 @hydra.main(config_path="../../conf", config_name="test_policy", version_base=None)
 def run(cfg):
     OmegaConf.resolve(cfg)
-    print(OmegaConf.to_yaml(cfg))
+
+    # remove irrelevant data for the training times -- we only care about the batch size of the current experiment
+    batch_size = cfg.experiment.batch_size
+    for device_type in cfg.profiled_times:
+        cfg.profiled_times[device_type] = cfg.profiled_times[device_type][batch_size]
+
+    print(OmegaConf.to_yaml(cfg), flush=True)
     asyncio.run(run_experiment(cfg))
 
 

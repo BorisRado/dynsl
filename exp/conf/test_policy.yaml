@@ -1,5 +1,5 @@
 defaults:
-  - model: cnn
+  - model: resnet18
   - optimizer: sgd
   - data: cifar10 # not used, but required to initialize model
   - profiled_times: ${model}
@@ -9,16 +9,18 @@ defaults:
   - _self_
 general:
   seed: 10
-  rounds: 1
 
 experiment:
-  num_rounds: 10
+  num_rounds: 4
   batch_size: 32
   device_counts:
-    device1: 20
+    jao: 12
+    jon: 12
+    jxn: 12
+    lp: 12
+    op: 12
 client:
-  num_iterations: 20
-  initial_num_layers: null
+  num_iterations: 100
   num_classes: ${data.num_classes}
 
 server_model_servicer: # these kwargs are acutally passed to the batching worker manager, but we keep the old name for backward compatibility

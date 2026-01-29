@@ -16,7 +16,9 @@ class OracleClientLayerAllocator(ClientLayerAllocator):
         self,
         num_model_layers,
         device_mapping,
+        meaningful_split_points,
     ):
+        _ = (meaningful_split_points, )
         self.device_mapping = device_mapping
         self.num_model_layers = num_model_layers
         self._cid_to_device_type_mapping = {}
