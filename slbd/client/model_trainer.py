@@ -100,7 +100,10 @@ class ModelTrainer:
             init_parameters: Initial parameters for the model
         """
         self._model = extract_submodel(self._whole_model, 0, num_received_layers)
-        state_dict = param_list_to_state_dict(init_parameters, self._model)
+        state_dict = param_list_to_state_dict(
+            [torch.from_numpy(param) for param in init_parameters],
+            self._model
+        )
         self._model.load_state_dict(state_dict, strict=True)
         self._model.to(self._device)
 

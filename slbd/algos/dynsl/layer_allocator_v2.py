@@ -1,6 +1,7 @@
 import time
 import threading
 import itertools
+from datetime import datetime
 from logging import INFO
 from typing import List, Dict, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
@@ -274,6 +275,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # Uncomment following lines to log the tracked metrics
         # print(self._client_train_batches_count)
         # print({self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
+        print(f"Running reallocation {datetime.now().strftime('%H:%M:%S')}")
         print({self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
         # print({self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
         # print({self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
@@ -284,6 +286,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         if len(self._client_layer_diff) == 0:
             print("All have completed training. Exiting...")
             return
+
         if self.layer_allocation_optimizer == "genetic":
             print("Using genetic algorithm")
             best_config = genetic_reallocation(

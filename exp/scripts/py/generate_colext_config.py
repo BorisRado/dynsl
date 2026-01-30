@@ -40,8 +40,8 @@ def generate():
     parser.add_argument("--dynsl-reallocation-frequency", required=False, type=float, default=8.0, help="... [DYNSL]")
     parser.add_argument("--dynsl-max-client-layers", required=False, type=int, default=-1, help="... [DYNSL]")
     parser.add_argument("--dynsl-gamma", required=False, type=float, default=8.0, help="... [DYNSL]")
-    parser.add_argument("--dynsl-cache-client-configuration", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
-    parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="genetic", choices=["genetic"], help="... [DYNSL]")
+    parser.add_argument("--dynsl-cache-client-data", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
+    parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="bottleneck_descent", choices=["bottleneck_descent", "genetic"], help="... [DYNSL]")
     parser.add_argument("--dynsl-dynamic-layers-strategy", required=False, type=str, default="afl", choices=["afl"], help="... [DYNSL]")
     parser.add_argument("--dynsl-exchange-optimizer-states", required=False, type=str, default="false", choices=["false"], help="... [DYNSL]")
 

@@ -68,3 +68,7 @@ def torch_list_to_bytes(values):
     if values is None:
         return None
     return [ndarray_to_bytes(v.detach().cpu().numpy()) for v in values]
+
+
+def ndarray_list_to_bytes(ndarray_list):
+    return [ndarray_to_bytes(v) for v in ndarray_list]

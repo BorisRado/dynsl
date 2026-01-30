@@ -127,9 +127,12 @@ def get_num_layers(model):
     return len(model)
 
 
-def param_list_to_state_dict(param_list, model):
+def param_list_to_state_dict(
+    param_list: List[torch.Tensor],
+    model: FlexibleSequential
+):
     return OrderedDict([
-        (key, torch.from_numpy(param)) for param, key in zip(param_list, model.state_dict().keys())
+        (key, param) for param, key in zip(param_list, model.state_dict().keys())
     ])
 
 
@@ -143,7 +146,7 @@ def remove_layers_from_model(
     layers_to_keep = list(model.children())[:remove_from]
     layers_to_remove = list(model.children())[remove_from:]
     removed_parameters = [
-        tensor.detach().cpu().numpy() for layer in layers_to_remove
+        tensor.detach() for layer in layers_to_remove
         for tensor in layer.state_dict().values()
     ]
     model = FlexibleSequential(*layers_to_keep)

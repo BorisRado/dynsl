@@ -54,9 +54,9 @@ class GrpcServerModelProxy(ServerModelProxy):
         layer_change_info = LayerChangeInfo(
             layers_diff=num_layers_diff,
             additional_layers_parameters=None if num_layers_diff <= 0 \
-                else [v.numpy() for v in bytes_to_torch({"": list(res.additional_layers_parameters.tensors)})],
+                else bytes_to_torch({"": list(res.additional_layers_parameters.tensors)}),
             additional_optimizer_states=None if not hasattr(res, 'additional_optimizer_states') or res.additional_optimizer_states is None \
-                else [v.numpy() for v in bytes_to_torch({"": list(res.additional_optimizer_states.tensors)})]
+                else bytes_to_torch({"": list(res.additional_optimizer_states.tensors)})
         )
         return gradient, layer_change_info, res.training_loss
 
@@ -87,7 +87,7 @@ class GrpcServerModelProxy(ServerModelProxy):
         layer_change_info = LayerChangeInfo(
             layers_diff=num_layers_diff,
             additional_layers_parameters=None if num_layers_diff <= 0 \
-                else [v.numpy() for v in bytes_to_torch({"": list(res.additional_layers_parameters.tensors)})],
+                else bytes_to_torch({"": list(res.additional_layers_parameters.tensors)}),
             additional_optimizer_states=additional_optimizer_states,
         )
         return gradient, layer_change_info, res.training_loss

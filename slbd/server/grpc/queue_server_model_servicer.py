@@ -14,7 +14,7 @@ from slbd.proto import server_model_pb2
 from slbd.server.server_model.manager import ServerModelManager
 from slbd.common.utils import measure_time
 from slbd.common import BatchDataForward, BatchDataBackward, ControlCode, TimingMetrics
-from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, torch_list_to_bytes
+from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, ndarray_list_to_bytes
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.common.serde import (
     control_code_from_proto,
@@ -266,12 +266,13 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         layer_params = None
         if data.additional_layers_parameters is not None:
             layer_params = bytes_list_to_grpc_format(
-                torch_list_to_bytes(data.additional_layers_parameters)
+                ndarray_list_to_bytes(data.additional_layers_parameters)
             )
 
         send_data = {"grad": data.data}
-        if len(data.additional_optimizer_states) > 0:
-            send_data["optim_states"] = torch_list_to_bytes(data.additional_optimizer_states)
+        if data.additional_optimizer_states:
+            assert len(data.additional_optimizer_states) > 0
+            send_data["optim_states"] = ndarray_list_to_bytes(data.additional_optimizer_states)
 
         return server_model_pb2.BatchDataBackward(
             data=to_grpc_format(ndarray_dict_to_bytes(send_data)),
