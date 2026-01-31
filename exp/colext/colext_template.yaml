@@ -25,7 +25,7 @@ code:
       algorithm.num_server_models={{ num_server_models }}
       strategy.min_available_clients=${COLEXT_N_CLIENTS}
       server.port=8080
-      wandb=true
+      wandb={{ wandb }}
       model={{ model_name }}
       partitioning.num_partitions={{ num_partitions }}
       server_model_servicer.num_concat_batches={{ num_concat_batches }}
