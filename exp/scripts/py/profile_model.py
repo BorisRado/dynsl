@@ -18,6 +18,11 @@ from exp.src.common.background_process_manager import BackgroundProcessManager
 def run(cfg: DictConfig):
     print("PROFILING MODEL >>>")
 
+    limit_num_threads = cfg.get("limit_num_threads", -1)
+    if limit_num_threads > 0:
+        print("Limiting the number of threads to", limit_num_threads)
+        torch.set_num_threads(limit_num_threads)
+
     model = instantiate(cfg.model)
     num_bg_processes = cfg.get("num_bg_processes", 0)
     print(f"Setting number of background processes to: {num_bg_processes}")
@@ -41,12 +46,12 @@ def run(cfg: DictConfig):
         model=model,
         optimizer=optimizer,
         batch_size=cfg.client.init_kwargs.batch_size,
-        iterations=200,
+        iterations=500,
         dry_runs=50,
     )
     client_device_type = os.environ.get("COLEXT_DEVICE_TYPE", "SERVER")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"RESULTS [{client_device_type} {device}]: {complexities}")
+    gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
+    print(f"RESULTS [{client_device_type} {gpu_name} {num_bg_processes}]: {complexities}")
 
     time.sleep(10.0)
     if num_bg_processes > 0:
