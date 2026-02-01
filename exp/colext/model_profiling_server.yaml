@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: boris-flserver-METANAME
+spec:
+  restartPolicy: Never  # or OnFailure
+  containers:
+  - name: fl-client
+    image: colext:5000/slwr/generic-gpu:latest
+    stdin: true
+    tty: true
+    command: ["python3.10", "-u", "exp/scripts/py/profile_model.py", "model=resnet18", "+num_bg_processes=NUM_BG_PROCESSES"]
+    # command: ["sleep", "infinity"]
+    env:
+      - name: PYTHONPATH
+        value: "."
+      - name: COLEXT_DEVICE_TYPE
+        value: flserver
+      - name: CUDA_VISIBLE_DEVICES
+        value: USE_CUDA_VAR  # "" or "0"
+  imagePullSecrets:
+    - name: regcred
+  nodeSelector:
+    kubernetes.io/hostname: colext

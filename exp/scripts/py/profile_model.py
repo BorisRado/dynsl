@@ -41,12 +41,14 @@ def run(cfg: DictConfig):
         model=model,
         optimizer=optimizer,
         batch_size=cfg.client.init_kwargs.batch_size,
-        iterations=100,
-        dry_runs=20,
+        iterations=200,
+        dry_runs=50,
     )
-    device_type = os.environ.get("COLEXT_DEVICE_TYPE", "SERVER")
-    print(f"RESULTS [{device_type}]: {complexities}")
+    client_device_type = os.environ.get("COLEXT_DEVICE_TYPE", "SERVER")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"RESULTS [{client_device_type} {device}]: {complexities}")
 
+    time.sleep(10.0)
     if num_bg_processes > 0:
         manager.terminate_processes()
 
