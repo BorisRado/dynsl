@@ -82,6 +82,7 @@ class ModelTrainer:
         self._backward_time: float = -1.
         self._last_server_msg_time: float = -1.
         self._tot_local_computation_time = 0.
+        self._initialization_time = time.perf_counter()
 
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
@@ -99,6 +100,7 @@ class ModelTrainer:
             num_training_layers: Index of the last layer to include in client model
             init_parameters: Initial parameters for the model
         """
+        print(f"Client initially received {num_received_layers} layers")
         self._model = extract_submodel(self._whole_model, 0, num_received_layers)
         state_dict = param_list_to_state_dict(
             [torch.from_numpy(param) for param in init_parameters],
@@ -284,6 +286,7 @@ class ModelTrainer:
     def get_training_metrics(self):
         # print("Total local computation time", self._tot_local_computation_time)
         # print({"training_loss": self._metrics["loss"] / self._dataset_size})
+        print(f"Total epoch time: {time.perf_counter() - self._initialization_time:.3f}")
         return {
             "training_loss": self._metrics["loss"] / self._dataset_size,
             "local_computation_time": self._tot_local_computation_time

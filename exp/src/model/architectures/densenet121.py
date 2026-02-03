@@ -10,6 +10,14 @@ from exp.src.common.stochasticity import set_seed
 class DenseNet121(FlexibleSequential):
     def __init__(self, num_classes):
         model = models.densenet121(weights=None, num_classes=num_classes)
+        # adaptations to make the model appropriate for 32x32 images
+        model.features.conv0 = nn.Conv2d(
+            3, 64, kernel_size=3, stride=1, padding=1, bias=False
+        )
+
+        # Remove max pooling
+        model.features.pool0 = nn.Identity()
+
         params = list(list(model.features.children())) + \
             [nn.ReLU(), nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten(), model.classifier]
         super().__init__(*params)

@@ -79,6 +79,7 @@ def init_oracle_components(config, model):
     client_layer_allocator = OracleClientLayerAllocator(
         num_model_layers=get_num_layers(model),
         **OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True),
+        meaningful_split_points=model.meaningful_split_points,
     )
     return strategy, client_layer_allocator
 
@@ -175,6 +176,7 @@ def init_fedavg_components(config, model):
     client_layer_allocator = FedAvgClientLayerAllocator(
         num_model_layers=get_num_layers(model),
         **OmegaConf.to_container(config.algorithm.layer_allocator_init_args),
+        meaningful_split_points=model.meaningful_split_points, # just for compatibility
     )
     return strategy, client_layer_allocator
 

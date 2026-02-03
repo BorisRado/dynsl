@@ -23,6 +23,7 @@ class OracleClientLayerAllocator(ClientLayerAllocator):
         self.num_model_layers = num_model_layers
         self._cid_to_device_type_mapping = {}
         self._num_offloaded_layers = {}
+        self.tot_server_computation_time = 0.
         print(self.device_mapping)
 
     def _get_properties(self, client_proxies):
@@ -42,6 +43,7 @@ class OracleClientLayerAllocator(ClientLayerAllocator):
         is_training: bool,
     ) -> None:
         self._get_properties(epoch_clients)
+        self.tot_server_computation_time = 0.
         self._num_offloaded_layers = {
             proxy.cid: self.num_model_layers - self.device_mapping[self._cid_to_device_type_mapping[proxy.cid]]
             for proxy in epoch_clients
@@ -68,7 +70,9 @@ class OracleClientLayerAllocator(ClientLayerAllocator):
         num_offloaded_layers: int,
         elapsed_time: float,
     ):
-        return
+        self.tot_server_computation_time += elapsed_time
 
     def collect_epoch_metrics(self):
-        return {}
+        return {
+            "tot_server_training_time": self.tot_server_computation_time,
+        }

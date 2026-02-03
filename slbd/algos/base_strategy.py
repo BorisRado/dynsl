@@ -147,6 +147,10 @@ class BaseStrategy(Strategy):
                 for layer_idx in range(first_server_layer, get_num_layers(self.model))
                 for key in get_model_layer_keys(self.model)[layer_idx]
             )
+            if first_server_layer == get_num_layers(self.model):
+                # model is "empty" -- likely will be trained entirely on the device --
+                # NOTE: when using dynamic allocation, no client should start with the entire model locally
+                continue
             server_fit_ins = server_ins_cls(
                 server_model_state_dict, first_server_layer, config, sid=sid
             )
