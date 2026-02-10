@@ -6,6 +6,8 @@ dcgm/*
 *.ipynb
 *.json
 *.txt
+*.md
+!README.md
 
 # Distribution / packaging
 .Python

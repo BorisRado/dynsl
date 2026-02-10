@@ -24,6 +24,7 @@ from slbd.torch.sequential_model import FlexibleSequential
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
+from slbd.server.server_model.proxy.socket_server_model_proxy import SocketServerModelProxy
 
 
 def handle_legacy_message_from_msgtype(
@@ -33,6 +34,9 @@ def handle_legacy_message_from_msgtype(
     context: Context,
     server_model_stub: ServerModelStub,
     client_adapter_cls: Type[NumPyClient],
+    use_socket: bool = False,
+    socket_address: str = None,
+    socket_port: int = None,
 ) -> Message:
     """Handle legacy message in the inner most mod."""
     assert len(message.content.configs_records) == 1
@@ -42,7 +46,15 @@ def handle_legacy_message_from_msgtype(
     if CLIENT_ID_CONFIG_KEY in config_record:
         server_cid = config_record.pop(CLIENT_ID_CONFIG_KEY)
 
-    server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
+    # Create appropriate proxy based on transport type
+    if use_socket:
+        server_model_proxy = SocketServerModelProxy(
+            server_address=socket_address,
+            server_port=socket_port,
+            cid=server_cid
+        )
+    else:
+        server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
 
     client = client_adapter_cls(
         torch_client=client_fn(),

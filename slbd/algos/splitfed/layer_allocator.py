@@ -51,7 +51,6 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
             self._get_properties(epoch_clients)
         self.tot_server_computation_time = 0.
         self._client_throughputs = {}
-        self.stop_measuring_throughput = False
 
         self._server_training_time = []
         self._wait_time_in_ready_state = []
@@ -71,7 +70,7 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         return self._num_offloaded_layers
 
     def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
-        if metrics is None or metrics.client_local_computation_time < 0 or self.stop_measuring_throughput:
+        if metrics is None or metrics.client_local_computation_time < 0:
             return
         assert metrics.throughput_Mbps > 0
         self._client_throughputs.setdefault(client_id, metrics.throughput_Mbps)
@@ -94,6 +93,3 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
             "tot_server_training_time": self.tot_server_computation_time,
             "client_throughputs": self._client_throughputs,
         }
-
-def remove_client(self, cid):
-    self.stop_measuring_throughput = True

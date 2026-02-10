@@ -48,6 +48,9 @@ class ClientApp:
         model,
         client_fn: ClientFn,
         client_adapter_cls: Type[NumPyClient],
+        use_socket: bool = False,
+        socket_address: str = None,
+        socket_port: int = None,
     ) -> None:
 
         def ffn(
@@ -62,6 +65,9 @@ class ClientApp:
                 context=context,
                 server_model_stub=server_model_stub,
                 client_adapter_cls=client_adapter_cls,
+                use_socket=use_socket,
+                socket_address=socket_address,
+                socket_port=socket_port,
             )
             return out_message
 

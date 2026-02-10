@@ -165,6 +165,9 @@ def _start_client_internal(
                 client_fn=client_fn,
                 model=model,
                 client_adapter_cls=client_adapter_cls,
+                use_socket=config.client.communication_channel == "socket",
+                socket_address=config.client.server_address.split(":")[0],
+                socket_port=config.client.socket_port,
             )
 
         load_client_app_fn = _load_client_app
