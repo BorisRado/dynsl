@@ -1,7 +1,9 @@
 import time
 import asyncio
-from collections import OrderedDict
-from typing import Tuple, Dict, Optional, List
+import os
+import json
+from collections import OrderedDict, defaultdict
+from typing import Tuple, Dict, List
 
 import torch
 import numpy as np
@@ -73,7 +75,11 @@ class SimulationClient:
         }
         for iter_idx in range(self.num_iterations):
             local_computation_time = self.base_training_times[current_num_layers]
-            if iter_idx > 0: await asyncio.sleep(local_computation_time)
+            if iter_idx > 0:
+                sleep_time = np.random.uniform(local_computation_time * 0.9, local_computation_time * 1.1)
+                if np.random.uniform() < 0.02:
+                    sleep_time *= 5
+                await asyncio.sleep(sleep_time)
             batch = BatchDataForward(
                 data=current_data,
                 is_training=True,
@@ -150,7 +156,13 @@ async def _train_epoch(model_manager, model, allocator, clients, optimization_co
     start_time = time.perf_counter()
     await asyncio.gather(*[client.run() for client in clients])
     end_time = time.perf_counter()
-    print(f"Epoch time: {end_time - start_time:.3f}", flush=True)
+    epoch_time = end_time - start_time
+    allocator_metrics = allocator.collect_epoch_metrics()
+    print(f"Epoch time: {epoch_time:.3f}", flush=True)
+    return {
+        "epoch_time": epoch_time,
+        "server_training_time": allocator_metrics["tot_server_training_time"],
+    }
 
 
 def _initialize_clients(cfg, model):
@@ -200,7 +212,7 @@ def _initialize_layer_allocator(cfg, model):
             "batch_size": cfg.experiment.batch_size * cfg.server_model_servicer.num_concat_batches,
         }
         layer_complexities_cuda, tensor_sizes = measure_per_layer_complexity(
-            iterations=400,
+            iterations=500,
             dry_runs=50,
             **complexity_kwargs,
         )
@@ -210,16 +222,12 @@ def _initialize_layer_allocator(cfg, model):
             disable_cuda=True,
             **complexity_kwargs,
         )
-        layer_complexities = {
-            k: (layer_complexities_cpu[k] + layer_complexities_cuda[k]) / 2
-            for k in layer_complexities_cpu
-        }
         del tmp_optimizer
         per_layer_parameters = {
             idx: sum(p.numel() for p in layer.state_dict().values())
             for idx, layer in enumerate(model.children())
         }
-        layer_allocator_init_args["modeled_layer_complexities"] = layer_complexities
+        layer_allocator_init_args["modeled_layer_complexities"] = layer_complexities_cpu
         layer_allocator_init_args["per_layer_emb_sizes"] = tensor_sizes
         layer_allocator_init_args["static_server_computational_times"] = layer_complexities_cuda
         layer_allocator_init_args["per_layer_parameters"] = per_layer_parameters
@@ -253,14 +261,20 @@ async def run_experiment(cfg):
     for client in clients: client.set_batching_worker_manager(batching_worker_manager)
 
     # Run all clients in parallel
-    for _ in range(cfg.experiment.num_rounds):
-        await _train_epoch(
+    epoch_times = defaultdict(list)
+    print(cfg.experiment.num_rounds)
+    for epoch_idx in range(cfg.experiment.num_rounds):
+        print("Running", epoch_idx)
+        tmp = await _train_epoch(
             model_manager=model_manager,
             model=model,
             allocator=allocator,
             clients=clients,
             optimization_config=OmegaConf.to_container(cfg.optimizer.optimizer)
         )
+        for k, v in tmp.items():
+            epoch_times[k].append(v)
+    return epoch_times
 
 
 @hydra.main(config_path="../../conf", config_name="test_policy", version_base=None)
@@ -273,7 +287,24 @@ def run(cfg):
         cfg.profiled_times[device_type] = cfg.profiled_times[device_type][batch_size]
 
     print(OmegaConf.to_yaml(cfg), flush=True)
-    asyncio.run(run_experiment(cfg))
+    epoch_metrics = asyncio.run(run_experiment(cfg))
+
+    times_json_path = cfg.filepath + ".json"
+    if os.path.exists(times_json_path):
+        with open(times_json_path, "r") as f:
+            times_json_contents = json.load(f)
+    else:
+        times_json_contents = []
+    entry = {
+        "algorithm": cfg.algorithm.name,
+        "num_clients": OmegaConf.to_container(cfg.experiment.device_counts),
+        "num_layers": "adaptive" if "splitfed" not in cfg.algorithm.name else cfg.algorithm.layer_allocator_init_args.num_client_layers,
+        **epoch_metrics,
+    }
+    times_json_contents.append(entry)
+    print(times_json_contents)
+    with open(times_json_path, "w") as fp:
+        json.dump(times_json_contents, fp, indent=2)
 
 
 if __name__ == "__main__":
