@@ -11,16 +11,16 @@ general:
   seed: 10
 
 experiment:
-  num_rounds: 4
+  num_rounds: 1
   batch_size: 32
-  device_counts:
-    jao: 12
-    jon: 12
-    jxn: 12
-    lp: 12
-    op: 12
+  device_counts: {}
+    # jao: 12
+    # jon: 12
+    # jxn: 12
+    # lp: 12
+    # op: 100
 client:
-  num_iterations: 100
+  num_iterations: 30
   num_classes: ${data.num_classes}
 
 server_model_servicer: # these kwargs are acutally passed to the batching worker manager, but we keep the old name for backward compatibility
