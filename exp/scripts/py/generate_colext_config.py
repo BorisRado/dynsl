@@ -65,6 +65,9 @@ def generate():
     parser.add_argument("--bg-dev-num-lp", required=False, type=int, default=0)
     parser.add_argument("--bg-dev-num-op", required=False, type=int, default=0)
 
+    parser.add_argument("--misc", required=False, type=str,
+                        help="Any additional configuration to add to server to keep track of experimentation")
+
     args = parser.parse_args()
     args_dict = vars(args)
 

@@ -1,3 +1,4 @@
+import time
 from queue import Queue
 from logging import DEBUG
 
@@ -30,6 +31,7 @@ class GrpcServerModelProxy(ServerModelProxy):
         self.stub = stub
         self.request_queue = None
         self.response_stream = None
+        self.last_message_received = None
 
     def _initialize_stream(self):
         self.request_queue = Queue(maxsize=1)
@@ -60,7 +62,7 @@ class GrpcServerModelProxy(ServerModelProxy):
         )
         return gradient, layer_change_info, res.training_loss
 
-    def __call__(self, embeddings, labels, local_computation_time, tot_local_time, client_model_weights, removed_optimizer_states, training=True):
+    def __call__(self, embeddings, labels, local_computation_time, client_model_weights, removed_optimizer_states, training=True):
         # return self.unary_request(embeddings, labels, local_computation_time, training)
         batch_data = torch_to_bytes(
             embeddings=embeddings,
@@ -71,15 +73,17 @@ class GrpcServerModelProxy(ServerModelProxy):
         if self.request_queue is None:
             self._initialize_stream()
 
+        batch_data_grpc = to_grpc_format(batch_data)
         ins = server_model_pb2.BatchDataForward(
-            data=to_grpc_format(batch_data),
+            data=batch_data_grpc,
             control_code=control_code_to_proto(ControlCode.OK),
             training=training,
             local_computation_time=local_computation_time,
-            tot_local_time=tot_local_time,
+            tot_local_time=time.perf_counter() - self.last_message_received if self.last_message_received is not None else -1,
         )
         self.request_queue.put(ins)
         res = next(self.response_stream)
+        self.last_message_received = time.perf_counter()
         num_layers_diff = res.layers_diff
         gradient = bytes_to_torch(from_grpc_format(res.data))
         gradient, additional_optimizer_states = \

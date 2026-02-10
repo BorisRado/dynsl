@@ -20,9 +20,9 @@ def replace_bn_with_gn(module, num_groups=2):
             replace_bn_with_gn(child, num_groups)
 
 
-class ResNet18(FlexibleSequential):
-    def __init__(self, num_classes, use_groupnorm):
-        model = models.resnet18(weights=None, num_classes=num_classes)
+class ResNet(FlexibleSequential):
+    def __init__(self, num_classes, base_cls, use_groupnorm):
+        model = base_cls(weights=None, num_classes=num_classes)
         # replace the first conv layers, otherwise the resolution is reduced too much
         # same as in https://github.com/kuangliu/pytorch-cifar/blob/master/models/resnet.py
         model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
@@ -43,6 +43,21 @@ class ResNet18(FlexibleSequential):
         )
         self.meaningful_split_points = [4, 5, 6, 8]
         self._data_type = "cv"
+
+
+class ResNet18(ResNet):
+    def __init__(self, num_classes, use_groupnorm):
+        super().__init__(num_classes, models.resnet18, use_groupnorm)
+
+
+class ResNet34(ResNet):
+    def __init__(self, num_classes, use_groupnorm):
+        super().__init__(num_classes, models.resnet34, use_groupnorm)
+
+
+class ResNet50(ResNet):
+    def __init__(self, num_classes, use_groupnorm):
+        super().__init__(num_classes, models.resnet50, use_groupnorm)
 
 
 if __name__ == "__main__":

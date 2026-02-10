@@ -19,7 +19,7 @@ from slbd.common.constants import (
 )
 from slbd.common.profiling import measure_per_layer_complexity
 from slbd.common import BatchDataForward, BatchDataBackward, TimingMetrics
-from slbd.server.grpc.queue_server_model_servicer import BatchingWorkerManager
+from slbd.server.batching_worker_manager import BatchingWorkerManager
 from slbd.torch.sequential_model import FlexibleSequential
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
 from slbd.algos.ares import ARESClientLayerAllocator

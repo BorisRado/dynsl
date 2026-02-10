@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: boris-HOSTNAME
+spec:
+  restartPolicy: Never  # or OnFailure
+  containers:
+  - name: fl-client
+    image: flserver:5000/slwr/BASEIMAGE:latest
+    stdin: true
+    tty: true
+    command: ["python3.10", "-u", "exp/scripts/py/log_time_wrt_bg_processes.py", "model=MODEL_NAME"]
+    env:
+      - name: PYTHONPATH
+        value: "."
+      - name: COLEXT_DEVICE_TYPE
+        value: HOSTNAME
+  imagePullSecrets:
+    - name: regcred
+  nodeSelector:
+    kubernetes.io/hostname: HOSTNAME

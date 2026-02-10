@@ -1,2 +1,3 @@
-_target_: exp.src.model.architectures.resnet50.ResNet50
+_target_: exp.src.model.architectures.resnet.ResNet50
 num_classes: ${data.num_classes}
+use_groupnorm: true

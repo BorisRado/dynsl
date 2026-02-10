@@ -228,7 +228,6 @@ class ModelTrainer:
             "embeddings": send_client_output,
             "labels": labels,
             "local_computation_time": -1 if self._iter_since_last_model_change < 2 else client_time,
-            "tot_local_time": time.perf_counter() - self._last_server_msg_time,
             "client_model_weights": self._removed_weights,
             "removed_optimizer_states": self._removed_optimizer_states,
         }, client_output
