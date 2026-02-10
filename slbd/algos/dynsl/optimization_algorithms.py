@@ -100,3 +100,52 @@ def bottleneck_descent(clients, meaningful_split_points, allocated_layers_now, o
             break
 
     return cfg
+
+
+def binary_search(
+    clients,
+    meaningful_split_points,
+    allocated_layers_now,
+    client_fn,
+    server_fn,
+    gamma,
+):
+    # Initial bounds
+    min_T = 0.0
+    max_T = max(
+        server_fn(allocated_layers_now),
+        max(client_fn(cid, sp) for cid, sp in allocated_layers_now.items())
+    )
+
+    assert meaningful_split_points == sorted(meaningful_split_points)
+
+    best_split_vector = dict(allocated_layers_now)
+
+    while max_T - min_T > gamma:
+        # Midpoint of the current interval
+        mid_T = (max_T + min_T) / 2.0
+        max_client_time = -1
+
+        # Construct candidate split vector
+        candidate_split_vector = {}
+        for cid in clients:
+            # Start with the smallest feasible split
+            candidate_split_vector[cid] = meaningful_split_points[0]
+            for sp in meaningful_split_points:
+                tmp_time = client_fn(cid, sp)
+                if tmp_time <= mid_T:
+                    candidate_split_vector[cid] = sp
+                    if tmp_time > max_client_time:
+                        max_client_time = tmp_time
+                else:
+                    break  # monotonicity allows early stopping
+
+        server_time = server_fn(candidate_split_vector)
+
+        if max(max_client_time, server_time) <= mid_T:
+            best_split_vector = dict(candidate_split_vector)
+            max_T = mid_T
+        else:
+            min_T = mid_T
+
+    return best_split_vector

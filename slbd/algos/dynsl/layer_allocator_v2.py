@@ -19,7 +19,7 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS,
 )
 
-from slbd.algos.dynsl.optimization_algorithms import genetic_reallocation, bottleneck_descent
+from slbd.algos.dynsl.optimization_algorithms import genetic_reallocation, bottleneck_descent, binary_search
 
 
 class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
@@ -68,7 +68,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             Size of model layers. For each key (layer idx) we get the number of FP values
         """
         # safety checks
-        assert layer_allocation_optimizer in {"genetic", "bottleneck_descent"}
+        assert layer_allocation_optimizer in {"genetic", "bottleneck_descent", "binary_search"}
         assert reallocation_frequency > 0.
 
         # store basic attributes
@@ -202,6 +202,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
                 objective_fn=self._compute_objective
             )
         else:
+            assert self.layer_allocation_optimizer in {"bottleneck_descent", "binary_search"}
             initial_configuration = bottleneck_descent(
                 clients=self._epoch_clients,
                 meaningful_split_points=self.meaningful_split_points,
@@ -303,7 +304,19 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
                 allocated_layers_now=self._client_allocated_layers,
                 objective_fn=self._compute_objective
             )
+        elif self.layer_allocation_optimizer == "binary_search":
+            print("Using binary_search")
+            best_config = binary_search(
+                clients=self._epoch_clients,
+                meaningful_split_points=self.meaningful_split_points,
+                allocated_layers_now=self._client_allocated_layers,
+                client_fn=self.compute_client_time,
+                server_fn=self.compute_server_time,
+                gamma=self._gamma,
+            )
 
+        print("current", self._client_allocated_layers)
+        print("predicted", best_config)
         J_current = self._compute_objective(self._client_allocated_layers)
         J_new = self._compute_objective(best_config)
         delta = J_current - J_new
@@ -350,6 +363,20 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # the final objective is the maximum of the server time and the slowest client time + the regularization
         total_time = max(server_time, max_client_time) + reg_term
         return total_time
+
+    def compute_server_time(self, candidate_split_vector):
+        server_time = 0. # Compute the time the server needs to train with the current configuration
+        server_communication_time = 0. # time the server is communicating
+
+        for cid, L in candidate_split_vector.items():
+            B = self._pending_batches[cid] # number of batches the client still has to process
+            server_time += B * self._server_training_times[L] / self._num_concat_batches # time the server will be processing client batches
+            server_communication_time += B * self.per_batch_server_communication_time[L]
+
+        # slightly increase the server_communication_time to account for the overhead of serializing and deserializing
+        server_time = max(server_time, server_communication_time * 1.2)
+
+        return server_time
 
     def compute_client_time(self, cid, L):
         # computes the remaining epoch time for the client if the client were to train L layers
