@@ -9,7 +9,7 @@ spec:
     image: flserver:5000/slwr/BASEIMAGE:latest
     stdin: true
     tty: true
-    command: ["python3.10", "-u", "exp/scripts/py/profile_model.py", "model=resnet18", "+num_bg_processes=NUM_BG_PROCESSES"]
+    command: ["python3.10", "-u", "exp/scripts/py/profile_model.py", "model=MODEL_NAME", "+num_bg_processes=NUM_BG_PROCESSES"]
     # command: ["sleep", "infinity"]
     env:
       - name: PYTHONPATH

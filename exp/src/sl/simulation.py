@@ -17,7 +17,7 @@ from flwr.common import (
 
 from slbd.client.model_trainer import ModelTrainer
 from slbd.common import BatchDataForward, BatchDataBackward, LayerChangeInfo
-from slbd.server.grpc.queue_server_model_servicer import BatchingWorkerManager
+from slbd.server.batching_worker_manager import BatchingWorkerManager
 
 
 from exp.src.data.utils import get_dataloader

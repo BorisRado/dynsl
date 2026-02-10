@@ -27,7 +27,7 @@ class ServerModelProxy(ABC):
         self.device = None
 
     @abstractmethod
-    def __call__(self, embeddings, labels, _training_: bool=True):
+    def __call__(self, embeddings, labels, local_computation_time, client_model_weights, removed_optimizer_states, training=True):
         """Sends a batch of data over the network to the server and waits until receiving the grad
 
         Parameters

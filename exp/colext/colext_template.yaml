@@ -32,6 +32,7 @@ code:
       experiment_name={{ experiment_name }}
       {% if algo_config %}{{ algo_config }}{% endif %}
       {{ device_listing }}
+      {% if misc %}{{ misc }}{% endif %}
       {% if bg_devices %}{{ bg_devices }}{% endif %}
       {% if bg_configuration %}{{ bg_configuration }}{% endif %}
 
