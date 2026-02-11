@@ -3,8 +3,6 @@
 import time
 import asyncio
 import socket
-import pickle
-import threading
 from logging import INFO
 from typing import Optional, Callable
 
@@ -12,7 +10,7 @@ import torch
 from flwr.common import log
 from hydra.utils import instantiate
 
-from slbd.common import BatchDataForward, BatchDataBackward, TimingMetrics
+from slbd.common import BatchDataForward, BatchDataBackward, SocketTimingMetrics
 from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, ndarray_list_to_bytes
 from slbd.common.socket_utils import send_message, recv_message
 from slbd.server.batching_worker_manager import BatchingWorkerManager
@@ -68,45 +66,41 @@ class SocketServerHandler:
             client_address: Client address tuple
         """
         client_id = None
-        data_sending_time, data_received_time = -1, -1
         stream_start = time.perf_counter()
 
         try:
             # Receive initialization message
-            init_msg = recv_message(client_socket)
+            init_msg = recv_message(client_socket)[0]
             assert init_msg["type"] == "init"
             client_id = init_msg["cid"]
 
             # Send acknowledgment
-            send_message(client_socket, pickle.dumps({"type": "init_ack"}))
+            send_message(client_socket, {"type": "init_ack"})
 
             log(INFO, f"Socket client connected: {client_id} from {client_address}")
 
             # Handle client requests in a loop
             while True:
-                message = recv_message(client_socket)
-                data_received_time = time.perf_counter()
+                message, uplink_throughput = recv_message(client_socket)
                 if message is None:
                     break
 
                 if message["type"] == "close":
                     # Client is closing the connection
-                    send_message(client_socket, pickle.dumps({"type": "close_ack"}))
+                    send_message(client_socket, {"type": "close_ack"})
                     break
 
                 if message["type"] == "forward":
 
                     # Parse incoming data
                     batch_data = bytes_to_ndarray_dict(message["data"])
-                    response_nbytes = batch_data["embeddings"].nbytes + batch_data["labels"].nbytes
 
                     # Create timing metrics
-                    timing_metrics = TimingMetrics(
+                    timing_metrics = SocketTimingMetrics(
                         client_local_computation_time=message["local_computation_time"],
-                        client_round_time=data_received_time - data_sending_time,
-                        client_tot_local_time=message["tot_local_time"],
-                        response_length=response_nbytes
-                    ) if data_sending_time > 0 else None
+                        uplink_throughput_Mbps=uplink_throughput,
+                        downlink_throughput_Mbps=message["downlink_throughput"],
+                    )
 
                     # Create forward data
                     data_fwd = BatchDataForward(
@@ -115,17 +109,10 @@ class SocketServerHandler:
                         client_timing_metrics=timing_metrics
                     )
 
-                    # Enqueue and wait for result
-                    future = self._batching_worker.enqueue_and_get_future(client_id, data_fwd)
-                    res = await future
-
-                    # Prepare response
-                    response = self._to_socket_response(res)
-                    serialized_response = pickle.dumps(response)
-                    data_sending_time = time.perf_counter()
+                    res = await self._batching_worker.enqueue_and_get_future(client_id, data_fwd)
 
                     # Send response
-                    send_message(client_socket, serialized_response)
+                    send_message(client_socket, self._to_socket_response(res))
 
         except Exception as e:
             import traceback

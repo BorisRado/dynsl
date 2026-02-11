@@ -26,7 +26,7 @@ class SocketServerModelProxy(ServerModelProxy):
         self.server_address = server_address
         self.server_port = server_port
         self.sock: Optional[socket.socket] = None
-        self.last_message_received: Optional[float] = None
+        self.downlink_throughput = None
         self._initialize_connection()
 
     def _initialize_connection(self):
@@ -34,8 +34,8 @@ class SocketServerModelProxy(ServerModelProxy):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect((self.server_address, self.server_port))
         # Send initialization message with client ID
-        send_message(self.sock, pickle.dumps({"type": "init", "cid": self.cid}))
-        response = recv_message(self.sock)
+        send_message(self.sock, {"type": "init", "cid": self.cid})
+        response = recv_message(self.sock)[0]
         assert response["type"] == "init_ack"
 
     def __call__(
@@ -74,14 +74,12 @@ class SocketServerModelProxy(ServerModelProxy):
             "data": batch_data,
             "training": training,
             "local_computation_time": local_computation_time,
-            "tot_local_time": time.perf_counter() - self.last_message_received
-                if self.last_message_received is not None else -1,
+            "downlink_throughput": self.downlink_throughput
         }
 
         # Send and receive
-        send_message(self.sock, pickle.dumps(message))
-        response = recv_message(self.sock)
-        self.last_message_received = time.perf_counter()
+        send_message(self.sock, message)
+        response, self.downlink_throughput = recv_message(self.sock)
 
         # Parse response
         num_layers_diff = response["layers_diff"]
@@ -111,8 +109,8 @@ class SocketServerModelProxy(ServerModelProxy):
             "type": "close",
             "error": error
         }
-        send_message(self.sock, pickle.dumps(message))
-        response = recv_message(self.sock)
+        send_message(self.sock, message)
+        response = recv_message(self.sock)[0]
         assert response["type"] == "close_ack"
 
         self.sock.close()

@@ -21,6 +21,7 @@ def generate():
     parser.add_argument("--experiment-name", required=False, type=str, default="colext", help="Name of experiment on wandb. If `null`, data is not logged to wandb")
     parser.add_argument("--num-concat-batches", required=False, type=int, default=1, help="Number of batches the server will concatenate before training")
     parser.add_argument("--num-epochs-per-round", required=False, type=int, default=1, help="Number of client training epochs per server round")
+    parser.add_argument("--sl-communication-channel", required=False, type=str, default="socket", choices=["grpc", "socket"])
 
     # common arguments for all algorithms
     parser.add_argument("--num-server-models", required=True, type=int, help="Number of models to be trained on the server")

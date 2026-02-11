@@ -12,6 +12,7 @@ code:
       partitioning.num_partitions={{ num_partitions }}
       client.init_kwargs.num_epochs={{ num_epochs_per_round }}
       algorithm={{ algorithm }}
+      server.communication_channel={{ sl_communication_channel }}
       {%- if bg_devices %}{{ bg_devices }}{% endif %}
       {%- if bg_configuration %}{{ bg_configuration }}{% endif %}
 
@@ -24,6 +25,7 @@ code:
       client.init_kwargs.num_epochs={{ num_epochs_per_round }}
       algorithm.num_server_models={{ num_server_models }}
       strategy.min_available_clients=${COLEXT_N_CLIENTS}
+      server.communication_channel={{ sl_communication_channel }}
       server.port=8080
       wandb={{ wandb }}
       model={{ model_name }}

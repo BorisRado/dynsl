@@ -1,3 +1,4 @@
+from collections import defaultdict
 from typing import List, Optional, Tuple
 
 from flwr.common import GetPropertiesIns
@@ -26,7 +27,8 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         self._wait_time_in_ready_state = []
         self._batch_preparation_times = []
         self._cid_to_device_type_mapping = {}
-        self._client_throughputs = {}
+        self._client_throughputs = defaultdict(float)
+        self._client_processed_batches = defaultdict(int)
         self.tot_server_computation_time = None
         self.stop_measuring_throughput = False
 
@@ -50,7 +52,8 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         if len(self._cid_to_device_type_mapping) == 0:
             self._get_properties(epoch_clients)
         self.tot_server_computation_time = 0.
-        self._client_throughputs = {}
+        self._client_throughputs = defaultdict(float)
+        self._client_processed_batches = defaultdict(int)
 
         self._server_training_time = []
         self._wait_time_in_ready_state = []
@@ -73,10 +76,9 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         if metrics is None or metrics.client_local_computation_time < 0:
             return
         assert metrics.throughput_Mbps > 0
-        self._client_throughputs.setdefault(client_id, metrics.throughput_Mbps)
-        self._client_throughputs[client_id] = \
-            0.8 * self._client_throughputs[client_id] + 0.2 * metrics.throughput_Mbps
-        return
+        print(metrics.throughput_Mbps)
+        self._client_throughputs[client_id] += metrics.throughput_Mbps
+        self._client_processed_batches[client_id] += 1
 
     def update_server_metrics(
         self,
@@ -91,5 +93,8 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
     def collect_epoch_metrics(self):
         return {
             "tot_server_training_time": self.tot_server_computation_time,
-            "client_throughputs": self._client_throughputs,
+            "client_throughputs": {
+                k: self._client_throughputs[k] / self._client_processed_batches[k]
+                for k in self._client_throughputs
+            },
         }

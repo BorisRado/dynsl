@@ -20,6 +20,19 @@ class ControlCode(Enum):
 
 
 @dataclass
+class SocketTimingMetrics:
+    client_local_computation_time: float
+    uplink_throughput_Mbps: float
+    downlink_throughput_Mbps: float
+
+    def __post_init__(self):
+        self.throughput_Mbps = -1.
+        if self.downlink_throughput_Mbps:
+            self.throughput_Mbps = self.uplink_throughput_Mbps
+            self.throughput_Mbps = (self.uplink_throughput_Mbps + self.downlink_throughput_Mbps) / 2
+
+
+@dataclass
 class TimingMetrics:
     client_local_computation_time: float
     client_round_time: float
