@@ -267,12 +267,93 @@ class SLExecutor:
 
         return results
 
+    async def run_wo_concatenation(self):
+        # has lower memory usage
+
+        # Process batches in rounds; in each round shuffle clients and process one batch per client
+        clients = self._clients
+        # compute number of batches per client (dataloader drop_last=True so lengths equal-ish)
+        remaining = [len(c["dataloader"]) for c in clients]
+
+        results = []
+
+        while any(r > 0 for r in remaining):
+            order = [i for i, r in enumerate(remaining) if r > 0]
+            random.shuffle(order)
+            futures = []
+            client_outputs = []
+            for idx in order:
+                entry = clients[idx]
+                try:
+                    with entry["rng"]:
+                        batch = next(entry["iterator"])
+                        if entry["dataset_type"] == "cv":
+                            payload, client_output = \
+                                entry["trainer"].forward_pass(batch["img"], batch["label"])
+                        else:
+                            payload, client_output = \
+                                entry["trainer"].forward_pass(
+                                    input_vars=(batch["input_ids"], batch["attention_mask"]),
+                                    labels=batch["labels"]
+                                )
+                except StopIteration:
+                    remaining[idx] = 0
+                    continue
+
+                if payload is None:
+                    continue
+
+                payload = torch_to_numpy(payload)
+                del payload[SL_LOCAL_COMPUTATION_TIME]
+
+                data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=None)
+                backward_data: BatchDataBackward = await self._worker_manager \
+                    .enqueue_and_get_future(client_id=entry["cid"], data=data)
+                gradient = backward_data.data
+                layer_change_info = None
+                if backward_data.layers_diff != 0:
+                    layer_change_info = LayerChangeInfo(
+                        layers_diff=backward_data.layers_diff,
+                        additional_layers_parameters=backward_data.additional_layers_parameters,
+                        additional_optimizer_states=backward_data.additional_optimizer_states
+                    )
+                entry["trainer"].backward_pass(
+                    gradient=gradient,
+                    control=layer_change_info,
+                    loss=backward_data.training_loss,
+                    client_output=client_output
+                )
+                remaining[idx] -= 1
+
+        # collect results
+        for entry in clients:
+            trained_parameters, processed_data_points_dict, metrics = entry["trainer"].get_fit_results()
+            combined_metrics = processed_data_points_dict | metrics
+            dataset_size = entry["trainer"]._dataset_size
+            results.append(
+                (
+                    entry["proxy"],
+                    FitRes(
+                        status=Status(code=Code.OK, message="Success"),
+                        parameters=ndarrays_to_parameters(trained_parameters),
+                        num_examples=dataset_size,
+                        metrics=combined_metrics,
+                    )
+                )
+            )
+
+        return results
+
     def fit_clients_simulation(
         self,
+        has_batch_concatenation,
         client_instructions: List[Tuple[SimulationClientProxy, FitIns]],
     ):
 
         self.init_epoch(client_instructions)
-        results = self.event_loop.run_until_complete(self.run())
+        if has_batch_concatenation:
+            results = self.event_loop.run_until_complete(self.run())
+        else:
+            results = self.event_loop.run_until_complete(self.run_wo_concatenation())
         torch.cuda.empty_cache()
         return results

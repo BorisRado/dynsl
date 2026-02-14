@@ -154,6 +154,7 @@ def run(cfg: DictConfig):
         # Collect `fit` results from all clients participating in this round
         results = sl_executor.fit_clients_simulation(
             client_instructions=client_instructions,
+            has_batch_concatenation=cfg.server_model_servicer.num_concat_batches > 1
         )
         server_fit_res = server_model_manager.collect_server_fit_results()
         model_state_dict, metrics = strategy.aggregate_fit(
