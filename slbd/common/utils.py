@@ -77,3 +77,26 @@ def measure_time(use_cuda):
         torch.cuda.synchronize()
     end = time.perf_counter()
     timer.elapsed = end - start
+
+
+class MeasureTime:
+    def __init__(self, use_cuda):
+        self.use_cuda = use_cuda
+        self.elapsed = 0.
+
+    def __enter__(self):
+        if self.use_cuda:
+            torch.cuda.synchronize()
+        self._start = time.perf_counter()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.use_cuda:
+            torch.cuda.synchronize()
+        tmp_elapsed = time.perf_counter() - self._start
+        self.elapsed += tmp_elapsed
+
+    def get_elapsed_and_reset(self):
+        prev_elapsed = self.elapsed
+        self.elapsed = 0.
+        return prev_elapsed

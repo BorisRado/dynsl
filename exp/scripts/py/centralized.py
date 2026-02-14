@@ -47,7 +47,8 @@ def evaluate_model(model, dataloader, device):
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
-    print(OmegaConf.to_yaml(cfg, resolve=True))
+    OmegaConf.resolve(cfg)
+    print(OmegaConf.to_yaml(cfg))
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     set_seed(cfg.general.seed)

@@ -32,7 +32,6 @@ class MOTorchClient(AbstractTorchClient):
         self.bg_num_procs = bg_num_procs
         assert bg_device in {"cpu", "cuda"}
         bg_device = torch.device("cuda" if torch.cuda.is_available() and bg_device == "cuda" else "cpu")
-        print(bg_num_procs, bg_proc_delay, bg_proc_duration, bg_device)
         if self.bg_num_procs > 0:
             self.bg_proc_mng = BackgroundProcessManager(
                 num_processes=self.bg_num_procs, bg_device=bg_device
@@ -63,7 +62,6 @@ class MOTorchClient(AbstractTorchClient):
                     )
         if self.bg_num_procs > 0:
             self.bg_proc_mng.pause_processes()
-        print("MO FIT FINISHED")
 
     def evaluate(self, config, model_trainer):
         valloader = get_dataloader(self.trainset, batch_size=self.batch_size, shuffle=False)
@@ -71,6 +69,6 @@ class MOTorchClient(AbstractTorchClient):
             model_trainer.evaluate(batch["img"], batch["label"])
 
     def get_trainloader_size(self):
-        print("Per-epoch batches", len(self.trainset) // self.batch_size)
-        print("Tot # batches:", self.num_epochs * (len(self.trainset) // self.batch_size))
+        # print("Per-epoch batches", len(self.trainset) // self.batch_size)
+        # print("Tot # batches:", self.num_epochs * (len(self.trainset) // self.batch_size))
         return self.num_epochs * (len(self.trainset) // self.batch_size)

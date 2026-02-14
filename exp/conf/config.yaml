@@ -12,7 +12,7 @@ general:
   rounds: 1
 server:
   async_: true
-  communication_channel: grpc # options: grpc, socket
+  communication_channel: socket # options: grpc, socket
   socket_port: 9094 # port for socket communication (if enabled)
   port: 8089 # default port
 client:

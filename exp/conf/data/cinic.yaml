@@ -2,14 +2,10 @@ name: flwrlabs/cinic10
 input_shape: [3, 32, 32]
 num_classes: 10
 type: cv
-val_percentage: 0.1
 train_transforms:
   _target_: torchvision.transforms.Compose
   transforms:
-    - _target_: src.data.utils.ToRgb
-    - _target_: torchvision.transforms.RandomCrop
-      size: 32
-      padding: 4
+    - _target_: exp.src.data.utils.ToRgb
     - _target_: torchvision.transforms.RandomHorizontalFlip
       p: 0.5
     - _target_: torchvision.transforms.ToTensor
@@ -19,7 +15,7 @@ train_transforms:
 test_transforms:
   _target_: torchvision.transforms.Compose
   transforms:
-    - _target_: src.data.utils.ToRgb
+    - _target_: exp.src.data.utils.ToRgb
     - _target_: torchvision.transforms.ToTensor
     - _target_: torchvision.transforms.Normalize
       mean: [0.47889522, 0.47227842, 0.43047404]

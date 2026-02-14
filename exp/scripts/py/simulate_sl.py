@@ -1,6 +1,7 @@
 import os
 import time
 import copy
+import logging
 from logging import INFO
 from dotenv import load_dotenv
 
@@ -11,7 +12,6 @@ from omegaconf import OmegaConf, DictConfig
 from flwr.common import log
 
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
-
 from slbd.algos.dynsl import DynSLStrategy
 from slbd.algos.dynsl.simulation_layer_allocator import DynSLSimulationClientLayerAllocator
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
@@ -37,10 +37,13 @@ from exp.src.sl.simulation import (
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
+    OmegaConf.resolve(cfg)
 
     # remove what is not needed in simulations
     del cfg.client.server_address
     del cfg.server
+    del cfg.client.communication_channel
+    del cfg.client.socket_port
     del cfg.server_model_manager
     del cfg.server_model_servicer.servicer_name
 
@@ -183,4 +186,5 @@ def run(cfg: DictConfig):
 if __name__ == "__main__":
     load_dotenv()
     set_torch_flags()
+    logging.getLogger("flwr").setLevel("ERROR")
     run()

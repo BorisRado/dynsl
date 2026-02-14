@@ -14,7 +14,7 @@ class BaseServerModelManager(ServerModelManager):
         super().__init__()
         self.base_model = model
 
-    def _concat_and_shuffle_data(self, embeddings, labels):
+    def _concat_data(self, embeddings, labels):
         sizes = [b.shape[0] for b in labels]
         if isinstance(embeddings[0], torch.Tensor):
             embeddings = torch.cat(embeddings, dim=0)
@@ -27,10 +27,10 @@ class BaseServerModelManager(ServerModelManager):
         labels = torch.cat(labels, dim=0)
         return embeddings, labels, (sizes,)
 
-    def _split_and_unshuffle_data(self, loss, gradient, control):
+    def _split_data(self, loss, gradient, control):
         assert len(control) == 1
         sizes = control[0]
-        return [(g, loss) for g in gradient.split(sizes, dim=0)]
+        return [(g.numpy(), loss) for g in gradient.split(sizes, dim=0)]
 
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())

@@ -61,14 +61,12 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
         self, parameters: NDArrays, config: Dict[str, Scalar]
     ) -> Tuple[NDArrays, int, Dict[str, Scalar]]:
         # initialize local model
-        last_client_layer_idx = config.pop(CLIENT_LAST_LAYER_IDX_KEY)
-        num_received_layers = config.pop(CLIENT_NUM_RECEIVED_LAYERS, last_client_layer_idx)
+        num_received_layers = config.pop(CLIENT_NUM_RECEIVED_LAYERS)
         optimizer_config = {k: v for k, v in config.items() if k.startswith("optim.")}
 
         # initialize the model trainer
         model_trainer = ModelTrainer(
             whole_model=self.whole_model,
-            num_training_layers=last_client_layer_idx,
             num_received_layers=num_received_layers,
             init_parameters=parameters,
             server_model_proxy=self.server_model_proxy,

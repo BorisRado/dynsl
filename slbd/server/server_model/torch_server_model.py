@@ -7,7 +7,7 @@ import torch
 from slbd.torch.model_utils import shift_state_dict
 from slbd.torch.utils import init_optimizer
 from slbd.common.typing import ServerModelFitIns, ServerModelEvaluateIns, ServerModelFitRes
-from slbd.torch.model_utils import extract_submodel, get_num_layers
+from slbd.torch.model_utils import extract_submodel, get_num_layers, override_optimizer_state
 from slbd.torch.sequential_model import FlexibleSequential
 
 
@@ -136,6 +136,7 @@ class TorchServerModel:
     ):
 
         idx = 0
+        integrated_parameters = []
         for layer_idx in received_layers:
             server_layer_idx = layer_idx - self.first_server_layer
             s_weight = server_model_weights[layer_idx]
@@ -143,7 +144,7 @@ class TorchServerModel:
             tot_dp = s_weight + c_weight
             s_weight, c_weight = s_weight / tot_dp, c_weight / tot_dp
 
-            for server_param in self._model[server_layer_idx].state_dict().values():
+            for server_param in self._model[server_layer_idx].parameters():
                 client_param = parameters[idx]
                 assert client_param.shape == server_param.shape
                 # TODO: aggregate weights that are of type LONG
@@ -157,6 +158,8 @@ class TorchServerModel:
                     .add_(
                         torch.from_numpy(client_param).to(server_param.device) * c_weight
                     )
+                integrated_parameters.append(server_param)
+
                 # since we "override" the weight, we reset the optimizer state for the considered parameter
                 self._optimizer.state[server_param] = {}
                 idx += 1
@@ -165,69 +168,11 @@ class TorchServerModel:
 
         # Restore optimizer states if provided -- should only be used when clients are paired
         # with a dedicated classificaiton head
-        # if optimizer_states is not None:
-        #     # TODO: does it even make sense to consider this???
-        #     self._restore_optimizer_states_for_params(updated_params, optimizer_states)
+        if optimizer_states:
+            override_optimizer_state(self._optimizer, optimizer_states, integrated_parameters)
 
     def get_current_layer_data_points(self, layer_idx):
         return self._per_layer_data_points[layer_idx]
 
     def increase_per_layer_counter(self, idx, increase):
         self._per_layer_data_points[idx] += increase
-
-    def _restore_optimizer_states_for_params(self, parameters, optimizer_states_list):
-        """
-        Restore optimizer states for the given parameters from a flattened list of states.
-
-        Args:
-            parameters: The parameters to restore states for (should be in consistent order)
-            optimizer_states_list: Flattened list of optimizer state tensors from client
-        """
-        if not optimizer_states_list:
-            return
-
-        state_idx = 0
-        # Ensure consistent ordering of parameters
-        param_list = list(parameters) if not isinstance(parameters, list) else parameters
-
-        for param in param_list:
-            if state_idx >= len(optimizer_states_list):
-                break
-
-            # Initialize optimizer state for this parameter if it doesn't exist
-            if param not in self._optimizer.state:
-                self._optimizer.state[param] = {}
-
-            state = self._optimizer.state[param]
-
-            # Restore states in the same order they were extracted
-            if isinstance(self._optimizer, torch.optim.SGD):
-                # Only momentum_buffer for SGD
-                if state_idx < len(optimizer_states_list):
-                    momentum_tensor = torch.from_numpy(optimizer_states_list[state_idx])
-                    if momentum_tensor.shape != param.shape:
-                        # Skip this mismatched state
-                        state_idx += 1
-                        continue
-                    # Only set momentum_buffer if it's not all zeros (wasn't a placeholder)
-                    if not np.allclose(momentum_tensor.numpy(), 0):
-                        state['momentum_buffer'] = momentum_tensor.to(param.device)
-                        assert momentum_tensor.shape == param.shape
-                    state_idx += 1
-            elif isinstance(self._optimizer, torch.optim.Adam):
-                # Adam: step (scalar), exp_avg, exp_avg_sq in that order
-                if state_idx < len(optimizer_states_list):
-                    step_val = int(optimizer_states_list[state_idx][0])
-                    if step_val > 0:  # Only set if not a placeholder
-                        state['step'] = step_val
-                    state_idx += 1
-                if state_idx < len(optimizer_states_list):
-                    exp_avg_tensor = torch.from_numpy(optimizer_states_list[state_idx])
-                    if not np.allclose(exp_avg_tensor.numpy(), 0):  # Only set if not a placeholder
-                        state['exp_avg'] = exp_avg_tensor.to(param.device)
-                    state_idx += 1
-                if state_idx < len(optimizer_states_list):
-                    exp_avg_sq_tensor = torch.from_numpy(optimizer_states_list[state_idx])
-                    if not np.allclose(exp_avg_sq_tensor.numpy(), 0):  # Only set if not a placeholder
-                        state['exp_avg_sq'] = exp_avg_sq_tensor.to(param.device)
-                    state_idx += 1

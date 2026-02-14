@@ -28,6 +28,7 @@ from slbd.common.constants import (
     CLIENT_NUM_RECEIVED_LAYERS,
     CLIENT_DATASET_SIZE,
     CLIENT_DEVICE_TYPE,
+    SL_LOCAL_COMPUTATION_TIME,
 )
 
 
@@ -147,7 +148,6 @@ class SLExecutor:
 
             model_trainer = ModelTrainer(
                 whole_model=self.whole_model,
-                num_training_layers=last_client_layer_idx,
                 num_received_layers=num_received_layers,
                 init_parameters=parameters_to_ndarrays(ins.parameters),
                 server_model_proxy=server_model_proxy,
@@ -219,8 +219,7 @@ class SLExecutor:
                     continue
 
                 payload = torch_to_numpy(payload)
-                del payload["local_computation_time"]
-                del payload["tot_local_time"]
+                del payload[SL_LOCAL_COMPUTATION_TIME]
 
                 data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=None)
                 future = self._worker_manager \
@@ -233,14 +232,14 @@ class SLExecutor:
                 trainer = entry["trainer"]
                 backward_data: BatchDataBackward = await future
                 gradient = backward_data.data
-                num_layers_diff = backward_data.layers_diff
-                assert isinstance(gradient, np.ndarray)
-                gradient = torch.from_numpy(gradient)
-                layer_change_info = LayerChangeInfo(
-                    layers_diff=num_layers_diff,
-                    additional_layers_parameters=backward_data.additional_layers_parameters,
-                    additional_optimizer_states=backward_data.additional_optimizer_states
-                )
+
+                layer_change_info = None
+                if backward_data.layers_diff != 0:
+                    layer_change_info = LayerChangeInfo(
+                        layers_diff=backward_data.layers_diff,
+                        additional_layers_parameters=backward_data.additional_layers_parameters,
+                        additional_optimizer_states=backward_data.additional_optimizer_states
+                    )
                 trainer.backward_pass(
                     gradient=gradient,
                     control=layer_change_info,
@@ -275,4 +274,5 @@ class SLExecutor:
 
         self.init_epoch(client_instructions)
         results = self.event_loop.run_until_complete(self.run())
+        torch.cuda.empty_cache()
         return results

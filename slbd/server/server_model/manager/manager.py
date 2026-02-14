@@ -46,11 +46,6 @@ class ServerModelManager(ABC):
         """Get the initial weights of the global model"""
 
     @abstractmethod
-    def extract_layer_weights(self, layer_from, layer_to):
-        # returns a copy of the model weights
-        ""
-
-    @abstractmethod
     def shutdown(self):
         """Nicely stop all the resources
         """

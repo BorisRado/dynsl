@@ -65,7 +65,7 @@ def _recv_exactly(sock: socket.socket, n: int) -> bytes:
     while received < n:
         chunk = sock.recv(n - received)
         if not chunk:
-            return bytes()
+            return bytes(), None
         view[received:received+len(chunk)] = chunk
         received += len(chunk)
     rx_time = time.perf_counter() - message_start_time

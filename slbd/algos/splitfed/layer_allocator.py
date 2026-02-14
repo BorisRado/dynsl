@@ -76,7 +76,6 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         if metrics is None or metrics.client_local_computation_time < 0:
             return
         assert metrics.throughput_Mbps > 0
-        print(metrics.throughput_Mbps)
         self._client_throughputs[client_id] += metrics.throughput_Mbps
         self._client_processed_batches[client_id] += 1
 

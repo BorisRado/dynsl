@@ -24,6 +24,8 @@ def load_cv_testset(dataset_config):
     apply_test_transforms = partial(_apply_transforms_fn, transforms=test_transforms)
 
     dataset = dataset.with_transform(apply_test_transforms)
+    if "image" in dataset.column_names:
+        dataset = dataset.rename_column("image", "img")
     dataset = dataset.select_columns(["img", "label"])
     dataset._dataset_type = "cv"
     return dataset

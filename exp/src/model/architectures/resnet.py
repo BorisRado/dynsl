@@ -21,18 +21,21 @@ def replace_bn_with_gn(module, num_groups=2):
 
 
 class ResNet(FlexibleSequential):
-    def __init__(self, num_classes, base_cls, use_groupnorm):
+    def __init__(self, num_classes, base_cls, use_groupnorm, num_groups, use_maxpool):
         model = base_cls(weights=None, num_classes=num_classes)
         # replace the first conv layers, otherwise the resolution is reduced too much
         # same as in https://github.com/kuangliu/pytorch-cifar/blob/master/models/resnet.py
         model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         if use_groupnorm:
-            replace_bn_with_gn(model, num_groups=2) # 2 groups as in adaptive federated optimization
+            assert num_groups > 1
+            replace_bn_with_gn(model, num_groups=num_groups) # 2 groups in adaptive federated optimization
+        else:
+            assert num_groups == -1
         super().__init__(
             model.conv1,
             model.bn1,
             nn.ReLU(), # replace the default relu as it is inplace
-            model.maxpool,
+            model.maxpool if use_maxpool else nn.Identity(),
             model.layer1,
             model.layer2,
             model.layer3,
@@ -46,18 +49,18 @@ class ResNet(FlexibleSequential):
 
 
 class ResNet18(ResNet):
-    def __init__(self, num_classes, use_groupnorm):
-        super().__init__(num_classes, models.resnet18, use_groupnorm)
+    def __init__(self, **kwargs):
+        super().__init__(base_cls=models.resnet18, **kwargs)
 
 
 class ResNet34(ResNet):
-    def __init__(self, num_classes, use_groupnorm):
-        super().__init__(num_classes, models.resnet34, use_groupnorm)
+    def __init__(self, **kwargs):
+        super().__init__(base_cls=models.resnet34, **kwargs)
 
 
 class ResNet50(ResNet):
-    def __init__(self, num_classes, use_groupnorm):
-        super().__init__(num_classes, models.resnet50, use_groupnorm)
+    def __init__(self, **kwargs):
+        super().__init__(base_cls=models.resnet50, **kwargs)
 
 
 if __name__ == "__main__":

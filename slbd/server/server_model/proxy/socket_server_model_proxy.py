@@ -1,14 +1,14 @@
-import time
-import pickle
 import socket
 from logging import DEBUG
 from typing import Optional
 
 from flwr.common import log
 
-from slbd.common import LayerChangeInfo, bytes_to_torch, torch_to_bytes
+from slbd.common import LayerChangeInfo, bytes_to_ndarray_dict, ndarray_dict_to_bytes
+from slbd.common.constants import SL_EMBEDDINGS, SL_LABELS, SL_WEIGHTS, SL_OPTIM_STATES, SL_LOCAL_COMPUTATION_TIME, SL_GRAD
 from slbd.common.socket_utils import send_message, recv_message
 from slbd.server.server_model.proxy.server_model_proxy import ServerModelProxy
+from slbd.common.constants import SL_DOWNLINK_THROUGHPUT
 
 
 class SocketServerModelProxy(ServerModelProxy):
@@ -40,12 +40,8 @@ class SocketServerModelProxy(ServerModelProxy):
 
     def __call__(
         self,
-        embeddings,
-        labels,
-        local_computation_time,
-        client_model_weights,
-        removed_optimizer_states,
-        training=True
+        training=True,
+        **kwargs,
     ):
         """Send data to server and receive gradient.
 
@@ -61,20 +57,22 @@ class SocketServerModelProxy(ServerModelProxy):
             Tuple of (gradient, layer_change_info, training_loss)
         """
         # Serialize data
-        batch_data = torch_to_bytes(
-            embeddings=embeddings,
-            labels=labels,
-            client_model_weights=client_model_weights,
-            removed_optimizer_states=removed_optimizer_states,
-        )
+        batch_data = {
+            SL_EMBEDDINGS: kwargs[SL_EMBEDDINGS],
+            SL_LABELS: kwargs[SL_LABELS],
+        }
+        if kwargs[SL_WEIGHTS]:
+            batch_data[SL_WEIGHTS] = kwargs[SL_WEIGHTS]
+            if kwargs[SL_OPTIM_STATES]:
+                batch_data[SL_OPTIM_STATES] = kwargs[SL_OPTIM_STATES]
 
         # Prepare message
         message = {
             "type": "forward",
-            "data": batch_data,
+            "data": ndarray_dict_to_bytes(**batch_data),
             "training": training,
-            "local_computation_time": local_computation_time,
-            "downlink_throughput": self.downlink_throughput
+            SL_DOWNLINK_THROUGHPUT: self.downlink_throughput,
+            SL_LOCAL_COMPUTATION_TIME: kwargs[SL_LOCAL_COMPUTATION_TIME],
         }
 
         # Send and receive
@@ -83,16 +81,16 @@ class SocketServerModelProxy(ServerModelProxy):
 
         # Parse response
         num_layers_diff = response["layers_diff"]
-        gradient_data = bytes_to_torch(response["data"])
-        gradient = gradient_data["grad"]
-        additional_optimizer_states = gradient_data.get("optim_states", None)
+        backward_data = bytes_to_ndarray_dict(**response["data"])
+        gradient = backward_data[SL_GRAD]
 
-        layer_change_info = LayerChangeInfo(
-            layers_diff=num_layers_diff,
-            additional_layers_parameters=None if num_layers_diff <= 0
-                else bytes_to_torch({"": response["additional_layers_parameters"]}),
-            additional_optimizer_states=additional_optimizer_states,
-        )
+        layer_change_info = None
+        if num_layers_diff != 0:
+            layer_change_info = LayerChangeInfo(
+                layers_diff=num_layers_diff,
+                additional_layers_parameters=backward_data.get(SL_WEIGHTS, None),
+                additional_optimizer_states=backward_data.get(SL_OPTIM_STATES, None),
+            )
 
         return gradient, layer_change_info, response["training_loss"]
 

@@ -20,7 +20,7 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS
 )
 from slbd.common.profiling import measure_per_layer_complexity
-from slbd.common import BatchDataForward, BatchDataBackward, TimingMetrics
+from slbd.common import BatchDataForward, BatchDataBackward, ServerModelFitIns, SocketTimingMetrics
 from slbd.server.batching_worker_manager import BatchingWorkerManager
 from slbd.torch.sequential_model import FlexibleSequential
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
@@ -30,9 +30,7 @@ from slbd.algos.fedavg import FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedClientLayerAllocator
 from slbd.algos.oracle import OracleClientLayerAllocator
 from slbd.torch.sequential_model import FlexibleSequential
-
-from slbd.common import ServerModelFitIns
-from slbd.torch.model_utils import get_model_layer_keys, remove_layers_from_model
+from slbd.torch.model_utils import get_model_layer_keys
 
 
 
@@ -83,11 +81,10 @@ class SimulationClient:
             batch = BatchDataForward(
                 data=current_data,
                 is_training=True,
-                client_timing_metrics=TimingMetrics(
+                client_timing_metrics=SocketTimingMetrics(
                     client_local_computation_time=local_computation_time,
-                    client_tot_local_time=local_computation_time,
-                    client_round_time=local_computation_time+1e-10, # this way the throughput measured on the server will be very high
-                    response_length=1e8, # dummy value, not really important -> network is super fast either way
+                    uplink_throughput_Mbps=1000.,
+                    downlink_throughput_Mbps=1000.,
                 ),
             )
             _ = current_data.pop("client_model_weights", None)

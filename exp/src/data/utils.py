@@ -1,5 +1,3 @@
-import os
-
 import torch
 from torch.utils.data import DataLoader
 from transformers import DataCollatorWithPadding
@@ -23,3 +21,10 @@ def get_dataloader(dataset, batch_size, shuffle=True):
         persistent_workers=True,
         **kwargs
     )
+
+
+class ToRgb(torch.nn.Module):
+    def forward(self, img):
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        return img

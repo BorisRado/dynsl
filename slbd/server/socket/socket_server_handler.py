@@ -11,6 +11,7 @@ from flwr.common import log
 from hydra.utils import instantiate
 
 from slbd.common import BatchDataForward, BatchDataBackward, SocketTimingMetrics
+from slbd.common.constants import SL_LOCAL_COMPUTATION_TIME, SL_DOWNLINK_THROUGHPUT, SL_OPTIM_STATES, SL_WEIGHTS, SL_GRAD
 from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, ndarray_list_to_bytes
 from slbd.common.socket_utils import send_message, recv_message
 from slbd.server.batching_worker_manager import BatchingWorkerManager
@@ -93,13 +94,13 @@ class SocketServerHandler:
                 if message["type"] == "forward":
 
                     # Parse incoming data
-                    batch_data = bytes_to_ndarray_dict(message["data"])
+                    batch_data = bytes_to_ndarray_dict(**message["data"])
 
                     # Create timing metrics
                     timing_metrics = SocketTimingMetrics(
-                        client_local_computation_time=message["local_computation_time"],
+                        client_local_computation_time=message[SL_LOCAL_COMPUTATION_TIME],
                         uplink_throughput_Mbps=uplink_throughput,
-                        downlink_throughput_Mbps=message["downlink_throughput"],
+                        downlink_throughput_Mbps=message[SL_DOWNLINK_THROUGHPUT],
                     )
 
                     # Create forward data
@@ -127,9 +128,6 @@ class SocketServerHandler:
 
             log(INFO, f"[Server Profiling] SocketClient client_id={client_id} total_time={time.perf_counter()-stream_start:.4f}s -- [device type: {extra_info}]")
 
-            if hasattr(self.client_layer_allocator, "remove_client"):
-                self.client_layer_allocator.remove_client(client_id)
-
             client_socket.close()
 
     def _to_socket_response(self, data: BatchDataBackward) -> dict:
@@ -141,20 +139,19 @@ class SocketServerHandler:
         Returns:
             Dictionary ready to be serialized and sent
         """
-        layer_params = None
+        backward_data = {
+            SL_GRAD: data.data,
+        }
         if data.additional_layers_parameters is not None:
-            layer_params = ndarray_list_to_bytes(data.additional_layers_parameters)
-
-        send_data = {"grad": data.data}
-        if data.additional_optimizer_states:
-            assert len(data.additional_optimizer_states) > 0
-            send_data["optim_states"] = ndarray_list_to_bytes(data.additional_optimizer_states)
+            backward_data[SL_WEIGHTS] = data.additional_layers_parameters
+            if data.additional_optimizer_states:
+                assert len(data.additional_optimizer_states) > 0
+                backward_data[SL_OPTIM_STATES] = data.additional_optimizer_states
 
         return {
             "type": "backward",
-            "data": ndarray_dict_to_bytes(send_data),
+            "data": ndarray_dict_to_bytes(**backward_data),
             "layers_diff": data.layers_diff,
-            "additional_layers_parameters": layer_params,
             "training_loss": data.training_loss,
         }
 
@@ -187,7 +184,7 @@ async def start_socket_server(
             client_socket, client_address = await loop.sock_accept(server_socket)
             # Make client socket blocking for synchronous recv/send operations
             client_socket.setblocking(True)
-            print(f"received connection from {client_address}")
+            print(f"Received connection from {client_address}")
             # Handle each client in a separate task
             asyncio.create_task(handler.handle_client(client_socket, client_address))
     finally:

@@ -31,7 +31,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         self._afl_coord_data = {}
 
     async def marshall_train_request(self, model_id,  embeddings, labels, num_offloaded_layers):
-        embeddings, labels, control = self._concat_and_shuffle_data(embeddings, labels)
+        embeddings, labels, control = self._concat_data(embeddings, labels)
         if isinstance(embeddings, tuple):
             embeddings = tuple(e.to(self.device, non_blocking=True) for e in embeddings)
         else:
@@ -42,7 +42,7 @@ class MultithreadingServerModelManager(BaseServerModelManager):
             gradient, loss = self.spanned_server_models[model_id].train_and_compute_gradient(
                 embeddings, labels, num_offloaded_layers
             )
-        return self._split_and_unshuffle_data(loss, gradient, control)
+        return self._split_data(loss, gradient, control)
 
     def marshall_evaluation_request(self, model_id, embeddings, num_offloaded_layers):
         raise Exception("")
@@ -126,27 +126,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
     def get_global_model_params(self):
         return copy.deepcopy(self.base_model.state_dict())
 
-    async def extract_layer_weights(
-        self,
-        layer_from: int,
-        layer_to: int,
-        server_id: str,
-        cid: str
-    ) -> List[np.ndarray]:
-        # returns a copy of the model weights
-        model = self.spanned_server_models[server_id]
-        shift = model.first_server_layer
-        if cid not in self._afl_coord_data:
-            self._afl_coord_data[cid] = {}
-
-        async with self._model_locks[server_id]:
-            for idx in range(layer_from, layer_to):
-                self._afl_coord_data[cid][idx] = model._per_layer_data_points[idx]
-            params = extract_submodel_weights(
-                model.get_model(), layer_from-shift, layer_to-shift
-            )
-        return params
-
     async def extract_layer_weights_and_optimizer_states(
         self,
         layer_from: int,
@@ -171,54 +150,11 @@ class MultithreadingServerModelManager(BaseServerModelManager):
                 self._afl_coord_data[cid][idx] = model._per_layer_data_points[idx]
 
             # Extract parameters
-            params = extract_submodel_weights(
-                model.get_model(), layer_from-shift, layer_to-shift
+            params, optimizer_states = extract_submodel_weights(
+                model.get_model(), layer_from-shift, layer_to-shift, model._optimizer, extract_optimizer_states
             )
 
-            # Extract optimizer states if requested
-            optimizer_states = None
-            if extract_optimizer_states:
-                optimizer_states = self._extract_optimizer_states_for_layers(
-                    model, layer_from, layer_to
-                )
-
         return params, optimizer_states
-
-    def _extract_optimizer_states_for_layers(
-        self,
-        model: TorchServerModel,
-        layer_from: int,
-        layer_to: int
-    ) -> List[np.ndarray]:
-        """
-        Extract optimizer states for specific layers.
-        """
-        optimizer_states = []
-
-        # Get parameters for the specified layer range
-        layer_params = []
-        for layer_idx in range(layer_from - model.first_server_layer, layer_to - model.first_server_layer):
-            layer = list(model.get_model().children())[layer_idx]
-            layer_params.extend(layer.parameters())
-
-        # Extract optimizer states for these parameters
-        for param in layer_params:
-            if param in model._optimizer.state:
-                state = model._optimizer.state[param]
-
-                # Extract state tensors based on optimizer type
-                if isinstance(model._optimizer, torch.optim.SGD):
-                    if 'momentum_buffer' in state:
-                        optimizer_states.append(state['momentum_buffer'].detach().cpu().numpy())
-                elif isinstance(model._optimizer, torch.optim.Adam):
-                    if 'step' in state:
-                        optimizer_states.append(np.array([state['step']]))
-                    if 'exp_avg' in state:
-                        optimizer_states.append(state['exp_avg'].detach().cpu().numpy())
-                    if 'exp_avg_sq' in state:
-                        optimizer_states.append(state['exp_avg_sq'].detach().cpu().numpy())
-
-        return optimizer_states
 
     def get_num_server_models(self):
         assert len(self.spanned_server_models) == len(self._model_locks)

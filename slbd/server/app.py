@@ -109,10 +109,6 @@ def init_dynsl_v2_components(config, model):
         dry_runs=5,
         disable_cuda=True
     )
-    layer_complexities = {
-        k: (layer_complexities_cpu[k] + layer_complexities_cuda[k]) / 2
-        for k in layer_complexities_cpu
-    }
     del tmp_optimizer
     if layer_allocator_config["max_client_layers"] < 0 or layer_allocator_config["max_client_layers"] > model.meaningful_split_points[-1]:
         layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
@@ -127,7 +123,7 @@ def init_dynsl_v2_components(config, model):
         per_layer_emb_sizes=tensor_sizes,
         per_layer_parameters=per_layer_parameters,
         **layer_allocator_config,
-        modeled_layer_complexities=layer_complexities,
+        modeled_layer_complexities=layer_complexities_cpu,
         static_server_computational_times=layer_complexities_cuda,
     )
 

@@ -40,7 +40,13 @@ def extract_submodel(model: FlexibleSequential, start_idx: int, end_idx: int) ->
     return submodel
 
 
-def extract_submodel_weights(model: FlexibleSequential, start_idx: int, end_idx: int) -> List[np.ndarray]:
+def extract_submodel_weights(
+    model: FlexibleSequential,
+    start_idx: int,
+    end_idx: int,
+    optimizer,
+    extract_optimizer_states: bool,
+) -> List[np.ndarray]:
     """
     Extract weights from a submodel defined by layer indices.
 
@@ -56,7 +62,18 @@ def extract_submodel_weights(model: FlexibleSequential, start_idx: int, end_idx:
         end_idx = get_num_layers(model)
     layers_to_copy = list(model.children())[start_idx:end_idx]
 
-    return [tensor.detach().cpu().numpy() for layer in layers_to_copy for tensor in layer.state_dict().values()]
+    weights = [tensor for layer in layers_to_copy for tensor in layer.parameters()]
+    optimizer_states = []
+    if extract_optimizer_states:
+        for w in weights:
+            if w not in optimizer.state:
+                assert False
+                continue
+            optimizer_states.append({
+                k: v.detach().cpu().numpy() for k, v in optimizer.state[w].items()
+            })
+    weights = [w.detach().cpu().numpy() for w in weights]
+    return weights, optimizer_states
 
 
 def extract_submodel_state_dict(model: FlexibleSequential, start_idx: int, end_idx: int) -> List[torch.Tensor]:
@@ -128,11 +145,11 @@ def get_num_layers(model):
 
 
 def param_list_to_state_dict(
-    param_list: List[torch.Tensor],
+    param_list: List[np.ndarray],
     model: FlexibleSequential
 ):
     return OrderedDict([
-        (key, param) for param, key in zip(param_list, model.state_dict().keys())
+        (key, torch.from_numpy(param)) for param, key in zip(param_list, model.state_dict().keys())
     ])
 
 
@@ -140,74 +157,19 @@ def remove_layers_from_model(
     model: nn.Sequential,
     optimizer: torch.optim.Optimizer,
     remove_from: int,
-    extract_optimizer_states: bool = False
 ) -> Tuple[FlexibleSequential, List[torch.Tensor], Optional[List[torch.Tensor]]]:
     # Remove layers from the model
     layers_to_keep = list(model.children())[:remove_from]
     layers_to_remove = list(model.children())[remove_from:]
-    removed_parameters = [
-        tensor.detach() for layer in layers_to_remove
-        for tensor in layer.state_dict().values()
-    ]
     model = FlexibleSequential(*layers_to_keep)
 
-    # 1. Get the parameter IDs that the new model keeps
-    remove_parameters = {p for l in layers_to_remove for p in l.parameters()}
-
-    # 2. Extract optimizer states for removed parameters if requested
-    removed_optimizer_states = None
-    if extract_optimizer_states:
-        removed_optimizer_states = []
-        # Get parameters in a consistent order (layers order)
-        ordered_remove_parameters = []
-        for layer in layers_to_remove:
-            ordered_remove_parameters.extend(list(layer.parameters()))
-
-        for p in ordered_remove_parameters:
+    # Remove optimizer state for parameters that are no longer used
+    for l in layers_to_remove:
+        for p in l.parameters():
             if p in optimizer.state:
-                # Extract optimizer state for this parameter
-                state = optimizer.state[p]
+                del optimizer.state[p]
 
-                # Extract states in a consistent order based on optimizer type
-                if isinstance(optimizer, torch.optim.SGD):
-                    if 'momentum_buffer' in state:
-                        removed_optimizer_states.append(state['momentum_buffer'].detach().cpu().numpy())
-                    else:
-                        # Add a placeholder if no momentum buffer exists
-                        removed_optimizer_states.append(np.zeros_like(p.detach().cpu().numpy()))
-                elif isinstance(optimizer, torch.optim.Adam):
-                    if 'step' in state:
-                        removed_optimizer_states.append(np.array([state['step']]))
-                    else:
-                        removed_optimizer_states.append(np.array([0]))
-
-                    if 'exp_avg' in state:
-                        removed_optimizer_states.append(state['exp_avg'].detach().cpu().numpy())
-                    else:
-                        removed_optimizer_states.append(np.zeros_like(p.detach().cpu().numpy()))
-
-                    if 'exp_avg_sq' in state:
-                        removed_optimizer_states.append(state['exp_avg_sq'].detach().cpu().numpy())
-                    else:
-                        removed_optimizer_states.append(np.zeros_like(p.detach().cpu().numpy()))
-            else:
-                # Parameter has no optimizer state, add placeholders
-                if isinstance(optimizer, torch.optim.SGD):
-                    removed_optimizer_states.append(np.zeros_like(p.detach().cpu().numpy()))
-                elif isinstance(optimizer, torch.optim.Adam):
-                    removed_optimizer_states.append(np.array([0]))  # step
-                    removed_optimizer_states.append(np.zeros_like(p.detach().cpu().numpy()))  # exp_avg
-                    removed_optimizer_states.append(np.zeros_like(p.detach().cpu().numpy()))  # exp_avg_sq
-
-    # 3. Remove optimizer state for parameters that are no longer used
-    for p in remove_parameters:
-        if p in optimizer.state:
-            del optimizer.state[p]
-    # 4. Filter parameter groups as well
-    for group in optimizer.param_groups:
-        group['params'] = [p for p in group['params'] if p not in remove_parameters]
-
-    return model, removed_parameters, removed_optimizer_states
+    return model
 
 
 def concat_sequential_models(
@@ -225,7 +187,14 @@ def concat_sequential_models(
     return FlexibleSequential(*combined_layers)
 
 
-def attach_layers(whole_model, current_model, num_new_layers, params_list, optimizer, optimizer_states_list=None):
+def attach_layers(
+    whole_model,
+    current_model,
+    num_new_layers,
+    params_list: List[np.ndarray],
+    optimizer,
+    optimizer_states_list: Optional[List[np.ndarray]]=None
+):
     # Get the device where current_model is located
     device = next(current_model.parameters()).device
 
@@ -242,11 +211,16 @@ def attach_layers(whole_model, current_model, num_new_layers, params_list, optim
     concat_model = concat_sequential_models(current_model, attach_model, optimizer)
 
     # Restore optimizer states for the new parameters if provided
-    if optimizer_states_list is not None:
-        _restore_optimizer_states(optimizer, attach_model.parameters(), optimizer_states_list)
-
+    if optimizer_states_list:
+        override_optimizer_state(optimizer, optimizer_states_list, list(attach_model.parameters()))
     concat_model._is_complete = end_idx == get_num_layers(whole_model)
     return concat_model
+
+
+def override_optimizer_state(optimizer, optimizer_state_list, parameters):
+    assert len(parameters) == len(optimizer_state_list)
+    for param, state in zip(parameters, optimizer_state_list):
+        optimizer.state[param] = {k: torch.from_numpy(v).to(param.device) for k, v in state.items()}
 
 
 def get_state_dict_keys_between_limits(model, start_idx, end_idx):
@@ -258,60 +232,6 @@ def get_state_dict_keys_between_limits(model, start_idx, end_idx):
 
 def get_layer_idx(name):
     return int(name.split(".")[0])
-
-
-def _restore_optimizer_states(optimizer, parameters, optimizer_states_list):
-    """
-    Restore optimizer states for the given parameters from a flattened list of states.
-
-    Args:
-        optimizer: The optimizer to restore states for
-        parameters: The parameters to restore states for (should be in layer order)
-        optimizer_states_list: Flattened list of optimizer state tensors in consistent order
-    """
-    if not optimizer_states_list:
-        return
-
-    state_idx = 0
-    # Convert parameters to list to ensure consistent ordering
-    param_list = list(parameters) if not isinstance(parameters, list) else parameters
-
-    for param in param_list:
-        if state_idx >= len(optimizer_states_list):
-            break
-
-        # Initialize optimizer state for this parameter if it doesn't exist
-        if param not in optimizer.state:
-            optimizer.state[param] = {}
-
-        state = optimizer.state[param]
-
-        # Restore states in the same order they were extracted
-        if isinstance(optimizer, torch.optim.SGD):
-            # Only momentum_buffer for SGD
-            if state_idx < len(optimizer_states_list):
-                momentum_tensor = torch.from_numpy(optimizer_states_list[state_idx])
-                # Only set momentum_buffer if it's not all zeros (wasn't a placeholder)
-                if not np.allclose(momentum_tensor.numpy(), 0):
-                    state['momentum_buffer'] = momentum_tensor.to(param.device)
-                state_idx += 1
-        elif isinstance(optimizer, torch.optim.Adam):
-            # Adam: step (scalar), exp_avg, exp_avg_sq in that order
-            if state_idx < len(optimizer_states_list):
-                step_val = int(optimizer_states_list[state_idx][0])
-                if step_val > 0:  # Only set if not a placeholder
-                    state['step'] = step_val
-                state_idx += 1
-            if state_idx < len(optimizer_states_list):
-                exp_avg_tensor = torch.from_numpy(optimizer_states_list[state_idx])
-                if not np.allclose(exp_avg_tensor.numpy(), 0):  # Only set if not a placeholder
-                    state['exp_avg'] = exp_avg_tensor.to(param.device)
-                state_idx += 1
-            if state_idx < len(optimizer_states_list):
-                exp_avg_sq_tensor = torch.from_numpy(optimizer_states_list[state_idx])
-                if not np.allclose(exp_avg_sq_tensor.numpy(), 0):  # Only set if not a placeholder
-                    state['exp_avg_sq'] = exp_avg_sq_tensor.to(param.device)
-                state_idx += 1
 
 
 if __name__ == "__main__":

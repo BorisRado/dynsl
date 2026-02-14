@@ -20,7 +20,7 @@ from flwr.server.client_proxy import ClientProxy
 
 import torch
 
-from slbd.common.constants import CLIENT_LAST_LAYER_IDX_KEY
+from slbd.common.constants import CLIENT_NUM_RECEIVED_LAYERS
 from slbd.common import (
     ServerModelEvaluateIns,
     ServerModelFitIns,
@@ -124,7 +124,7 @@ class BaseStrategy(Strategy):
                 for layer_idx in range(client_split_layer)
                 for key in get_model_layer_keys(self.model)[layer_idx]
             ])
-            client_config[CLIENT_LAST_LAYER_IDX_KEY] = client_split_layer
+            client_config[CLIENT_NUM_RECEIVED_LAYERS] = client_split_layer
             client_fit_ins = client_ins_cls(client_parameters, client_config)
             all_clients_fit_ins.append((client, client_fit_ins))
         return all_clients_fit_ins

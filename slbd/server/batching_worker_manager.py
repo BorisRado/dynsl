@@ -11,6 +11,7 @@ from slbd.common import BatchDataBackward, BatchDataForward
 from slbd.common.utils import measure_time
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.server.server_model.manager import ServerModelManager
+from slbd.common.constants import SL_OPTIM_STATES, SL_WEIGHTS
 
 
 class BatchingWorkerManager:
@@ -143,8 +144,8 @@ class BatchingWorkerManager:
     async def _run_computation(self, kwargs_list, client_ids, num_offloaded_layers, server_id):
 
         for cid, client_kwargs in zip(client_ids, kwargs_list):
-            client_parameters = client_kwargs.pop("client_model_weights", None)
-            client_optimizer_states = client_kwargs.pop("removed_optimizer_states", None)
+            client_parameters = client_kwargs.pop(SL_WEIGHTS, None)
+            client_optimizer_states = client_kwargs.pop(SL_OPTIM_STATES, None)
             if client_parameters:
                 log(INFO, "Server has received client parameters. Integrating them...")
                 await self.server_model_manager \
@@ -177,23 +178,20 @@ class BatchingWorkerManager:
         self.client_layer_allocator.update_server_metrics(num_offloaded_layers, timer.elapsed)
 
         results = []
-        for result_item, client_id, received_data in zip(grad_results, client_ids, kwargs_list):
-            gradient, training_loss = result_item
+        for (gradient, training_loss), client_id, received_data in zip(grad_results, client_ids, kwargs_list):
             if self.sending_transform_fn is not None:
                 gradient = self.sending_transform_fn(gradient, received_data=received_data)
-            if isinstance(gradient, torch.Tensor):
-                gradient = gradient.numpy()
-            else:
-                gradient = [g.numpy() for g in gradient]
 
             diff_data = self.client_layer_allocator.get_post_reallocation_layer_difference(client_id)
 
-            num_layers_diff, params, optimizer_states = 0, [], []
+            num_layers_diff, params, optimizer_states = 0, None, None
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
-                log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
-                    client_id, num_layers_diff)
-                if num_layers_diff > 0 and self._dynamic_layers_strategy == "afl":
+                # log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
+                #     client_id, num_layers_diff)
+                assert self._dynamic_layers_strategy == "afl"
+
+                if num_layers_diff > 0:
                     params, optimizer_states = await self.server_model_manager \
                         .extract_layer_weights_and_optimizer_states(
                             previous, previous+num_layers_diff, server_id, client_id,
