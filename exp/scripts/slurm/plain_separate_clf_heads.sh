@@ -7,7 +7,9 @@
 #SBATCH --mem-per-cpu=4GB
 #SBATCH --gpus-per-task=1
 #SBATCH --out=exp/logs/simulations_separate_heads.log
+#SBATCH --constraint=gpu_v100|gpu_a100
 
+srun true # NECESSARY TO AVOID SLURM ISSUES!!!!
 
 export HYDRA_FULL_ERROR=1
 export HF_DATASETS_CACHE="/mnt/scratch/radovib"
@@ -44,6 +46,7 @@ COMMON_ARGS=(
 
     # dataset configuration
     data=$dataset
+    data.load_onto_memory=true
     partitioning.num_partitions=$NUM_CLIENTS
 
     # client configuration
@@ -70,7 +73,7 @@ COMMON_ARGS=(
 run_bg python exp/scripts/py/simulate_fl.py algorithm=fedavg "${COMMON_ARGS[@]}"
 
 
-# SplitFedV2
+# SplitFedV1
 for split_point in 6; do # just do one as an example
     run_bg python exp/scripts/py/simulate_sl.py algorithm=splitfed_v1 \
         "${COMMON_ARGS[@]}" \

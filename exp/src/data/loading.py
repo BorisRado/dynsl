@@ -1,5 +1,8 @@
 from functools import partial
 
+import torch
+from torch.utils.data import TensorDataset
+from torch.utils.data import DataLoader
 from datasets import load_dataset
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
@@ -28,10 +31,29 @@ def load_cv_testset(dataset_config):
         dataset = dataset.rename_column("image", "img")
     dataset = dataset.select_columns(["img", "label"])
     dataset._dataset_type = "cv"
+    dataset._keep_in_memory = False
     return dataset
 
 
-def _load_cv_dataset(client_idxs, dataset_config, partitioning_config, seed):
+def _load_datasets_onto_memory(datasets, batch_size=1024, num_workers=0):
+    # Use DataLoader for faster batch loading
+    tensor_datasets = []
+    for ds in datasets:
+        imgs = []
+        labels = []
+        loader = DataLoader(ds, batch_size=batch_size, num_workers=num_workers, shuffle=False)
+        for batch in loader:
+            assert isinstance(batch["img"], torch.Tensor)
+            assert isinstance(batch["label"], torch.Tensor)
+            imgs.append(batch["img"])
+            labels.append(batch["label"])
+        imgs_tensor = torch.cat(imgs)
+        labels_tensor = torch.cat([torch.tensor(l) if not torch.is_tensor(l) else l for l in labels])
+        tensor_datasets.append(TensorDataset(imgs_tensor, labels_tensor))
+    return tensor_datasets
+
+
+def _load_cv_dataset(client_idxs, dataset_config, partitioning_config, seed, keep_in_memory):
     train_transforms = instantiate(dataset_config.train_transforms)
     partitioner = instantiate(partitioning_config)
 
@@ -42,12 +64,21 @@ def _load_cv_dataset(client_idxs, dataset_config, partitioning_config, seed):
         keep_in_memory=False,
     )
 
+    if keep_in_memory:
+        # Remove RandomHorizontalFlip if present in the Compose transforms
+        train_transforms.transforms = [
+            t for t in train_transforms.transforms
+            if t.__class__.__name__ != "RandomHorizontalFlip"
+        ]
     apply_train_transforms = partial(_apply_transforms_fn, transforms=train_transforms)
     assert isinstance(client_idxs, list)
 
     trainsets = [fds.load_partition(idx) for idx in client_idxs]
     trainsets = [ts.select_columns(["img", "label"]) for ts in trainsets]
     trainsets = [ts.with_transform(apply_train_transforms) for ts in trainsets]
+
+    if keep_in_memory:
+        trainsets = _load_datasets_onto_memory(trainsets)
 
     return trainsets
 
@@ -76,7 +107,7 @@ def _load_nlp_dataset(client_idx, dataset_config, partitioning_config, seed):
     return dataset
 
 
-def load_client_trainset(client_idx, dataset_config, partitioning_config, seed):
+def load_client_trainset(client_idx, dataset_config, partitioning_config, seed, keep_in_memory=False):
     if isinstance(client_idx, int):
         client_idx = [client_idx]
         is_single = True
@@ -84,8 +115,11 @@ def load_client_trainset(client_idx, dataset_config, partitioning_config, seed):
         is_single = False
 
     if dataset_config.type == "cv":
-        dataset = _load_cv_dataset(client_idx, dataset_config, partitioning_config, seed)
+        dataset = _load_cv_dataset(client_idx, dataset_config, partitioning_config, seed, keep_in_memory)
+        for ds in dataset:
+            ds._keep_in_memory = keep_in_memory
     elif dataset_config.type == "nlp":
+        assert not keep_in_memory, "Keep in memory only works for CV datasets"
         dataset = _load_nlp_dataset(client_idx, dataset_config, partitioning_config, seed)
     else:
         raise Exception(f"Unknown dataset type {dataset_config.type}")

@@ -1,6 +1,7 @@
 name: flwrlabs/cinic10
 input_shape: [3, 32, 32]
 num_classes: 10
+load_onto_memory: false # note: the slight changes in loss are due to the RNG not being completely sync if loading data onto memory or not
 type: cv
 train_transforms:
   _target_: torchvision.transforms.Compose

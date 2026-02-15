@@ -2,6 +2,7 @@ name: cifar10
 input_shape: [3, 32, 32]
 num_classes: 10
 type: cv
+load_onto_memory: false # note: the slight changes in loss are due to the RNG not being completely sync if loading data onto memory or not
 train_transforms:
   _target_: torchvision.transforms.Compose
   transforms:

@@ -70,6 +70,7 @@ def run(cfg: DictConfig):
         dataset_config=cfg.data,
         partitioning_config=cfg.partitioning,
         seed=cfg.general.seed,
+        keep_in_memory=cfg.data.load_onto_memory,
     )
     testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=256, shuffle=False)
 
