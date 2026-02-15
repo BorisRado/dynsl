@@ -8,84 +8,47 @@
 #SBATCH --gpus-per-task=1
 #SBATCH --out=exp/logs/simulations_single_head.log
 
-srun true # NECESSARY TO AVOID SLURM ISSUES!!!!
-
-export HYDRA_FULL_ERROR=1
-export HF_DATASETS_CACHE="/mnt/scratch/radovib"
-
-mamba activate slower
-
-
-BATCH_SIZE=32
-NUM_CLIENT_EPOCHS=1
-NUM_CLIENTS=40
-NUM_ROUNDS=250
-OPTIMIZER=adam
-LR_SCHEDULING=constant
-INITIAL_LEARNING_RATE=0.001
-
-# Helper function to run commands asynchronously with srun
-run_bg() {
-    srun -Q -N1 --ntasks=1 "$@" &
-}
+source exp/scripts/slurm/simulation_common.sh
 
 for seed in 4 8 15; do
 for dataset in cifar10; do
 for model in resnet18; do
 
-COMMON_ARGS=(
-    # general configuration
+EXP_ARGS=(
     general.seed=$seed
-    general.rounds=$NUM_ROUNDS
-
-    # model configuration
     model=$model
-    model.num_groups=16
-    model.use_maxpool=false
-
-    # dataset configuration
     data=$dataset
-    partitioning.num_partitions=$NUM_CLIENTS
-    data.load_onto_memory=true
-
-    # client configuration
-    client.init_kwargs.num_epochs=$NUM_CLIENT_EPOCHS
-    client.init_kwargs.batch_size=$BATCH_SIZE
-
-    # optimizer configuration
-    optimizer=$OPTIMIZER
-    optimizer.optimizer.lr=$INITIAL_LEARNING_RATE
-    optimizer/scheduler=$LR_SCHEDULING
-
-    # wandb tracking
-    wandb=true
-    experiment_name=simulation_v2
+    ${COMMON_ARGS[@]}
 )
 
 
 # Oralce
 run_bg python exp/scripts/py/simulate_sl.py algorithm=oracle_simulation     \
-    "${COMMON_ARGS[@]}"                                                     \
+    "${EXP_ARGS[@]}"                                                     \
     algorithm.num_server_models=1
 
 # SplitFedV2
 for split_point in 4 6 8; do # just do one as an example
     run_bg python exp/scripts/py/simulate_sl.py algorithm=splitfed_v2 \
-        "${COMMON_ARGS[@]}" \
+        "${EXP_ARGS[@]}" \
         algorithm.layer_allocator_init_args.num_client_layers=$split_point
 done
 
 # DynSL
 for algorithm in dynsl_simulation dynsl_simulation_one_way; do
-
+for exchange_optimizer_states in true false; do
     if [[ $exchange_optimizer_states == true && $algorithm == dynsl_simulation_one_way ]]; then
         continue
     fi
 
+    # server may send optimizer states to the client when offloading layers to the client, but server
+    # optimizer is always re-initialized -- never send optimizer states to the server
     run_bg python exp/scripts/py/simulate_sl.py algorithm=$algorithm \
-        "${COMMON_ARGS[@]}" \
+        "${EXP_ARGS[@]}" \
         algorithm.num_server_models=1 \
-        algorithm.exchange_optimizer_states=false
+        algorithm.exchange_optimizer_states=$exchange_optimizer_states \
+        algorithm.client_adapter_args.exchange_optimizer_states=false
+done
 done
 
 done

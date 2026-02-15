@@ -123,7 +123,8 @@ def run(cfg: DictConfig):
         num_concat_batches=cfg.server_model_servicer.num_concat_batches,
         whole_model=copy.deepcopy(model),
         dynamic_layers_strategy=cfg.algorithm.get("dynamic_layers_strategy", None),
-        exchange_optimizer_states=cfg.algorithm.get("exchange_optimizer_states", None),
+        server_exchange_optimizer_states=cfg.algorithm.get("exchange_optimizer_states", None),
+        client_exchange_optimizer_states=cfg.algorithm.get("client_adapter_args", {}).get("exchange_optimizer_states", None),
     )
 
     model_state_dict = model.state_dict()
@@ -188,5 +189,5 @@ def run(cfg: DictConfig):
 if __name__ == "__main__":
     load_dotenv()
     set_torch_flags()
-    logging.getLogger("flwr").setLevel("ERROR")
+    # logging.getLogger("flwr").setLevel("ERROR")
     run()

@@ -107,14 +107,15 @@ class SLExecutor:
         num_concat_batches: int,
         request_group_timeout: float,
         dynamic_layers_strategy=None,
-        exchange_optimizer_states=None,
+        client_exchange_optimizer_states=None,
+        server_exchange_optimizer_states=None,
     ):
         self.strategy = strategy
         self.server_model_manager = server_model_manager
         self.whole_model = whole_model
         self.client_layer_allocator = client_layer_allocator
         self.dynamic_layers_strategy = dynamic_layers_strategy
-        self.exchange_optimizer_states = exchange_optimizer_states
+        self.client_exchange_optimizer_states = client_exchange_optimizer_states
         self.event_loop = asyncio.new_event_loop()
         self._worker_manager = BatchingWorkerManager(
             server_model_manager=server_model_manager,
@@ -124,7 +125,7 @@ class SLExecutor:
             sending_transform_fn=None,
             receiving_transform_fn=None,
             dynamic_layers_strategy=dynamic_layers_strategy,
-            exchange_optimizer_states=exchange_optimizer_states,
+            exchange_optimizer_states=server_exchange_optimizer_states,
             is_cuda_available=torch.cuda.is_available(),
             event_loop=self.event_loop,
         )
@@ -156,7 +157,7 @@ class SLExecutor:
                 sending_transform_fn=None,
                 receiving_transform_fn=None,
                 dynamic_layers_strategy=self.dynamic_layers_strategy,
-                exchange_optimizer_states=self.exchange_optimizer_states,
+                exchange_optimizer_states=self.client_exchange_optimizer_states,
             )
 
             # build dataloader for this client so we can step through batches in lockstep
