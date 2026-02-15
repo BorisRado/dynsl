@@ -12,8 +12,8 @@ from hydra.utils import instantiate
 
 from slbd.common import BatchDataForward, BatchDataBackward, SocketTimingMetrics
 from slbd.common.constants import SL_LOCAL_COMPUTATION_TIME, SL_DOWNLINK_THROUGHPUT, SL_OPTIM_STATES, SL_WEIGHTS, SL_GRAD
-from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict, ndarray_list_to_bytes
-from slbd.common.socket_utils import send_message, recv_message
+from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict
+from slbd.common.socket_utils import send_message_async, recv_message_async
 from slbd.server.batching_worker_manager import BatchingWorkerManager
 from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.client_layer_allocator import ClientLayerAllocator
@@ -71,24 +71,24 @@ class SocketServerHandler:
 
         try:
             # Receive initialization message
-            init_msg = recv_message(client_socket)[0]
+            init_msg = (await recv_message_async(client_socket, self._loop))[0]
             assert init_msg["type"] == "init"
             client_id = init_msg["cid"]
 
             # Send acknowledgment
-            send_message(client_socket, {"type": "init_ack"})
+            await send_message_async(client_socket, {"type": "init_ack"}, self._loop)
 
             log(INFO, f"Socket client connected: {client_id} from {client_address}")
 
             # Handle client requests in a loop
             while True:
-                message, uplink_throughput = recv_message(client_socket)
+                message, uplink_throughput = await recv_message_async(client_socket, self._loop)
                 if message is None:
                     break
 
                 if message["type"] == "close":
                     # Client is closing the connection
-                    send_message(client_socket, {"type": "close_ack"})
+                    await send_message_async(client_socket, {"type": "close_ack"}, self._loop)
                     break
 
                 if message["type"] == "forward":
@@ -113,7 +113,7 @@ class SocketServerHandler:
                     res = await self._batching_worker.enqueue_and_get_future(client_id, data_fwd)
 
                     # Send response
-                    send_message(client_socket, self._to_socket_response(res))
+                    await send_message_async(client_socket, self._to_socket_response(res), self._loop)
 
         except Exception as e:
             import traceback
@@ -182,8 +182,8 @@ async def start_socket_server(
         while True:
             # Accept connections asynchronously
             client_socket, client_address = await loop.sock_accept(server_socket)
-            # Make client socket blocking for synchronous recv/send operations
-            client_socket.setblocking(True)
+            # Keep client socket non-blocking for async recv/send operations
+            client_socket.setblocking(False)
             print(f"Received connection from {client_address}")
             # Handle each client in a separate task
             asyncio.create_task(handler.handle_client(client_socket, client_address))
