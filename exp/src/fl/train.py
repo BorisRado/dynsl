@@ -117,7 +117,7 @@ class CustomFedAvg(FedAvg):
         print("evaluated model on test set", test_acc, test_loss)
         if wandb.run is not None:
             wandb.log({
-                "test/acc": test_acc,
+                "test/accuracy": test_acc,
                 "test/loss": test_loss,
             })
 
@@ -170,7 +170,7 @@ class FlowerClient(FlwrNumpyClient):
                 loss.backward()
                 optimizer.step()
         avg_loss = tot_loss / total_samples
-        return self.get_parameters({}), len(trainloader.dataset), {"loss": avg_loss}
+        return self.get_parameters({}), len(trainloader.dataset), {"train/loss": avg_loss}
 
     def get_parameters(self, config):
         return get_parameters(self.model)

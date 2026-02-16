@@ -252,6 +252,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]
 
         self._init_all_client_properties(epoch_clients)
+        assert not self.cache_client_data, "Need to check implementation again"
         if self.cache_client_data:
             initial_config_dict = self._get_initial_number_of_layers_with_caching()
         else:
@@ -275,11 +276,11 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         start_time = time.time()
         # Uncomment following lines to log the tracked metrics
         # print(self._client_train_batches_count)
-        # print({self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
         print(f"Running reallocation {datetime.now().strftime('%H:%M:%S')}")
-        print({self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
-        # print({self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
-        # print({self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
+        print("Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
+        # print("Pending batches", {self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
+        # print("Throughputs", {self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
+        # print("Training times", {self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
         self._allocated_layer_history.append(self._client_allocated_layers.copy())
         if any(v < 4 for v in self._client_train_batches_count.values()):
             print("Not enough data to try reallocating...")
@@ -315,8 +316,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
                 gamma=self._gamma,
             )
 
-        print("current", self._client_allocated_layers)
-        print("predicted", best_config)
+        # print("current", self._client_allocated_layers)
+        # print("predicted", best_config)
         J_current = self._compute_objective(self._client_allocated_layers)
         J_new = self._compute_objective(best_config)
         delta = J_current - J_new
@@ -335,34 +336,10 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         print(f"Total reallocation time: {time.time() - start_time:4f}")
 
     def _compute_objective(self, layer_config):
-        # computes the predicted epoch time for the current configuration given in layer_config
-        # layer_config is a dictionary that for every client states how many layers it trains in the
-        # evaluated configuration
-
-        pred_client_times = {} # compute the predicted time to finish training for every client
-        server_time = 0. # Compute the time the server needs to train with the current configuration
-        server_communication_time = 0. # time the server is communicating
-
-        for cid, L in layer_config.items():
-            B = self._pending_batches[cid] # number of batches the client still has to process
-            server_time += B * self._server_training_times[L] / self._num_concat_batches # time the server will be processing client batches
-            pred_client_times[cid] = self.compute_client_time(cid, L)
-            server_communication_time += B * self.per_batch_server_communication_time[L]
-
-        # slightly increase the server_communication_time to account for the overhead of serializing and deserializing
-        server_time = max(server_time, server_communication_time * 1.2)
-
-        # add a regularization term that penalizes the change of the current configuration
-        reg_term = sum([
-            layer_config[cid] != self._client_allocated_layers[cid] for cid in layer_config
-        ])
-        # get the time of the slowest client, as in SL, we wait for the slowest client to finish training
-        # before we end the current epoch
-        max_client_time = max(pred_client_times.values())
-
-        # the final objective is the maximum of the server time and the slowest client time + the regularization
-        total_time = max(server_time, max_client_time) + reg_term
-        return total_time
+        return max(
+            self.compute_server_time(layer_config),
+            max(self.compute_client_time(cid, sp) for cid, sp in layer_config.items())
+        )
 
     def compute_server_time(self, candidate_split_vector):
         server_time = 0. # Compute the time the server needs to train with the current configuration
@@ -386,13 +363,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # is `self._client_training_times[cid]`. To compute the predicted training time for a different number
         # of layers, we perform a simple linear interpolation.
 
-        factor = self.complexity_factors[(L, self._client_allocated_layers[cid])]
-        if self.meaningful_split_points.index(L) - self.meaningful_split_points.index(self._client_allocated_layers[cid]) > 2:
-            # if considing increasing the number of layers a lot, penalize the predicted increase, so
-            # as to make a more conservative choice
-            factor *= 1.5
         # client computation
-        per_batch_time = self._client_training_times[cid] * factor # client training
+        per_batch_time = self._client_training_times[cid] * self.complexity_factors[(L, self._client_allocated_layers[cid])]
         # server computation
         per_batch_time += self._server_training_times[L] # server training
         # communication -- * 2 because we need to both send and receive the data

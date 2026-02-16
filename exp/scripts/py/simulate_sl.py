@@ -5,7 +5,6 @@ import logging
 from logging import INFO
 from dotenv import load_dotenv
 
-import wandb
 import hydra
 from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
@@ -94,6 +93,7 @@ def run(cfg: DictConfig):
         optimizer_config=OmegaConf.to_container(cfg.optimizer),
         **OmegaConf.to_container(cfg.strategy, resolve=True),
         **OmegaConf.to_container(cfg.algorithm.strategy_init_args, resolve=True),
+        model_evaluate_fn=lambda model: test_model(model, testloader)
     )
 
     client_layer_allocator = {
@@ -166,17 +166,8 @@ def run(cfg: DictConfig):
             layer_allocator=client_layer_allocator,
             failures=[],
         )
-        loss = metrics["training_loss"]
-        model.load_state_dict(model_state_dict)
-        test_loss, test_acc= test_model(model, testloader)
-
-        print("EPOCH", epoch_idx, loss, test_loss, test_acc)
-        if wandb.run is not None:
-            wandb.log({
-                "test_loss": test_loss,
-                "test_acc": test_acc,
-            })
-        all_losses.append(loss)
+        strategy.evaluate(model_state_dict)
+        all_losses.append(metrics["training_loss"])
 
         client_layer_allocator.finalize_epoch()
     print(f"Total runtime {time.time() - start_time:.2f}")
@@ -189,5 +180,5 @@ def run(cfg: DictConfig):
 if __name__ == "__main__":
     load_dotenv()
     set_torch_flags()
-    # logging.getLogger("flwr").setLevel("ERROR")
+    logging.getLogger("flwr").setLevel("ERROR")
     run()

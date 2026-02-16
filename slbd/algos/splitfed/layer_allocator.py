@@ -91,9 +91,9 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
 
     def collect_epoch_metrics(self):
         return {
-            "tot_server_training_time": self.tot_server_computation_time,
-            "client_throughputs": {
-                k: self._client_throughputs[k] / self._client_processed_batches[k]
+            "train/tot_server_training_time": self.tot_server_computation_time,
+            "train/client_throughputs": [
+                (k, self._client_throughputs[k] / self._client_processed_batches[k])
                 for k in self._client_throughputs
-            },
+            ],
         }

@@ -253,8 +253,8 @@ class ModelTrainer:
         # print({"training_loss": self._metrics["loss"] / self._dataset_size})
         log(DEBUG, f"Total epoch time: {time.perf_counter() - self._initialization_time:.3f}")
         return {
-            "training_loss": self._metrics["loss"] / self._dataset_size,
-            "local_computation_time": self._tot_local_computation_time
+            "train/loss": self._metrics["loss"] / self._dataset_size,
+            "train/local_computation_time": self._tot_local_computation_time
         }
 
     def get_fit_results(self):

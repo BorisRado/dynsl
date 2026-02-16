@@ -75,8 +75,6 @@ class SimulationClient:
             local_computation_time = self.base_training_times[current_num_layers]
             if iter_idx > 0:
                 sleep_time = np.random.uniform(local_computation_time * 0.9, local_computation_time * 1.1)
-                if np.random.uniform() < 0.02:
-                    sleep_time *= 5
                 await asyncio.sleep(sleep_time)
             batch = BatchDataForward(
                 data=current_data,
@@ -155,6 +153,7 @@ async def _train_epoch(model_manager, model, allocator, clients, optimization_co
     end_time = time.perf_counter()
     epoch_time = end_time - start_time
     allocator_metrics = allocator.collect_epoch_metrics()
+    allocator.finalize_epoch()
     print(f"Epoch time: {epoch_time:.3f}", flush=True)
     return {
         "epoch_time": epoch_time,

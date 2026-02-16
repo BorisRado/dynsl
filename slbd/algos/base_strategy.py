@@ -61,6 +61,7 @@ class BaseStrategy(Strategy):
         self,
         *,
         model: FlexibleSequential,
+        model_evaluate_fn,
         optimizer_config,
         num_server_models: int,
         fraction_fit: float = 1.0,
@@ -74,6 +75,7 @@ class BaseStrategy(Strategy):
     ) -> None:
         super().__init__()
         self.model = model
+        self.model_evaluate_fn = model_evaluate_fn
         self.fraction_fit = fraction_fit
         self.fraction_evaluate = fraction_evaluate
         self.config_client_fit_fn = config_client_fit_fn
@@ -96,7 +98,17 @@ class BaseStrategy(Strategy):
         model_state_dict: OrderedDict,
     ) -> Optional[Tuple[float, Dict[str, Scalar]]]:
         _ = (server_round, model_state_dict, )
-        return None
+        self.model.load_state_dict(model_state_dict, strict=True)
+        test_loss, test_accuracy = self.model_evaluate_fn(self.model)
+        print(f"Test loss {test_loss:.3f}")
+        print(f"Test accuracy {test_accuracy:.3f}")
+        metrics = {
+            "test/loss": test_loss,
+            "test/accuracy": test_accuracy,
+        }
+        if wandb.run is not None:
+            wandb.log(metrics)
+        return metrics["test/loss"], metrics
 
     def _setup_epoch_clients(
         self,

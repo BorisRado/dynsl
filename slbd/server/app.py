@@ -56,9 +56,10 @@ ADDRESS_FLEET_API_REST = "0.0.0.0:9093"
 DATABASE = ":flwr-in-memory-state:"
 
 
-def init_dynsl_components(config, model):
+def init_dynsl_components(config, model, model_evaluate_fn):
     strategy = DynSLStrategy(
         model=model,
+        model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
     )
@@ -70,9 +71,10 @@ def init_dynsl_components(config, model):
     return strategy, client_layer_allocator
 
 
-def init_oracle_components(config, model):
+def init_oracle_components(config, model, model_evaluate_fn):
     strategy = OracleStrategy(
         model=model,
+        model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
         **OmegaConf.to_container(config.algorithm.strategy_init_args, resolve=True),
@@ -85,9 +87,10 @@ def init_oracle_components(config, model):
     return strategy, client_layer_allocator
 
 
-def init_dynsl_v2_components(config, model):
+def init_dynsl_v2_components(config, model, model_evaluate_fn):
     strategy = DynSLStrategy(
         model=model,
+        model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
         **OmegaConf.to_container(config.algorithm.strategy_init_args, resolve=True),
@@ -130,10 +133,11 @@ def init_dynsl_v2_components(config, model):
     return strategy, client_layer_allocator
 
 
-def init_ares_components(config, model):
+def init_ares_components(config, model, model_evaluate_fn):
 
     strategy = ARESStrategy(
         model=model,
+        model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
     )
@@ -163,9 +167,10 @@ def init_ares_components(config, model):
     return strategy, client_layer_allocator
 
 
-def init_fedavg_components(config, model):
+def init_fedavg_components(config, model, model_evaluate_fn):
     strategy = FedAvgStrategy(
         model=model,
+        model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
         **OmegaConf.to_container(config.algorithm.strategy_init_args),
@@ -178,10 +183,11 @@ def init_fedavg_components(config, model):
     return strategy, client_layer_allocator
 
 
-def init_splitfed_components(config, model):
+def init_splitfed_components(config, model, model_evaluate_fn):
 
     strategy = SplitFedStrategy(
         model=model,
+        model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
     )
@@ -281,6 +287,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     model: FlexibleSequential,
     config_file: Optional[str] = None,
     config: Optional[DictConfig] = None,
+    model_evaluate_fn = None,
     server_address: str = ADDRESS_FLEET_API_GRPC_BIDI,
     grpc_max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     certificates: Optional[Tuple[bytes, bytes, bytes]] = None,
@@ -302,7 +309,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         "splitfed_v1": init_splitfed_components,
         "splitfed_v2": init_splitfed_components,
         "oracle": init_oracle_components,
-    }[config.algorithm.name](config, model)
+    }[config.algorithm.name](config, model, model_evaluate_fn)
 
     server_model_manager = instantiate(
         config.server_model_manager,

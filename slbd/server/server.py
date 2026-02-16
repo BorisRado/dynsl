@@ -68,24 +68,24 @@ class Server(FlwrServer):
                 )
 
             # Evaluate model using strategy implementation
-            # res_cen = self.strategy.evaluate(
-            #     current_round,
-            #     parameters=self.parameters,
-            # )
-            # if res_cen is not None:
-            #     loss_cen, metrics_cen = res_cen
-            #     log(
-            #         INFO,
-            #         "fit progress: (%s, %s, %s, %s)",
-            #         current_round,
-            #         loss_cen,
-            #         metrics_cen,
-            #         timeit.default_timer() - start_time,
-            #     )
-            #     history.add_loss_centralized(server_round=current_round, loss=loss_cen)
-            #     history.add_metrics_centralized(
-            #         server_round=current_round, metrics=metrics_cen
-            #     )
+            res_cen = self.strategy.evaluate(
+                current_round,
+                model_state_dict=self.parameters,
+            )
+            if res_cen is not None:
+                loss_cen, metrics_cen = res_cen
+                log(
+                    INFO,
+                    "fit progress: (%s, %s, %s, %s)",
+                    current_round,
+                    loss_cen,
+                    metrics_cen,
+                    timeit.default_timer() - start_time,
+                )
+                history.add_loss_centralized(server_round=current_round, loss=loss_cen)
+                history.add_metrics_centralized(
+                    server_round=current_round, metrics=metrics_cen
+                )
 
             # Evaluate model on a sample of available clients
             res_fed = self.evaluate_round(server_round=current_round, timeout=timeout)
