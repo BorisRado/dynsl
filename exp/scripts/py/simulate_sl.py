@@ -166,8 +166,11 @@ def run(cfg: DictConfig):
             layer_allocator=client_layer_allocator,
             failures=[],
         )
-        strategy.evaluate(model_state_dict)
-        all_losses.append(metrics["training_loss"])
+        strategy.evaluate(
+            server_round=epoch_idx,
+            model_state_dict=model_state_dict
+        )
+        all_losses.append(metrics["train/loss"])
 
         client_layer_allocator.finalize_epoch()
     print(f"Total runtime {time.time() - start_time:.2f}")
