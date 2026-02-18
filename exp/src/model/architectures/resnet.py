@@ -5,19 +5,7 @@ import torchvision.models as models
 from slbd.torch.sequential_model import FlexibleSequential
 
 from exp.src.common.stochasticity import set_seed
-
-
-def replace_bn_with_gn(module, num_groups=2):
-    for name, child in module.named_children():
-        if isinstance(child, nn.BatchNorm2d):
-            gn = nn.GroupNorm(
-                num_groups=num_groups,
-                num_channels=child.num_features,
-                affine=True
-            )
-            setattr(module, name, gn)
-        else:
-            replace_bn_with_gn(child, num_groups)
+from exp.src.model.utils import replace_bn_with_gn
 
 
 class ResNet(FlexibleSequential):

@@ -5,11 +5,17 @@ import torchvision.models as models
 from slbd.torch.sequential_model import FlexibleSequential
 
 from exp.src.common.stochasticity import set_seed
+from exp.src.model.utils import replace_bn_with_gn
 
 
 class DenseNet121(FlexibleSequential):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, use_groupnorm, num_groups):
         model = models.densenet121(weights=None, num_classes=num_classes)
+
+        if use_groupnorm:
+            assert num_groups > 1
+            replace_bn_with_gn(model, num_groups=num_groups) # 2 groups in adaptive federated optimization
+
         # adaptations to make the model appropriate for 32x32 images
         model.features.conv0 = nn.Conv2d(
             3, 64, kernel_size=3, stride=1, padding=1, bias=False

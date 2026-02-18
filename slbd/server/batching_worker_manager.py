@@ -187,8 +187,9 @@ class BatchingWorkerManager:
             num_layers_diff, params, optimizer_states = 0, None, None
             if diff_data is not None:
                 previous, num_layers_diff = diff_data
+                tmp_id = self.client_layer_allocator._cid_to_node_name[client_id] if hasattr(self.client_layer_allocator, "_cid_to_node_name") else client_id
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
-                    client_id, num_layers_diff)
+                    tmp_id, num_layers_diff)
                 assert self._dynamic_layers_strategy == "afl"
 
                 if num_layers_diff > 0:

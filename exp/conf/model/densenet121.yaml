@@ -1,2 +1,4 @@
 _target_: exp.src.model.architectures.densenet121.DenseNet121
 num_classes: ${data.num_classes}
+use_groupnorm: true
+num_groups: 16

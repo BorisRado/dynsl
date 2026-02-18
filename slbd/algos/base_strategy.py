@@ -108,6 +108,7 @@ class BaseStrategy(Strategy):
         }
         if wandb.run is not None:
             wandb.log(metrics)
+        torch.cuda.empty_cache()
         return metrics["test/loss"], metrics
 
     def _setup_epoch_clients(

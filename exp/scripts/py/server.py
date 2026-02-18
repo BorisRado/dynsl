@@ -28,7 +28,7 @@ def run(cfg: DictConfig):
         init_wandb(cfg)
         print("Logging data to", os.getenv("WANDB_PROJECT"))
 
-    testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=256, shuffle=False)
+    testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=1024, shuffle=False)
 
     # remove configuration that does not pertain to the server
     # del cfg.client # cannot remove it as we need batch size
@@ -39,7 +39,7 @@ def run(cfg: DictConfig):
     set_seed(cfg.general.seed)
 
     model = instantiate(cfg.model)
-    warmup_device()
+    warmup_device(model)
 
     start_kwargs = {
         "model": model,

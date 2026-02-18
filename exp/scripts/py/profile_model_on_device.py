@@ -20,9 +20,7 @@ def run(cfg):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     assert tuple(cfg.data.input_shape) == (3, 32, 32)
 
-    if torch.cuda.is_available():
-        print("Cuda is available... => Warming up divece")
-        warmup_device()
+    warmup_device(model)
 
     split_points = model.meaningful_split_points
     num_iterations = 500 if torch.cuda.is_available() else 100

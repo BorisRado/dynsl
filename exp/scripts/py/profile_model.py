@@ -34,7 +34,7 @@ def run(cfg: DictConfig):
         manager.resume_processes(delay=0., duration=1e8)
         time.sleep(1.0)
 
-    warmup_device()
+    warmup_device(model)
 
     print("Number of model parameters: ", sum(p.numel() for p in model.parameters()))
     optim_generator = OptimizerGenerator(cfg.optimizer.optimizer, cfg.optimizer.scheduler)
@@ -46,8 +46,8 @@ def run(cfg: DictConfig):
         model=model,
         optimizer=optimizer,
         batch_size=cfg.client.init_kwargs.batch_size,
-        iterations=500,
-        dry_runs=50,
+        iterations=400 if torch.cuda.is_available() else 100,
+        dry_runs=50 if torch.cuda.is_available() else 10,
     )
     client_device_type = os.environ.get("COLEXT_DEVICE_TYPE", "SERVER")
     gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"

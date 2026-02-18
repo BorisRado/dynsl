@@ -65,7 +65,7 @@ def run(cfg: DictConfig):
     )
 
     model = instantiate(cfg.model)
-    warmup_device(steps=30)
+    warmup_device(model)
     client = MOTorchClient(
         **client_init_kwargs,
         trainset=trainset,
