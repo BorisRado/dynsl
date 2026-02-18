@@ -2,7 +2,6 @@ import time
 import threading
 import itertools
 from datetime import datetime
-from collections import defaultdict
 from logging import INFO
 from typing import List, Dict, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
@@ -271,13 +270,13 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
 
     def trigger_reallocation(self) -> None:
         start_time = time.time()
-        # Uncomment following lines to log the tracked metrics
-        # print(self._client_train_batches_count)
         print(f"Running reallocation {datetime.now().strftime('%H:%M:%S')}")
         print("Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
-        print("Pending batches", {self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
-        print("Throughputs", {self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
-        print("Training times", {self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
+        # Uncomment following lines to log the tracked metrics
+        # print("Processed batches...", self._client_train_batches_count)
+        # print("Pending batches", {self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
+        # print("Throughputs", {self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
+        # print("Training times", {self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
         self._allocated_layer_history.append(self._client_allocated_layers.copy())
         if any(v < 5 for v in self._client_train_batches_count.values()):
             print("Not enough data to try reallocating...")
@@ -412,7 +411,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         current_fwd_time = self._client_training_times[cid][-1]
         tot_current_client_time = current_fwd_time + self._client_backward_times[cid]
         factor = tot_current_client_time / current_fwd_time
-        return predicted_forward_time * factor
+        return predicted_forward_time * factor * 1.5 # * 1.5 to make more conservative predictions
 
     def update_server_metrics(
         self,
@@ -475,6 +474,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             self._client_allocated_layers.clear()
             self._client_training_times.clear()
             self._client_throughput.clear()
+            self._client_backward_times.clear()
 
     def collect_epoch_metrics(self):
         return {

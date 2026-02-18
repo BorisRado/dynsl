@@ -200,7 +200,7 @@ class ModelTrainer:
             SL_EMBEDDINGS: send_client_output,
             SL_LABELS: labels,
             SL_PER_LAYER_FORWARD_TIMES: forward_times,
-            SL_BACKWARD_TIME: self._backward_time if self._iter_since_last_model_change < 3 else -1,  # From previous iteration
+            SL_BACKWARD_TIME: self._backward_time if self._iter_since_last_model_change > 3 else -1,  # From previous iteration
             SL_WEIGHTS: self._removed_weights,
             SL_OPTIM_STATES: self._removed_optimizer_states,
         }, client_output
