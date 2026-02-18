@@ -7,7 +7,7 @@ import torch
 import numpy as np
 from flwr.common import log
 
-from slbd.common.utils import MeasureTime
+from slbd.common.utils import MeasureTime, PerLayerTimer
 from slbd.torch.sequential_model import FlexibleSequential
 from slbd.torch.utils import init_optimizer
 from slbd.torch.model_utils import (
@@ -18,7 +18,10 @@ from slbd.torch.model_utils import (
     get_num_layers,
     extract_submodel_weights
 )
-from slbd.common.constants import SL_LOCAL_COMPUTATION_TIME, SL_EMBEDDINGS, SL_LABELS, SL_OPTIM_STATES, SL_WEIGHTS
+from slbd.common.constants import (
+    SL_EMBEDDINGS, SL_LABELS, SL_OPTIM_STATES, SL_WEIGHTS,
+    SL_PER_LAYER_FORWARD_TIMES, SL_BACKWARD_TIME
+)
 
 
 class ModelTrainer:
@@ -80,6 +83,10 @@ class ModelTrainer:
         self._tot_local_computation_time = 0.
         self._initialization_time = time.perf_counter()
         self.timer = MeasureTime(torch.cuda.is_available())
+        self.per_layer_timer = PerLayerTimer(torch.cuda.is_available())
+
+        # Timing information
+        self._backward_time = -1.0
 
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
@@ -170,9 +177,8 @@ class ModelTrainer:
         self._iter_since_last_model_change += 1
 
         # forward on client model
-        with self.timer:
-            self._optimizer.zero_grad()
-            client_output = self._forward_sequence_of_layers(input_vars)
+        self._optimizer.zero_grad()
+        client_output, forward_times = self._forward_sequence_of_layers(input_vars)
 
         if len(self._model) == self._num_layers_entire_model:
             # if model is in its entirety on the client, compute the loss on the client
@@ -190,12 +196,11 @@ class ModelTrainer:
         if self.sending_transform_fn is not None:
             send_client_output = self.sending_transform_fn(client_output)
 
-        iteration_training_time = self.timer.get_elapsed_and_reset()
-        self._tot_local_computation_time += iteration_training_time
         return {
             SL_EMBEDDINGS: send_client_output,
             SL_LABELS: labels,
-            SL_LOCAL_COMPUTATION_TIME: -1 if self._iter_since_last_model_change < 2 else iteration_training_time,
+            SL_PER_LAYER_FORWARD_TIMES: forward_times,
+            SL_BACKWARD_TIME: self._backward_time if self._iter_since_last_model_change < 3 else -1,  # From previous iteration
             SL_WEIGHTS: self._removed_weights,
             SL_OPTIM_STATES: self._removed_optimizer_states,
         }, client_output
@@ -213,6 +218,9 @@ class ModelTrainer:
             else:
                 client_output.backward(gradient.to(self._device))
             self._optimizer.step()
+
+        # Get the total backward time
+        self._backward_time = self.timer.get_elapsed_and_reset()
 
         self._update_model(control)
         self._update_metrics(loss, gradient.shape[0])
@@ -284,12 +292,18 @@ class ModelTrainer:
             data = data.to(self._device)
 
         x = data
+
+        # Measure per-layer forward times
+        self.per_layer_timer.record_start()
         if is_tuple:
             for idx, layer in enumerate(layers):
                 x = layer(*x)
+                self.per_layer_timer.record_layer_end()  # Record after each layer
                 self._per_layer_data_points[idx] += bs
         else:
             for idx, layer in enumerate(layers):
                 x = layer(x)
+                self.per_layer_timer.record_layer_end()  # Record after each layer
                 self._per_layer_data_points[idx] += bs
-        return x
+        per_layer_times = self.per_layer_timer.get_per_layer_times()
+        return x, per_layer_times

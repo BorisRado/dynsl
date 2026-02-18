@@ -47,8 +47,8 @@ def _load_datasets_onto_memory(datasets, batch_size=1024, num_workers=0):
             assert isinstance(batch["label"], torch.Tensor)
             imgs.append(batch["img"])
             labels.append(batch["label"])
-        imgs_tensor = torch.cat(imgs)
-        labels_tensor = torch.cat([torch.tensor(l) if not torch.is_tensor(l) else l for l in labels])
+        imgs_tensor = torch.cat(imgs).pin_memory()
+        labels_tensor = torch.cat([torch.tensor(l) if not torch.is_tensor(l) else l for l in labels]).pin_memory()
         tensor_datasets.append(TensorDataset(imgs_tensor, labels_tensor))
     return tensor_datasets
 

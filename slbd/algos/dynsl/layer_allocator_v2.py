@@ -100,7 +100,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
 
         # rolling averages -- note, they get re-initialized every time the client changes its number of layers
         # they are persisted across epochs if the allocator is configured with caching
-        self._client_training_times: Dict[str, float] = {}
+        self._client_training_times: Dict[str, List[float]] = {}
+        self._client_backward_times: Dict[str, float] = {}
         self._client_throughput: Dict[str, float] = {}
 
         # event for starting stopping the thread that handles layer re-allocation
@@ -110,11 +111,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # point (key), contains the computational requirements of training the model up to that point
         modeled_layer_complexities = [modeled_layer_complexities[idx] for idx in range(len(modeled_layer_complexities))]
         # print(modeled_layer_complexities)
-        self.comput_compl_per_sp = {
-            start_idx: sum(modeled_layer_complexities[:start_idx])
-            for start_idx in self.meaningful_split_points
-        }
-        self._client_recorded_times = defaultdict(dict)
+        self.comput_compl_per_sp = [sum(modeled_layer_complexities[:start_idx]) for start_idx in range(num_model_layers)]
+
 
         # we assume that the training time on the server do not vary
         static_server_computational_times = \
@@ -324,8 +322,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         print(f"Found cost: {J_new:.3f}")
 
         for cid in best_config:
-            if len(self._client_recorded_times[cid]) < 2 and best_config[cid] > self._client_allocated_layers[cid]:
-                print(f"Client {self._cid_to_node_name[cid]} not known. Should send {best_config[cid]} layers but sending {self.meaningful_split_points[1]} to estimate complexity coefficient")
+            if best_config[cid] > self._client_allocated_layers[cid] and self._client_allocated_layers[cid] == self.meaningful_split_points[0]:
+                print(f"Client {self._cid_to_node_name[cid]} not known. Should send {best_config[cid]} layers but sending {self.meaningful_split_points[1]} to estimate complexity better")
                 best_config[cid] = self.meaningful_split_points[1]
 
         if delta > self._gamma:
@@ -387,16 +385,34 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         return self._pending_batches[cid] * per_batch_time + layer_movement_time
 
     def _estimate_client_training_time(self, cid, layer):
-        if len(self._client_recorded_times[cid]) < 2:
-            # we only have one value (i.e., of the smallest number of layers)
-            return self._client_training_times[cid] * self.comput_compl_per_sp[layer] / self.comput_compl_per_sp[self._client_allocated_layers[cid]]
+        # try to predict how much time training would take if client `cid` were to train `layer` layers
+        num_client_layers = self._client_allocated_layers[cid]
 
-        recorded_layers = list(self._client_recorded_times[cid])
-        x = [self.comput_compl_per_sp[layer] for layer in recorded_layers]
-        y = [self._client_recorded_times[cid][layer] for layer in recorded_layers]
-        coefficients = np.polyfit(x, y, 1)
-        new_x = self.comput_compl_per_sp[layer]
-        return np.polyval(coefficients, new_x)
+        if layer == num_client_layers:
+            # no need to do any estimation -- the client currently trains the number of layers
+            return self._client_training_times[cid][-1] + self._client_backward_times[cid]
+        if layer < num_client_layers:
+            # we know exactly what is the forward time of the client, as the client reports what is the training time
+            # for every layer until its last one
+            # -1 because because lists are 0 indexed -- TODO: check if this is correct
+            predicted_forward_time = self._client_training_times[cid][layer-1]
+        else:
+            # need to predict the complexity for a larger number of layers
+            # than the client currently has
+            recorded_layers_forward_time = self._client_training_times[cid]
+            base_complexity = self.comput_compl_per_sp[:num_client_layers]
+            assert len(base_complexity) == len(recorded_layers_forward_time)
+
+            # fit linear model for simplicity
+            coefficients = np.polyfit(base_complexity, recorded_layers_forward_time, 1)
+            new_num_layers_complexity = self.comput_compl_per_sp[layer]
+            predicted_forward_time = np.polyval(coefficients, new_num_layers_complexity)
+
+        # now we know an estimate of the forward time -- we still need to account for the backward pass
+        current_fwd_time = self._client_training_times[cid][-1]
+        tot_current_client_time = current_fwd_time + self._client_backward_times[cid]
+        factor = tot_current_client_time / current_fwd_time
+        return predicted_forward_time * factor
 
     def update_server_metrics(
         self,
@@ -422,23 +438,31 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # ==>> if a cid is not in self._client_layer_diff, it means the client has finished training
 
     def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics]):
-        if metrics is None or metrics.client_local_computation_time < 0:
+        if metrics.tot_backward_time < 0:
             self._pending_batches[client_id] -= 1
             return
 
-        client_train_time = metrics.client_local_computation_time
         client_Mbps = metrics.throughput_Mbps
         # we already handled the case where we could not handle the throughput
-        assert client_train_time > 0. and client_Mbps > 0
-        self._client_training_times.setdefault(client_id, client_train_time)
+        assert client_Mbps > 0
+        assert len(metrics.per_layer_forward_times) == self._client_allocated_layers[client_id]
         self._client_throughput.setdefault(client_id, client_Mbps)
+        self._client_backward_times.setdefault(client_id, metrics.tot_backward_time)
 
-        self._client_training_times[client_id] = \
-            self._rolling_average(self._client_training_times[client_id], client_train_time)
         self._client_throughput[client_id] = \
             self._rolling_average(self._client_throughput[client_id], client_Mbps)
+        self._client_backward_times[client_id] = \
+            self._rolling_average(self._client_backward_times[client_id], metrics.tot_backward_time)
 
-        self._client_recorded_times[client_id][self._client_allocated_layers[client_id]] = self._client_training_times[client_id]
+        if len(self._client_training_times.get(client_id, [])) != len(metrics.per_layer_forward_times):
+            # reallocation happened -- start measuring from scratch, i.e., we override any pre-existing value
+            self._client_training_times[client_id] = metrics.per_layer_forward_times
+        else:
+            # no reallocation happened -- we know metrics.per_layer_forward_times has the same length as
+            # self._client_training_times[client_id] ==> we update each value independently with
+            # rolling average
+            for idx, value in enumerate(metrics.per_layer_forward_times):
+                self._client_training_times[client_id][idx] = self._rolling_average(self._client_training_times[client_id][idx], value)
 
         self._client_train_batches_count[client_id] += 1
         self._pending_batches[client_id] -= 1

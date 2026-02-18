@@ -5,10 +5,12 @@ from typing import Optional
 from flwr.common import log
 
 from slbd.common import LayerChangeInfo, bytes_to_ndarray_dict, ndarray_dict_to_bytes
-from slbd.common.constants import SL_EMBEDDINGS, SL_LABELS, SL_WEIGHTS, SL_OPTIM_STATES, SL_LOCAL_COMPUTATION_TIME, SL_GRAD
+from slbd.common.constants import (
+    SL_EMBEDDINGS, SL_LABELS, SL_WEIGHTS, SL_OPTIM_STATES, SL_GRAD,
+    SL_DOWNLINK_THROUGHPUT, SL_PER_LAYER_FORWARD_TIMES, SL_BACKWARD_TIME
+)
 from slbd.common.socket_utils import send_message, recv_message
 from slbd.server.server_model.proxy.server_model_proxy import ServerModelProxy
-from slbd.common.constants import SL_DOWNLINK_THROUGHPUT
 
 
 class SocketServerModelProxy(ServerModelProxy):
@@ -72,7 +74,8 @@ class SocketServerModelProxy(ServerModelProxy):
             "data": ndarray_dict_to_bytes(**batch_data),
             "training": training,
             SL_DOWNLINK_THROUGHPUT: self.downlink_throughput,
-            SL_LOCAL_COMPUTATION_TIME: kwargs[SL_LOCAL_COMPUTATION_TIME],
+            SL_PER_LAYER_FORWARD_TIMES: kwargs[SL_PER_LAYER_FORWARD_TIMES],
+            SL_BACKWARD_TIME: kwargs[SL_BACKWARD_TIME],
         }
 
         # Send and receive

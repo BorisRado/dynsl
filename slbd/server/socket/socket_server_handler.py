@@ -11,7 +11,10 @@ from flwr.common import log
 from hydra.utils import instantiate
 
 from slbd.common import BatchDataForward, BatchDataBackward, SocketTimingMetrics
-from slbd.common.constants import SL_LOCAL_COMPUTATION_TIME, SL_DOWNLINK_THROUGHPUT, SL_OPTIM_STATES, SL_WEIGHTS, SL_GRAD
+from slbd.common.constants import (
+    SL_DOWNLINK_THROUGHPUT, SL_OPTIM_STATES, SL_WEIGHTS, SL_GRAD,
+    SL_PER_LAYER_FORWARD_TIMES, SL_BACKWARD_TIME
+)
 from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict
 from slbd.common.socket_utils import send_message_async, recv_message_async
 from slbd.server.batching_worker_manager import BatchingWorkerManager
@@ -98,9 +101,10 @@ class SocketServerHandler:
 
                     # Create timing metrics
                     timing_metrics = SocketTimingMetrics(
-                        client_local_computation_time=message[SL_LOCAL_COMPUTATION_TIME],
                         uplink_throughput_Mbps=uplink_throughput,
                         downlink_throughput_Mbps=message[SL_DOWNLINK_THROUGHPUT],
+                        per_layer_forward_times=message[SL_PER_LAYER_FORWARD_TIMES],
+                        tot_backward_time=message[SL_BACKWARD_TIME],
                     )
 
                     # Create forward data

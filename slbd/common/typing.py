@@ -21,9 +21,10 @@ class ControlCode(Enum):
 
 @dataclass
 class SocketTimingMetrics:
-    client_local_computation_time: float
     uplink_throughput_Mbps: float
     downlink_throughput_Mbps: float
+    per_layer_forward_times: List[float]
+    tot_backward_time: float
 
     def __post_init__(self):
         self.throughput_Mbps = -1.

@@ -73,7 +73,7 @@ class SplitFedClientLayerAllocator(ClientLayerAllocator):
         return self._num_offloaded_layers
 
     def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
-        if metrics is None or metrics.client_local_computation_time < 0:
+        if metrics.tot_backward_time < 0:
             return
         assert metrics.throughput_Mbps > 0
         self._client_throughputs[client_id] += metrics.throughput_Mbps

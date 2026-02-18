@@ -100,3 +100,51 @@ class MeasureTime:
         prev_elapsed = self.elapsed
         self.elapsed = 0.
         return prev_elapsed
+
+
+class PerLayerTimer:
+    """Efficient per-layer timing using CUDA events to avoid synchronization after each layer."""
+
+    def __init__(self, use_cuda):
+        self.use_cuda = use_cuda
+        if self.use_cuda:
+            self.events = []
+        else:
+            self.times = []
+            self._start_time = None
+
+    def record_start(self):
+        """Record the start of timing (before first layer)."""
+        if self.use_cuda:
+            self.events = []
+            # Record initial event
+            start_event = torch.cuda.Event(enable_timing=True)
+            start_event.record()
+            self.events.append(start_event)
+        else:
+            self.times = []
+            self._start_time = time.perf_counter()
+
+    def record_layer_end(self):
+        """Record the end of a layer (called after each layer forward)."""
+        if self.use_cuda:
+            end_event = torch.cuda.Event(enable_timing=True)
+            end_event.record()
+            self.events.append(end_event)
+        else:
+            elapsed = time.perf_counter() - self._start_time
+            self.times.append(elapsed)
+
+    def get_per_layer_times(self):
+        """Get per-layer times. Synchronizes once for all CUDA events."""
+        if self.use_cuda:
+            # Synchronize once for all events
+            torch.cuda.synchronize()
+
+            layer_times = []
+            for i in range(1, len(self.events)):
+                elapsed_ms = self.events[0].elapsed_time(self.events[i])
+                layer_times.append(elapsed_ms / 1000.0)  # Convert to seconds
+            return layer_times
+        else:
+            return self.times
