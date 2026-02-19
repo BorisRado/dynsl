@@ -41,7 +41,7 @@ from slbd.common.profiling import (
     measure_per_layer_complexity
 )
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
-from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2
+from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2, DynSLClientLayerAllocatorWProfiling
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
 from slbd.algos.oracle import OracleClientLayerAllocator, OracleStrategy
@@ -96,7 +96,7 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
         **OmegaConf.to_container(config.algorithm.strategy_init_args, resolve=True),
     )
     layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
-    tmp_optimizer = optim.SGD(model.parameters(), momentum=0.9)
+    tmp_optimizer = optim.Adam(model.parameters())
     layer_complexities_cuda, tensor_sizes = measure_per_layer_complexity(
         model=model,
         optimizer=tmp_optimizer,
@@ -127,6 +127,43 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
         per_layer_parameters=per_layer_parameters,
         **layer_allocator_config,
         modeled_layer_complexities=layer_complexities_cpu,
+        static_server_computational_times=layer_complexities_cuda,
+    )
+
+    return strategy, client_layer_allocator
+
+
+def init_dynsl_w_profiling(config, model, model_evaluate_fn):
+    strategy = OracleStrategy(
+        model=model,
+        model_evaluate_fn=model_evaluate_fn,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
+        **OmegaConf.to_container(config.strategy, resolve=True),
+    )
+    layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
+    tmp_optimizer = optim.Adam(model.parameters())
+    layer_complexities_cuda, tensor_sizes = measure_per_layer_complexity(
+        model=model,
+        optimizer=tmp_optimizer,
+        batch_size=config.client.init_kwargs.batch_size * config.server_model_servicer.num_concat_batches,
+        iterations=400,
+        dry_runs=50,
+    )
+    del tmp_optimizer
+
+    if layer_allocator_config["max_client_layers"] < 0 or layer_allocator_config["max_client_layers"] > model.meaningful_split_points[-1]:
+        layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
+    assert layer_allocator_config["max_client_layers"] < get_num_layers(model)
+    per_layer_parameters = {
+        idx: sum(p.numel() for p in layer.state_dict().values())
+        for idx, layer in enumerate(model.children())
+    }
+    client_layer_allocator = DynSLClientLayerAllocatorWProfiling(
+        num_model_layers=get_num_layers(model),
+        meaningful_split_points=model.meaningful_split_points,
+        per_layer_emb_sizes=tensor_sizes,
+        per_layer_parameters=per_layer_parameters,
+        **layer_allocator_config,
         static_server_computational_times=layer_complexities_cuda,
     )
 
@@ -304,6 +341,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     strategy, client_layer_allocator = {
         "dynsl": init_dynsl_components,
         "dynsl_v2": init_dynsl_v2_components,
+        "dynsl_w_profiling": init_dynsl_w_profiling,
         "ares": init_ares_components,
         "fedavg": init_fedavg_components,
         "splitfed_v1": init_splitfed_components,

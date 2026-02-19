@@ -24,7 +24,7 @@ from slbd.client.client_app import ClientApp
 
 # algorithm imports
 from slbd.algos.ares import ARESNumpyClientAdapter
-from slbd.algos.dynsl import DynSLClientAdapter
+from slbd.algos.dynsl import DynSLClientAdapter, DynSLClientAdapterWProfiling
 from slbd.algos.fedavg import FedAvgNumpyClientAdapter
 from slbd.algos.splitfed import SplitFedClientAdapter
 from slbd.torch.sequential_model import FlexibleSequential
@@ -131,6 +131,7 @@ def _start_client_internal(
         "ares": ARESNumpyClientAdapter,
         "dynsl": DynSLClientAdapter,
         "dynsl_v2": DynSLClientAdapter,
+        "dynsl_w_profiling": DynSLClientAdapterWProfiling,
         "fedavg": FedAvgNumpyClientAdapter,
         "splitfed_v1": SplitFedClientAdapter,
         "splitfed_v2": SplitFedClientAdapter,

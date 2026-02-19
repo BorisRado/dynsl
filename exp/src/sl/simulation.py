@@ -16,7 +16,7 @@ from flwr.common import (
 )
 
 from slbd.client.model_trainer import ModelTrainer
-from slbd.common import BatchDataForward, BatchDataBackward, LayerChangeInfo
+from slbd.common import BatchDataForward, BatchDataBackward, LayerChangeInfo, SocketTimingMetrics
 from slbd.server.batching_worker_manager import BatchingWorkerManager
 
 
@@ -28,7 +28,8 @@ from slbd.common.constants import (
     CLIENT_NUM_RECEIVED_LAYERS,
     CLIENT_DATASET_SIZE,
     CLIENT_DEVICE_TYPE,
-    SL_LOCAL_COMPUTATION_TIME,
+    SL_BACKWARD_TIME,
+    SL_PER_LAYER_FORWARD_TIMES,
 )
 
 
@@ -117,6 +118,12 @@ class SLExecutor:
         self.dynamic_layers_strategy = dynamic_layers_strategy
         self.client_exchange_optimizer_states = client_exchange_optimizer_states
         self.event_loop = asyncio.new_event_loop()
+        self._no_metrics = SocketTimingMetrics(
+            uplink_throughput_Mbps=1e8,
+            downlink_throughput_Mbps=1e8,
+            per_layer_forward_times=[],
+            tot_backward_time=-1
+        )
         self._worker_manager = BatchingWorkerManager(
             server_model_manager=server_model_manager,
             client_layer_allocator=client_layer_allocator,
@@ -220,9 +227,10 @@ class SLExecutor:
                     continue
 
                 payload = torch_to_numpy(payload)
-                del payload[SL_LOCAL_COMPUTATION_TIME]
+                del payload[SL_BACKWARD_TIME]
+                del payload[SL_PER_LAYER_FORWARD_TIMES]
 
-                data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=None)
+                data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=self._no_metrics)
                 future = self._worker_manager \
                     .enqueue_and_get_future(client_id=entry["cid"], data=data)
                 futures.append(future)
@@ -305,9 +313,10 @@ class SLExecutor:
                     continue
 
                 payload = torch_to_numpy(payload)
-                del payload[SL_LOCAL_COMPUTATION_TIME]
+                del payload[SL_BACKWARD_TIME]
+                del payload[SL_PER_LAYER_FORWARD_TIMES]
 
-                data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=None)
+                data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=self._no_metrics)
                 backward_data: BatchDataBackward = await self._worker_manager \
                     .enqueue_and_get_future(client_id=entry["cid"], data=data)
                 gradient = backward_data.data

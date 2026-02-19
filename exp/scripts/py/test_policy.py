@@ -79,10 +79,12 @@ class SimulationClient:
             batch = BatchDataForward(
                 data=current_data,
                 is_training=True,
+                # TODO: needs to be fixed!
                 client_timing_metrics=SocketTimingMetrics(
-                    client_local_computation_time=local_computation_time,
                     uplink_throughput_Mbps=1000.,
                     downlink_throughput_Mbps=1000.,
+                    per_layer_forward_times=[],
+                    tot_backward_time=-1,
                 ),
             )
             _ = current_data.pop("client_model_weights", None)

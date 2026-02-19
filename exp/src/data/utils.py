@@ -5,14 +5,12 @@ from transformers import DataCollatorWithPadding
 
 def get_dataloader(dataset, batch_size, shuffle=True):
     kwargs = {}
-    num_workers = 1
     if dataset._dataset_type == "nlp":
         kwargs["collate_fn"] = DataCollatorWithPadding(
             tokenizer=dataset._employed_tokenizer,
             padding="longest"
         )
     if dataset._dataset_type == "cv" and dataset._keep_in_memory:
-        num_workers = 0
         def cv_collate_fn(batch):
             imgs, labels = zip(*batch)
             imgs = [img.flip(-1) if torch.rand(1).item() < 0.5 else img for img in imgs]
@@ -24,10 +22,9 @@ def get_dataloader(dataset, batch_size, shuffle=True):
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        num_workers=num_workers,
+        num_workers=0,
         pin_memory=torch.cuda.is_available(),
         drop_last=True,
-        persistent_workers=num_workers > 0,
         **kwargs
     )
 

@@ -29,6 +29,8 @@ def load_cv_testset(dataset_config):
     dataset = dataset.with_transform(apply_test_transforms)
     if "image" in dataset.column_names:
         dataset = dataset.rename_column("image", "img")
+    if "fine_label" in dataset.column_names and "label" not in dataset.column_names:
+        dataset = dataset.rename_column("fine_label", "label")
     dataset = dataset.select_columns(["img", "label"])
     dataset._dataset_type = "cv"
     dataset._keep_in_memory = False
@@ -74,6 +76,11 @@ def _load_cv_dataset(client_idxs, dataset_config, partitioning_config, seed, kee
     assert isinstance(client_idxs, list)
 
     trainsets = [fds.load_partition(idx) for idx in client_idxs]
+    for idx, ts in enumerate(trainsets):
+        if "image" in ts.column_names:
+            trainsets[idx] = ts.rename_column("image", "img")
+        if "fine_label" in ts.column_names and "label" not in ts.column_names:
+            trainsets[idx] = ts.rename_column("fine_label", "label")
     trainsets = [ts.select_columns(["img", "label"]) for ts in trainsets]
     trainsets = [ts.with_transform(apply_train_transforms) for ts in trainsets]
 
