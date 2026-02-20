@@ -46,6 +46,7 @@ class ModelTrainer:
         receiving_transform_fn,
         dynamic_layers_strategy,
         exchange_optimizer_states,
+        separate_client_clf_head=None,
     ):
         """
         Initialize the ModelTrainer.
@@ -66,6 +67,7 @@ class ModelTrainer:
         self._num_layers_entire_model = get_num_layers(self._whole_model)
         self._num_received_layers = num_received_layers
         self.exchange_optimizer_states = exchange_optimizer_states
+        self._separate_client_clf_head = separate_client_clf_head
         self._model: Optional[FlexibleSequential] = None
         self._optimizer: Optional[torch.optim.Optimizer] = None
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -170,7 +172,7 @@ class ModelTrainer:
         payload, client_output = self.forward_pass(input_vars, labels)
         if payload is None:
             return
-        gradient, control, loss = self._server_model_proxy(**payload)
+        gradient, control, loss = self._server_model_proxy(**payload, _requires_response_=self._separate_client_clf_head is not None)
         self.backward_pass(gradient, control, loss, client_output)
 
     def forward_pass(self, input_vars, labels):
@@ -189,6 +191,14 @@ class ModelTrainer:
             loss = loss.item()
             self._update_metrics(loss, labels.shape[0])
             return None, None
+        if self._separate_client_clf_head is not None:
+            # client has encoder+separate classification head -- compute the loss locally using the small head
+            with self.timer:
+                logits = self._separate_client_clf_head(client_output)
+                loss = self._criterion(logits, labels.to(self._device))
+                loss.backward()
+                self._optimizer.step()
+                self._update_metrics(loss.item(), logits.shape[0])
 
         send_client_output = client_output.detach().cpu().numpy() if isinstance(client_output, torch.Tensor) \
             else (e.detach().cpu().numpy() for e in client_output)
@@ -207,6 +217,8 @@ class ModelTrainer:
 
     def backward_pass(self, gradient, control, loss, client_output):
         self._removed_weights, self._removed_optimizer_states = None, None
+        if self._separate_client_clf_head is not None:
+            return
 
         if self.receiving_transform_fn is not None:
             gradient = self.receiving_transform_fn(gradient, client_output=client_output)

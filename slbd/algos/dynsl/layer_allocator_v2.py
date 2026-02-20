@@ -478,9 +478,9 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
 
     def collect_epoch_metrics(self):
         return {
-            "tot_server_training_time": self.tot_server_computation_time,
-            "layer_history": self._allocated_layer_history,
-            "client_throughputs": self._client_throughput,
+            "train/tot_server_training_time": self.tot_server_computation_time,
+            "train/layer_history": self._allocated_layer_history,
+            "train/client_throughputs": list(self._client_throughputs.items()),
         }
 
     def get_client_offloaded_layer_count(self, client_id):

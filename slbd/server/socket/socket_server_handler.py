@@ -89,12 +89,12 @@ class SocketServerHandler:
                 if message is None:
                     break
 
-                if message["type"] == "close":
+                elif message["type"] == "close":
                     # Client is closing the connection
                     await send_message_async(client_socket, {"type": "close_ack"}, self._loop)
                     break
 
-                if message["type"] == "forward":
+                elif message["type"] == "fwd":
 
                     # Parse incoming data
                     batch_data = bytes_to_ndarray_dict(**message["data"])
@@ -118,6 +118,23 @@ class SocketServerHandler:
 
                     # Send response
                     await send_message_async(client_socket, self._to_socket_response(res), self._loop)
+
+                elif message["type"] == "sfwd":
+
+                    # Parse incoming data
+                    batch_data = bytes_to_ndarray_dict(**message["data"])
+
+                    timing_metrics = SocketTimingMetrics(-1, -1, [], -1) # dummy values
+
+                    # Create forward data
+                    data_fwd = BatchDataForward(
+                        data=batch_data,
+                        is_training=message["training"],
+                        client_timing_metrics=timing_metrics
+                    )
+
+                    _ = await self._batching_worker.enqueue_and_get_future(client_id, data_fwd)
+                    # in streaming FSL, the client trains only on the local loss -- we do not send the gradient back
 
         except Exception as e:
             import traceback

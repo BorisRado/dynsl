@@ -43,6 +43,7 @@ class SocketServerModelProxy(ServerModelProxy):
     def __call__(
         self,
         training=True,
+        _requires_response_=True,
         **kwargs,
     ):
         """Send data to server and receive gradient.
@@ -70,7 +71,7 @@ class SocketServerModelProxy(ServerModelProxy):
 
         # Prepare message
         message = {
-            "type": "forward",
+            "type": "fwd" if _requires_response_ else "sfwd", # sfwd for "streaming" fwd
             "data": ndarray_dict_to_bytes(**batch_data),
             "training": training,
             SL_DOWNLINK_THROUGHPUT: self.downlink_throughput,
@@ -80,6 +81,8 @@ class SocketServerModelProxy(ServerModelProxy):
 
         # Send and receive
         send_message(self.sock, message)
+        if not _requires_response_:
+            return
         response, self.downlink_throughput = recv_message(self.sock)
 
         # Parse response

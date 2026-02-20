@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.optim as optim
 
 from omegaconf import DictConfig, OmegaConf
@@ -64,6 +65,38 @@ class OptimizerGenerator:
 
     def get_current_lr(self):
         return self._optim_config["lr"]
+
+
+def create_classification_head(encoder_model, num_classes, fc_dims=[256,]):
+    shp = list(encoder_model.parameters())[-1].shape
+    layers = []
+    layers.append(nn.AdaptiveAvgPool2d(2))
+    layers.append(nn.Flatten())
+    if len(shp) == 1:
+        prev_shape = shp[0] * 4
+    else:
+        print("Warning -- last parameter should be single dimensional...")
+        avg = nn.AdaptiveAvgPool2d(2)
+        prev_shape = avg(encoder_model(torch.randn(2, 3, 32, 32))).numel() // 2
+
+    for fc_dim in fc_dims:
+        layers.append(nn.Linear(prev_shape, fc_dim))
+        layers.append(nn.ReLU())
+
+    layers.append(nn.Linear(fc_dims[-1], num_classes))
+
+    clf_head = nn.Sequential(*layers)
+
+    # Re-initialize model weights using PyTorch's default initialization with a generator
+    g = torch.Generator().manual_seed(42)
+    for m in clf_head.modules():
+        if isinstance(m, nn.Linear):
+            nn.init.kaiming_uniform_(m.weight, a=np.sqrt(5), generator=g)
+            if m.bias is not None:
+                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
+                bound = 1 / np.sqrt(fan_in) if fan_in > 0 else 0
+                nn.init.uniform_(m.bias, -bound, bound, generator=g)
+    return clf_head
 
 
 if __name__ == "__main__":

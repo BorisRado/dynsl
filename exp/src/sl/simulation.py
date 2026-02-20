@@ -1,3 +1,4 @@
+import copy
 import random
 import asyncio
 from typing import List, Tuple
@@ -18,7 +19,7 @@ from flwr.common import (
 from slbd.client.model_trainer import ModelTrainer
 from slbd.common import BatchDataForward, BatchDataBackward, LayerChangeInfo, SocketTimingMetrics
 from slbd.server.batching_worker_manager import BatchingWorkerManager
-
+from slbd.torch.model_utils import param_list_to_state_dict
 
 from exp.src.data.utils import get_dataloader
 from exp.src.common.stochasticity import StatefulRng
@@ -107,6 +108,7 @@ class SLExecutor:
         client_layer_allocator,
         num_concat_batches: int,
         request_group_timeout: float,
+        client_clf_head = None,
         dynamic_layers_strategy=None,
         client_exchange_optimizer_states=None,
         server_exchange_optimizer_states=None,
@@ -116,6 +118,7 @@ class SLExecutor:
         self.whole_model = whole_model
         self.client_layer_allocator = client_layer_allocator
         self.dynamic_layers_strategy = dynamic_layers_strategy
+        self.client_clf_head = client_clf_head
         self.client_exchange_optimizer_states = client_exchange_optimizer_states
         self.event_loop = asyncio.new_event_loop()
         self._no_metrics = SocketTimingMetrics(
@@ -154,10 +157,15 @@ class SLExecutor:
                 server_model_proxy = None
             stateful_rng = StatefulRng(seed)
 
+            init_parameters = parameters_to_ndarrays(ins.parameters)
+            if self.client_clf_head is not None:
+                nclf_params = len(list(self.client_clf_head.parameters()))
+                init_parameters, clf_parameters = init_parameters[:-nclf_params], init_parameters[-nclf_params:]
+
             model_trainer = ModelTrainer(
                 whole_model=self.whole_model,
                 num_received_layers=num_received_layers,
-                init_parameters=parameters_to_ndarrays(ins.parameters),
+                init_parameters=init_parameters,
                 server_model_proxy=server_model_proxy,
                 optimizer_config=optimizer_config,
                 is_training=True,
@@ -166,6 +174,14 @@ class SLExecutor:
                 dynamic_layers_strategy=self.dynamic_layers_strategy,
                 exchange_optimizer_states=self.client_exchange_optimizer_states,
             )
+            if self.client_clf_head is not None:
+                assert clf_parameters[-1].ndim == 1
+                client_clf_head = copy.deepcopy(self.client_clf_head)
+                state_dict = param_list_to_state_dict(clf_parameters, client_clf_head)
+                client_clf_head.load_state_dict(state_dict, strict=True)
+                if torch.cuda.is_available():
+                    client_clf_head.cuda()
+                model_trainer._separate_client_clf_head = client_clf_head
 
             # build dataloader for this client so we can step through batches in lockstep
             client_obj = proxy.client
@@ -192,13 +208,34 @@ class SLExecutor:
         self._worker_manager.shutdown_all_workers()
         self.event_loop.close()
 
+    def collect_results(self, clients):
+        # collect results
+        results = []
+        for entry in clients:
+            trained_parameters, processed_data_points_dict, metrics = entry["trainer"].get_fit_results()
+            combined_metrics = processed_data_points_dict | metrics
+            if entry["trainer"]._separate_client_clf_head is not None:
+                for _, param in entry["trainer"]._separate_client_clf_head.state_dict().items():
+                    trained_parameters.append(param.detach().cpu().numpy())
+            dataset_size = entry["trainer"]._dataset_size
+            results.append(
+                (
+                    entry["proxy"],
+                    FitRes(
+                        status=Status(code=Code.OK, message="Success"),
+                        parameters=ndarrays_to_parameters(trained_parameters),
+                        num_examples=dataset_size,
+                        metrics=combined_metrics,
+                    )
+                )
+            )
+        return results
+
     async def run(self):
         # Process batches in rounds; in each round shuffle clients and process one batch per client
         clients = self._clients
         # compute number of batches per client (dataloader drop_last=True so lengths equal-ish)
         remaining = [len(c["dataloader"]) for c in clients]
-
-        results = []
 
         while any(r > 0 for r in remaining):
             order = [i for i, r in enumerate(remaining) if r > 0]
@@ -257,24 +294,7 @@ class SLExecutor:
                 )
                 remaining[idx] -= 1
 
-        # collect results
-        for entry in clients:
-            trained_parameters, processed_data_points_dict, metrics = entry["trainer"].get_fit_results()
-            combined_metrics = processed_data_points_dict | metrics
-            dataset_size = entry["trainer"]._dataset_size
-            results.append(
-                (
-                    entry["proxy"],
-                    FitRes(
-                        status=Status(code=Code.OK, message="Success"),
-                        parameters=ndarrays_to_parameters(trained_parameters),
-                        num_examples=dataset_size,
-                        metrics=combined_metrics,
-                    )
-                )
-            )
-
-        return results
+        return self.collect_results(clients)
 
     async def run_wo_concatenation(self):
         # has lower memory usage
@@ -284,13 +304,9 @@ class SLExecutor:
         # compute number of batches per client (dataloader drop_last=True so lengths equal-ish)
         remaining = [len(c["dataloader"]) for c in clients]
 
-        results = []
-
         while any(r > 0 for r in remaining):
             order = [i for i, r in enumerate(remaining) if r > 0]
             random.shuffle(order)
-            futures = []
-            client_outputs = []
             for idx in order:
                 entry = clients[idx]
                 try:
@@ -335,24 +351,50 @@ class SLExecutor:
                 )
                 remaining[idx] -= 1
 
-        # collect results
-        for entry in clients:
-            trained_parameters, processed_data_points_dict, metrics = entry["trainer"].get_fit_results()
-            combined_metrics = processed_data_points_dict | metrics
-            dataset_size = entry["trainer"]._dataset_size
-            results.append(
-                (
-                    entry["proxy"],
-                    FitRes(
-                        status=Status(code=Code.OK, message="Success"),
-                        parameters=ndarrays_to_parameters(trained_parameters),
-                        num_examples=dataset_size,
-                        metrics=combined_metrics,
-                    )
-                )
-            )
+        return self.collect_results(clients)
 
-        return results
+    async def run_no_backward_wo_concatenation(self):
+        # has lower memory usage
+
+        # Process batches in rounds; in each round shuffle clients and process one batch per client
+        clients = self._clients
+        # compute number of batches per client (dataloader drop_last=True so lengths equal-ish)
+        remaining = [len(c["dataloader"]) for c in clients]
+
+        while any(r > 0 for r in remaining):
+            order = [i for i, r in enumerate(remaining) if r > 0]
+            random.shuffle(order)
+            for idx in order:
+                entry = clients[idx]
+                try:
+                    with entry["rng"]:
+                        batch = next(entry["iterator"])
+                        if entry["dataset_type"] == "cv":
+                            payload, client_output = \
+                                entry["trainer"].forward_pass(batch["img"], batch["label"])
+                        else:
+                            payload, client_output = \
+                                entry["trainer"].forward_pass(
+                                    input_vars=(batch["input_ids"], batch["attention_mask"]),
+                                    labels=batch["labels"]
+                                )
+                except StopIteration:
+                    remaining[idx] = 0
+                    continue
+
+                if payload is None:
+                    continue
+
+                payload = torch_to_numpy(payload)
+                del payload[SL_BACKWARD_TIME]
+                del payload[SL_PER_LAYER_FORWARD_TIMES]
+
+                data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=self._no_metrics)
+                await self._worker_manager \
+                    .enqueue_and_get_future(client_id=entry["cid"], data=data)
+                remaining[idx] -= 1
+
+        return self.collect_results(clients)
 
     def fit_clients_simulation(
         self,
@@ -361,7 +403,12 @@ class SLExecutor:
     ):
 
         self.init_epoch(client_instructions)
-        if has_batch_concatenation:
+        if self.client_clf_head is not None and not has_batch_concatenation:
+            print("Running SFSL")
+            results = self.event_loop.run_until_complete(self.run_no_backward_wo_concatenation())
+        elif self.client_clf_head is not None and has_batch_concatenation:
+            raise Exception("Still need to implement this")
+        elif has_batch_concatenation:
             results = self.event_loop.run_until_complete(self.run())
         else:
             results = self.event_loop.run_until_complete(self.run_wo_concatenation())

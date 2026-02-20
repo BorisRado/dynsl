@@ -312,8 +312,14 @@ class BaseStrategy(Strategy):
 
         aggregated_metrics = {}
         if self.fit_metrics_aggregation_fn is not None:
+            # client
             fit_metrics = [(res.num_examples, res.metrics) for _, res in client_results]
             cids = [proxy.cid for proxy, _ in client_results]
+            aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics, cids)
+
+            # server
+            fit_metrics = [(max(res.per_layer_training_examples.values()), res.metrics) for res in server_results]
+            cids = [None for _ in fit_metrics]
             aggregated_metrics |= self.fit_metrics_aggregation_fn(fit_metrics, cids)
 
         if wandb.run is not None:

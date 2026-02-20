@@ -16,6 +16,7 @@ from slbd.algos.dynsl.simulation_layer_allocator import DynSLSimulationClientLay
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
 from slbd.algos.oracle import OracleSimulationClientLayerAllocator, OracleStrategy
+from slbd.algos.sfsl import SFSLClientLayerAllocator, SFSLStrategy
 from slbd.torch.model_utils import get_num_layers
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
 
@@ -47,12 +48,18 @@ def run(cfg: DictConfig):
     del cfg.server_model_servicer.servicer_name
 
     # sanity checks
-    assert cfg.algorithm.name in {"splitfed_v1", "splitfed_v2", "dynsl_simulation", "fedavg", "oracle"}
+    assert cfg.algorithm.name in {"splitfed_v1", "splitfed_v2", "dynsl_simulation", "fedavg", "oracle", "sfsl"}
     assert len([v for v in cfg.client.init_kwargs.keys() if v.startswith("bg_")]) == 0, \
         "Makes no sense to use background processes when using simulations"
 
     set_seed(cfg.general.seed)
     model = instantiate(cfg.model)
+    client_clf_head = None
+    if cfg.algorithm.name == "sfsl":
+        from slbd.torch.utils import create_classification_head
+        from slbd.torch.model_utils import extract_submodel
+        encoder = extract_submodel(model, 0, cfg.algorithm.num_client_layers)
+        client_clf_head = create_classification_head(encoder, cfg.data.num_classes, cfg.algorithm.strategy_init_args.clf_head_dimensions)
 
     if cfg.wandb:
         if run_exists_already(cfg):
@@ -86,6 +93,7 @@ def run(cfg: DictConfig):
         "dynsl_simulation": DynSLStrategy,
         "splitfed_v1": SplitFedStrategy,
         "splitfed_v2": SplitFedStrategy,
+        "sfsl": SFSLStrategy,
         "oracle": OracleStrategy,
         "fedavg": FedAvgStrategy,
     }[cfg.algorithm.name](
@@ -100,6 +108,7 @@ def run(cfg: DictConfig):
         "dynsl_simulation": DynSLSimulationClientLayerAllocator,
         "splitfed_v1": SplitFedClientLayerAllocator,
         "splitfed_v2": SplitFedClientLayerAllocator,
+        "sfsl": SFSLClientLayerAllocator,
         "oracle": OracleSimulationClientLayerAllocator,
         "fedavg": FedAvgClientLayerAllocator
     }[cfg.algorithm.name](
@@ -122,6 +131,7 @@ def run(cfg: DictConfig):
         request_group_timeout=cfg.server_model_servicer.request_group_timeout,
         num_concat_batches=cfg.server_model_servicer.num_concat_batches,
         whole_model=copy.deepcopy(model),
+        client_clf_head=client_clf_head,
         dynamic_layers_strategy=cfg.algorithm.get("dynamic_layers_strategy", None),
         server_exchange_optimizer_states=cfg.algorithm.get("exchange_optimizer_states", None),
         client_exchange_optimizer_states=cfg.algorithm.get("client_adapter_args", {}).get("exchange_optimizer_states", None),

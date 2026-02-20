@@ -1,7 +1,6 @@
 from typing import List, Dict, Optional
 from collections import defaultdict
 
-import numpy as np
 import torch
 
 from slbd.torch.model_utils import shift_state_dict
@@ -27,17 +26,19 @@ class TorchServerModel:
         self._optimizer = None
         self._criterion = torch.nn.CrossEntropyLoss()
         self._per_layer_data_points = defaultdict(int) # layer idxs are absolute!!!
-        self._metrics_dict = {}
+        self._metrics_dict = {"train/server_loss": 0.}
 
     def get_train_results(self):
         state_dict = shift_state_dict(
             self._model.state_dict(),
             self.first_server_layer
         )
+        per_layer_training_examples = {k: int(v) for k, v in self._per_layer_data_points.items()}
+        self._metrics_dict["train/server_loss"] /= max(per_layer_training_examples.values())
         return ServerModelFitRes(
             model_state_dict=state_dict,
-            per_layer_training_examples={k: int(v) for k, v in self._per_layer_data_points.items()},
             metrics=self._metrics_dict,
+            per_layer_training_examples=per_layer_training_examples,
         )
 
     def _get_model_from_ins(self, instructions):
@@ -86,6 +87,7 @@ class TorchServerModel:
         self._optimizer.zero_grad(set_to_none=True)
         logits = self._forward_sequence_of_layers(embeddings, num_offloaded_layers)
         loss = self._criterion(logits, labels)
+        self._metrics_dict["train/server_loss"] += loss.item() * logits.shape[0]
         loss.backward()
         self._optimizer.step()
 

@@ -42,6 +42,7 @@ from slbd.common.profiling import (
 )
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
 from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2, DynSLClientLayerAllocatorWProfiling
+from slbd.algos.sfsl import SFSLClientLayerAllocator, SFSLStrategy
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
 from slbd.algos.oracle import OracleClientLayerAllocator, OracleStrategy
@@ -165,6 +166,23 @@ def init_dynsl_w_profiling(config, model, model_evaluate_fn):
         per_layer_parameters=per_layer_parameters,
         **layer_allocator_config,
         static_server_computational_times=layer_complexities_cuda,
+    )
+
+    return strategy, client_layer_allocator
+
+
+def init_sfsl_components(config, model, model_evaluate_fn):
+    strategy = SFSLStrategy(
+        model=model,
+        model_evaluate_fn=model_evaluate_fn,
+        optimizer_config=OmegaConf.to_container(config.optimizer),
+        **OmegaConf.to_container(config.strategy, resolve=True),
+        **OmegaConf.to_container(config.algorithm.strategy_init_args),
+    )
+    client_layer_allocator = SFSLClientLayerAllocator(
+        num_model_layers=get_num_layers(model),
+        meaningful_split_points=model.meaningful_split_points,
+        **OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True),
     )
 
     return strategy, client_layer_allocator
@@ -342,6 +360,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         "dynsl": init_dynsl_components,
         "dynsl_v2": init_dynsl_v2_components,
         "dynsl_w_profiling": init_dynsl_w_profiling,
+        "sfsl": init_sfsl_components,
         "ares": init_ares_components,
         "fedavg": init_fedavg_components,
         "splitfed_v1": init_splitfed_components,
