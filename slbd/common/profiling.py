@@ -1,7 +1,9 @@
 import os
 import copy
+import time
 from typing import Tuple, List
 
+import numpy as np
 import torch
 from fvcore.nn import FlopCountAnalysis
 
@@ -256,3 +258,115 @@ def get_flops_per_layer_fvcore(model):
     flops_by_module = dict(flops.by_module())
     flops_by_module = {k: flops_by_module[str(k)] / batch_size for k in range(len(model))}
     return flops_by_module
+
+
+
+class PerLayerTimer:
+
+    def __init__(self, model, optimizers):
+        assert len(optimizers) == len(model)
+        self.model = model
+        self.optimizers = optimizers
+        self.use_cuda = torch.cuda.is_available()
+
+    def register_time(self):
+        if self.use_cuda:
+            event = torch.cuda.Event(enable_timing=True)
+            event.record()
+            return event
+        else:
+            return time.perf_counter()
+
+    def compute_difference(self, reference, target):
+        if self.use_cuda:
+            return target.elapsed_time(reference) / 1e3
+        else:
+            return target - reference
+
+    def sync(self):
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
+    def __call__(self, input):
+        # add hooks to the model -- MUST BE ADDED BEFORE FORWARD
+
+        backward_end_times = []
+
+        x = input
+        forward_ends = []
+        forward_very_start = self.register_time()
+        for layer in self.model:
+            x = layer(x)
+            forward_ends.append(self.register_time())
+            assert x.requires_grad
+            x.register_hook(lambda _: backward_end_times.insert(0, self.register_time()))
+
+        # compute the forward times
+        self.sync()
+        fwd_times = [self.compute_difference(layer_end, forward_very_start) for layer_end in forward_ends]
+
+        for optim in self.optimizers:
+            if optim:
+                optim.zero_grad()
+
+        loss = x.norm()
+        backward_end_times = [self.register_time()]
+        loss.backward()
+        backward_end_time = backward_end_times[-1]
+
+        self.sync()
+        backward_times = [self.compute_difference(end_time, backward_end_time) for end_time in reversed(backward_end_times[:-1])]
+
+        # optimizer step
+        optimizer_times = []
+        for optim in self.optimizers:
+            if optim is None:
+                optimizer_times.append(0.)
+            else:
+                start_time = self.register_time()
+                optim.step()
+                end_time = self.register_time()
+                self.sync()
+                optimizer_times.append(self.compute_difference(end_time, start_time))
+
+        per_layer_total_time = [sum(v) for v in zip(fwd_times, backward_times, optimizer_times)]
+        return fwd_times, backward_times, optimizer_times, per_layer_total_time
+
+
+def profile_cumulative_per_layer_time(model: torch.nn.Sequential, optimizer_name: str, batch_size: int, iterations, dry_runs):
+    model = copy.deepcopy(model)
+    if torch.cuda.is_available():
+        model.cuda()
+
+    optimizers = []
+    all_forward_times, all_backward_times, all_optimizer_times, all_total_times = [], [], [], []
+    for layer in model:
+        if any(p.requires_grad for p in layer.parameters()):
+            if optimizer_name.lower() == "adam":
+                optimizers.append(torch.optim.Adam(layer.parameters()))
+            elif optimizer_name.lower() == "sgd":
+                optimizers.append(torch.optim.SGD(layer.parameters(), momentum=0.9))
+            else:
+                raise Exception("Unknown optimizer")
+
+        else:
+            optimizers.append(None)
+
+    per_layer_timer = PerLayerTimer(model, optimizers)
+
+    for iter_idx in range(iterations):
+        x = torch.randn(batch_size, 3, 32, 32, requires_grad=True)
+        if torch.cuda.is_available():
+            x = x.cuda()
+
+        # create a new optimizer per layer so as to be able to measure the per-layer optimizer time
+        fwd_times, backward_times, optimizer_times, per_layer_time = per_layer_timer(x)
+        if iter_idx < dry_runs:
+            continue
+        all_forward_times.append(fwd_times)
+        all_backward_times.append(backward_times)
+        all_optimizer_times.append(optimizer_times)
+        all_total_times.append(per_layer_time)
+
+    assert len(all_forward_times) == iterations - dry_runs
+    return np.mean(all_total_times, axis=0)

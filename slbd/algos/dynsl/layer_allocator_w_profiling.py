@@ -150,7 +150,7 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
         # extract layer complexities
         tmp_layer_complexities = {int(k[4:]): v for k, v in result.properties.items() if k.startswith("__lc")}
         self._client_profiled_times[client_proxy.cid] = [tmp_layer_complexities[idx] for idx in range(len(tmp_layer_complexities))]
-        print("profiled client times", self._client_profiled_times[client_proxy.cid])
+        print("Profiled client times", self._client_profiled_times[client_proxy.cid])
         node_name = result.properties["node_name"]
         self._cid_to_node_name[client_proxy.cid] = node_name
         log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers [{result.properties[CLIENT_DEVICE_TYPE]} -- {node_name}]")
