@@ -188,13 +188,8 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
             server_fn=self.compute_server_time,
             gamma=0.2
         )
+        print("Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items()})
         return [self._client_allocated_layers[cid] for cid in self._epoch_clients]
-
-    def _compute_objective(self, layer_config):
-        return max(
-            self.compute_server_time(layer_config),
-            max(self.compute_client_time(cid, sp) for cid, sp in layer_config.items())
-        )
 
     def compute_client_time(self, cid, L):
 
@@ -214,7 +209,7 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
         #           at the end of the epoch, so we say that the layer_movement_time is still 0.
         if current_num_layers_on_device < L:
             num_moved_layer_Mbits = self._per_layer_model_parameters_Mbits[(current_num_layers_on_device, L)]
-            layer_movement_time = 2 * num_moved_layer_Mbits / self._client_throughput[cid]
+            layer_movement_time = 2 * num_moved_layer_Mbits / 1_000
         return self._dataset_sizes[cid] * per_batch_time + layer_movement_time
 
     def update_server_metrics(

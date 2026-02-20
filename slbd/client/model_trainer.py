@@ -172,7 +172,7 @@ class ModelTrainer:
         payload, client_output = self.forward_pass(input_vars, labels)
         if payload is None:
             return
-        gradient, control, loss = self._server_model_proxy(**payload, _requires_response_=self._separate_client_clf_head is not None)
+        gradient, control, loss = self._server_model_proxy(**payload, _requires_response_=self._separate_client_clf_head is None)
         self.backward_pass(gradient, control, loss, client_output)
 
     def forward_pass(self, input_vars, labels):

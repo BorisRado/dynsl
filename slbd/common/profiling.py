@@ -9,6 +9,7 @@ from fvcore.nn import FlopCountAnalysis
 
 from slbd.common.utils import measure_time
 from slbd.torch.sequential_model import FlexibleSequential
+from slbd.torch.model_utils import extract_submodel
 
 
 def _get_layer(model, optimizer, device, idx):
@@ -260,6 +261,14 @@ def get_flops_per_layer_fvcore(model):
     return flops_by_module
 
 
+def register_time():
+    if torch.cuda.is_available():
+        event = torch.cuda.Event(enable_timing=True)
+        event.record()
+        return event
+    else:
+        return time.perf_counter()
+
 
 class PerLayerTimer:
 
@@ -269,19 +278,12 @@ class PerLayerTimer:
         self.optimizers = optimizers
         self.use_cuda = torch.cuda.is_available()
 
-    def register_time(self):
-        if self.use_cuda:
-            event = torch.cuda.Event(enable_timing=True)
-            event.record()
-            return event
-        else:
-            return time.perf_counter()
 
-    def compute_difference(self, reference, target):
+    def compute_difference(self, target, reference):
         if self.use_cuda:
             return target.elapsed_time(reference) / 1e3
         else:
-            return target - reference
+            return reference - target
 
     def sync(self):
         if torch.cuda.is_available():
@@ -289,51 +291,45 @@ class PerLayerTimer:
 
     def __call__(self, input):
         # add hooks to the model -- MUST BE ADDED BEFORE FORWARD
-
-        backward_end_times = []
+        backward_timestamps, forward_timestamps, optimizer_timestamps = [], [], []
 
         x = input
-        forward_ends = []
-        forward_very_start = self.register_time()
+
+        # forward pass
+        forward_timestamps = [register_time()]
         for layer in self.model:
             x = layer(x)
-            forward_ends.append(self.register_time())
-            assert x.requires_grad
-            x.register_hook(lambda _: backward_end_times.insert(0, self.register_time()))
+            forward_timestamps.append(register_time())
+            x.register_hook(lambda _: backward_timestamps.insert(0, register_time()))
 
-        # compute the forward times
-        self.sync()
-        fwd_times = [self.compute_difference(layer_end, forward_very_start) for layer_end in forward_ends]
-
-        for optim in self.optimizers:
-            if optim:
-                optim.zero_grad()
-
-        loss = x.norm()
-        backward_end_times = [self.register_time()]
-        loss.backward()
-        backward_end_time = backward_end_times[-1]
-
-        self.sync()
-        backward_times = [self.compute_difference(end_time, backward_end_time) for end_time in reversed(backward_end_times[:-1])]
+        # backward pass
+        grad = torch.randn_like(x).detach()
+        backward_timestamps = [register_time()]
+        x.backward(grad)
 
         # optimizer step
-        optimizer_times = []
+        optimizer_timestamps = [register_time()]
         for optim in self.optimizers:
-            if optim is None:
-                optimizer_times.append(0.)
-            else:
-                start_time = self.register_time()
+            if optim is not None:
                 optim.step()
-                end_time = self.register_time()
-                self.sync()
-                optimizer_times.append(self.compute_difference(end_time, start_time))
+            optimizer_timestamps.append(register_time())
 
-        per_layer_total_time = [sum(v) for v in zip(fwd_times, backward_times, optimizer_times)]
-        return fwd_times, backward_times, optimizer_times, per_layer_total_time
+        self.sync()
+
+        # compute the forward & backward pass layer-by-layer
+        forward_times = [self.compute_difference(prev, nxt) for prev, nxt in zip(forward_timestamps[:-1], forward_timestamps[1:])]
+        backward_times = [self.compute_difference(nxt, prev) for prev, nxt in zip(backward_timestamps[:-1], backward_timestamps[1:])]
+        optimizer_steps_times = [self.compute_difference(prev, nxt) for prev, nxt in zip(optimizer_timestamps[:-1], optimizer_timestamps[1:])]
+
+        assert all([a >= 0. for a in forward_times])
+        assert all([a >= 0. for a in backward_times])
+        assert all([a >= 0. for a in optimizer_steps_times])
+        per_layer_total_time = [sum(v) for v in zip(forward_times, backward_times, optimizer_steps_times)]
+        return forward_times, backward_times, optimizer_steps_times, per_layer_total_time
 
 
-def profile_cumulative_per_layer_time(model: torch.nn.Sequential, optimizer_name: str, batch_size: int, iterations, dry_runs):
+
+def profile_cumulative_per_layer_time_full_model(model: torch.nn.Sequential, optimizer_name: str, batch_size: int, iterations, dry_runs):
     model = copy.deepcopy(model)
     if torch.cuda.is_available():
         model.cuda()
@@ -369,4 +365,99 @@ def profile_cumulative_per_layer_time(model: torch.nn.Sequential, optimizer_name
         all_total_times.append(per_layer_time)
 
     assert len(all_forward_times) == iterations - dry_runs
-    return np.mean(all_total_times, axis=0)
+    return np.cumsum(np.mean(all_total_times, axis=0)).tolist()
+
+
+def profile_cumulative_per_layer_time_partial_model(model, optimizer_name, batch_size, iterations, dry_runs, considered_split_points=None):
+    if considered_split_points is None:
+        considered_split_points = list(range(1, len(model)+1))
+
+    is_cuda = torch.cuda.is_available()
+    device = torch.device("cuda" if is_cuda else "cpu")
+    times = []
+    x = torch.randn(batch_size, 3, 32, 32, device=device)
+    for split_point in considered_split_points:
+        submodel = extract_submodel(model, 0, split_point).to(device)
+        assert len(submodel) == split_point
+        assert optimizer_name == "adam"
+        suboptimizer = torch.optim.Adam(submodel.parameters())
+
+        grad = None
+        for _ in range(dry_runs):
+            suboptimizer.zero_grad()
+            embeddings = submodel(x)
+            if grad is None:
+                grad = torch.randn_like(embeddings)
+            embeddings.backward(grad)
+            suboptimizer.step()
+
+        start = register_time()
+        for _ in range(iterations - dry_runs):
+            suboptimizer.zero_grad()
+            embeddings = submodel(x)
+            embeddings.backward(grad)
+            suboptimizer.step()
+
+        end = register_time()
+        if is_cuda:
+            torch.cuda.synchronize()
+            times.append(start.elapsed_time(end) / 1e3 / (iterations - dry_runs))
+        else:
+            times.append((time.perf_counter() - start) / (iterations - dry_runs))
+
+    return times
+
+
+def profile_cumulative_per_layer_time_individual_layers(model, optimizer_name, batch_size, iterations, dry_runs):
+
+    is_cuda = torch.cuda.is_available()
+    device = torch.device("cuda" if is_cuda else "cpu")
+    times = []
+
+    model = copy.deepcopy(model)
+    x = torch.randn(batch_size, 3, 32, 32, device=device)
+    for layer in model.children():
+        layer.to(device)
+        requires_grad = False
+        if any(p.requires_grad for p in layer.parameters()):
+            optimizer = torch.optim.Adam(layer.parameters())
+            requires_grad = True
+
+        # FIX: Ensure input tensor requires grad for the backward pass to work effectively
+        # on the layer weights, or at least ensure the computation graph is built.
+        # We need to detach x from previous layers to treat this layer individually,
+        # otherwise backprop tries to go back to the start of the model.
+        x = x.detach()
+
+        grad = None
+        for _ in range(dry_runs):
+            # Regenerate input noise locally or reuse x?
+            # Reusing x is safer for shape consistency, but we must ensure graph creation.
+            y = layer(x)
+            if grad is None:
+                grad = torch.randn_like(y).detach()
+            if requires_grad:
+                optimizer.zero_grad()
+                y.backward(grad)
+                optimizer.step()
+
+        start = register_time()
+        for _ in range(iterations - dry_runs):
+            y = layer(x)
+            if requires_grad:
+                optimizer.zero_grad()
+                y.backward(grad)
+                optimizer.step()
+        end = register_time()
+
+        if is_cuda:
+            torch.cuda.synchronize()
+            times.append(start.elapsed_time(end) / 1e3 / (iterations - dry_runs))
+        else:
+            times.append((time.perf_counter() - start) / (iterations - dry_runs))
+
+        # Pass the output to the next layer (detached from graph)
+        # We run one last forward to get the 'valid' output for the next layer's shape
+        x = y.clone().requires_grad_(True)
+
+    return np.cumsum(np.array(times)).tolist()

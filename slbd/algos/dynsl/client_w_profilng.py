@@ -4,7 +4,7 @@ from typing import Dict
 import torch
 from flwr.common import Config, Scalar
 
-from slbd.common.profiling import profile_cumulative_per_layer_time
+from slbd.common.profiling import profile_cumulative_per_layer_time_full_model
 from slbd.algos.base_numpy_client import BaseNumpyClientAdapter
 from slbd.common.constants import (
     MIN_NUMBER_OF_CLIENT_LAYERS,
@@ -28,9 +28,9 @@ class DynSLClientAdapterWProfiling(BaseNumpyClientAdapter):
         except:
             node_name = str(torch.cuda.is_available())
 
-        per_layer_complexity = profile_cumulative_per_layer_time(
+        per_layer_complexity = profile_cumulative_per_layer_time_full_model(
             model=self.whole_model,
-            optimizer="adam",
+            optimizer_name="adam",
             batch_size=self.torch_client.batch_size,
             iterations=300 if torch.cuda.is_available() else 100,
             dry_runs=50 if torch.cuda.is_available() else 10,
