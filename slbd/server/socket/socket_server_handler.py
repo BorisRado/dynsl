@@ -96,9 +96,6 @@ class SocketServerHandler:
 
                 elif message["type"] == "fwd":
 
-                    # Parse incoming data
-                    batch_data = bytes_to_ndarray_dict(**message["data"])
-
                     # Create timing metrics
                     timing_metrics = SocketTimingMetrics(
                         uplink_throughput_Mbps=uplink_throughput,
@@ -109,7 +106,7 @@ class SocketServerHandler:
 
                     # Create forward data
                     data_fwd = BatchDataForward(
-                        data=batch_data,
+                        data=message["data"],
                         is_training=message["training"],
                         client_timing_metrics=timing_metrics
                     )
@@ -121,14 +118,11 @@ class SocketServerHandler:
 
                 elif message["type"] == "sfwd":
 
-                    # Parse incoming data
-                    batch_data = bytes_to_ndarray_dict(**message["data"])
-
                     timing_metrics = SocketTimingMetrics(-1, -1, [], -1) # dummy values
 
                     # Create forward data
                     data_fwd = BatchDataForward(
-                        data=batch_data,
+                        data=message["data"],
                         is_training=message["training"],
                         client_timing_metrics=timing_metrics
                     )
@@ -171,7 +165,7 @@ class SocketServerHandler:
 
         return {
             "type": "backward",
-            "data": ndarray_dict_to_bytes(**backward_data),
+            "data": backward_data,
             "layers_diff": data.layers_diff,
             "training_loss": data.training_loss,
         }

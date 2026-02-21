@@ -15,7 +15,7 @@ def send_message(sock: socket.socket, data: Any) -> None:
         sock: Socket to send the message through
         serialized_data: bytes to send
     """
-    serialized_data = pickle.dumps(data)
+    serialized_data = pickle.dumps(data, pickle.HIGHEST_PROTOCOL)
     length = len(serialized_data)
     # Send 4-byte length prefix followed by the data
     sock.sendall(struct.pack('!I', length))
@@ -106,7 +106,7 @@ async def send_message_async(sock: socket.socket, data: Any, loop: asyncio.Abstr
         data: Python object to send
         loop: Event loop for async operations
     """
-    serialized_data = pickle.dumps(data)
+    serialized_data = pickle.dumps(data, pickle.HIGHEST_PROTOCOL)
     length = len(serialized_data)
     # Send 4-byte length prefix followed by the data
     await loop.sock_sendall(sock, struct.pack('!I', length))

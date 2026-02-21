@@ -2,4 +2,4 @@ _target_: exp.src.model.architectures.resnet.ResNet18
 num_classes: ${data.num_classes}
 use_groupnorm: true
 num_groups: 16
-use_maxpool: true
+use_maxpool: false

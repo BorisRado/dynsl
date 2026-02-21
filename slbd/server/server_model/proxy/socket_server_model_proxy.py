@@ -72,7 +72,7 @@ class SocketServerModelProxy(ServerModelProxy):
         # Prepare message
         message = {
             "type": "fwd" if _requires_response_ else "sfwd", # sfwd for "streaming" fwd
-            "data": ndarray_dict_to_bytes(**batch_data),
+            "data": batch_data,
             "training": training,
             SL_DOWNLINK_THROUGHPUT: self.downlink_throughput,
             SL_PER_LAYER_FORWARD_TIMES: kwargs[SL_PER_LAYER_FORWARD_TIMES],
@@ -87,7 +87,7 @@ class SocketServerModelProxy(ServerModelProxy):
 
         # Parse response
         num_layers_diff = response["layers_diff"]
-        backward_data = bytes_to_ndarray_dict(**response["data"])
+        backward_data = response["data"]
         gradient = backward_data[SL_GRAD]
 
         layer_change_info = None

@@ -84,8 +84,6 @@ class SFSLClientAdapter(BaseNumpyClientAdapter):
             fc_dims=self.clf_head_dimensions
         )
         # load state dict onto the classification head
-        for idx, c in enumerate(clf_head_parameters):
-            print(idx, c.mean())
         state_dict = param_list_to_state_dict(clf_head_parameters, clf_head)
         clf_head.load_state_dict(state_dict, strict=True)
         if torch.cuda.is_available():
