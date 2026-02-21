@@ -23,6 +23,9 @@ def _apply_transforms_fn(batch, transforms):
 def load_cv_testset(dataset_config):
     test_transforms = instantiate(dataset_config.test_transforms)
     dataset = load_dataset(dataset_config.name, split="test")
+    if dataset.num_rows > 20_000:
+        # for cinic, as otherwise testing takes too long!
+        dataset = dataset.select(torch.randperm(dataset.num_rows)[:20_000].tolist())
 
     apply_test_transforms = partial(_apply_transforms_fn, transforms=test_transforms)
 

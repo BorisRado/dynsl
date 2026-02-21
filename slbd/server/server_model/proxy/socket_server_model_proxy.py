@@ -2,6 +2,7 @@ import socket
 from logging import DEBUG
 from typing import Optional
 
+import torch
 from flwr.common import log
 
 from slbd.common import LayerChangeInfo, bytes_to_ndarray_dict, ndarray_dict_to_bytes
@@ -61,13 +62,13 @@ class SocketServerModelProxy(ServerModelProxy):
         """
         # Serialize data
         batch_data = {
-            SL_EMBEDDINGS: kwargs[SL_EMBEDDINGS],
-            SL_LABELS: kwargs[SL_LABELS],
+            SL_EMBEDDINGS: [d.detach().cpu().numpy() for d in kwargs[SL_EMBEDDINGS]] if isinstance(kwargs[SL_EMBEDDINGS], list) else kwargs[SL_EMBEDDINGS].detach().cpu().numpy(),
+            SL_LABELS: kwargs[SL_LABELS].numpy(),
         }
         if kwargs[SL_WEIGHTS]:
-            batch_data[SL_WEIGHTS] = kwargs[SL_WEIGHTS]
+            batch_data[SL_WEIGHTS] = [d.detach().cpu().numpy() for d in kwargs[SL_WEIGHTS]]
             if kwargs[SL_OPTIM_STATES]:
-                batch_data[SL_OPTIM_STATES] = kwargs[SL_OPTIM_STATES]
+                batch_data[SL_OPTIM_STATES] = [d.detach().cpu().numpy() for d in kwargs[SL_OPTIM_STATES]]
 
         # Prepare message
         message = {
@@ -88,7 +89,7 @@ class SocketServerModelProxy(ServerModelProxy):
         # Parse response
         num_layers_diff = response["layers_diff"]
         backward_data = response["data"]
-        gradient = backward_data[SL_GRAD]
+        gradient = torch.from_numpy(backward_data[SL_GRAD])
 
         layer_change_info = None
         if num_layers_diff != 0:

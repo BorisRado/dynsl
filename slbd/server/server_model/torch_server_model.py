@@ -97,7 +97,7 @@ class TorchServerModel:
             gradient = embeddings.grad
 
         # all clients get assigned the same loss
-        return gradient.detach().cpu(), loss.item()
+        return gradient.detach(), loss.item()
 
     def _forward_sequence_of_layers(self, data, num_offloaded_layers):
         layers = list(self._model)[-num_offloaded_layers:]

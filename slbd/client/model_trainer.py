@@ -203,15 +203,12 @@ class ModelTrainer:
                 self._optimizer.step()
                 self._update_metrics(loss.item(), logits.shape[0])
 
-        send_client_output = client_output.detach().cpu().numpy() if isinstance(client_output, torch.Tensor) \
-            else (e.detach().cpu().numpy() for e in client_output)
-
-        if self.sending_transform_fn is not None:
-            send_client_output = self.sending_transform_fn(client_output)
+        send_client_output = client_output.detach() if isinstance(client_output, torch.Tensor) \
+            else (e.detach() for e in client_output)
 
         return {
             SL_EMBEDDINGS: send_client_output,
-            SL_LABELS: labels.numpy(),
+            SL_LABELS: labels,
             SL_PER_LAYER_FORWARD_TIMES: forward_times,
             SL_BACKWARD_TIME: self._backward_time if self._iter_since_last_model_change > 3 else -1,  # From previous iteration
             SL_WEIGHTS: self._removed_weights,
@@ -226,7 +223,6 @@ class ModelTrainer:
         if self.receiving_transform_fn is not None:
             gradient = self.receiving_transform_fn(gradient, client_output=client_output)
 
-        gradient = torch.from_numpy(gradient)
         with self.timer:
             if not isinstance(client_output, torch.Tensor):
                 client_output[0].backward(gradient.to(self._device))

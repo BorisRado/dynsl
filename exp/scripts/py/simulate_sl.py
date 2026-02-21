@@ -140,7 +140,8 @@ def run(cfg: DictConfig):
     model_state_dict = model.state_dict()
 
     start_time = time.time()
-    all_losses = []
+    all_losses, best_accuracy, rounds_no_improve = [], -1, 0
+
     for epoch_idx in range(1, cfg.general.rounds+1):
         client_instructions, server_model_configs = strategy.configure_fit(
             server_round=epoch_idx,
@@ -176,11 +177,28 @@ def run(cfg: DictConfig):
             layer_allocator=client_layer_allocator,
             failures=[],
         )
-        strategy.evaluate(
+        _, test_metrics = strategy.evaluate(
             server_round=epoch_idx,
             model_state_dict=model_state_dict
         )
         all_losses.append(metrics["train/loss"])
+        current_acc = test_metrics["test/accuracy"]
+        if current_acc > best_accuracy:
+            best_accuracy = current_acc
+            rounds_no_improve = 0
+        else:
+            rounds_no_improve += 1
+
+        if rounds_no_improve >= cfg.general.patience:
+            log(
+                INFO,
+                "Early stopping at round %s: no improvement for %s rounds (best_acc=%.4f, current_acc=%.4f)",
+                epoch_idx,
+                cfg.general.patience,
+                best_accuracy,
+                current_acc,
+            )
+            break
 
         client_layer_allocator.finalize_epoch()
     print(f"Total runtime {time.time() - start_time:.2f}")

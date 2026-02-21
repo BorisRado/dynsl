@@ -74,3 +74,17 @@ def torch_list_to_bytes(values):
 
 def ndarray_list_to_bytes(ndarray_list):
     return [ndarray_to_bytes(v) for v in ndarray_list]
+
+
+def np_dict_to_torch_dict(np_dict):
+    torch_dict = {}
+    for k, v in np_dict.items():
+        torch_dict[k] = torch.from_numpy(v) if isinstance(v, np.ndarray) else [torch.from_numpy(d) for d in v]
+    return torch_dict
+
+
+def torch_dict_to_np_dict(torch_dict):
+    np_dict = {}
+    for k, v in torch_dict.items():
+        np_dict[k] = v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else [d.detach().cpu().numpy() for d in v]
+    return np_dict

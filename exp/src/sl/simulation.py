@@ -34,19 +34,6 @@ from slbd.common.constants import (
 )
 
 
-def torch_to_numpy(values_dict):
-    for k, v in values_dict.items():
-        if isinstance(v, torch.Tensor):
-            values_dict[k] = v.detach().cpu().numpy()
-        elif isinstance(v, list) and len(v) > 0 and isinstance(v[0], torch.Tensor):
-            try:
-                values_dict[k] = [a.detach().cpu().numpy() for a in v]
-            except Exception as e:
-                for a in v:
-                    print(type(a))
-                raise e
-    return values_dict
-
 
 class SimulationClientProxy:
     def __init__(self, cid, client):
@@ -263,7 +250,6 @@ class SLExecutor:
                 if payload is None:
                     continue
 
-                payload = torch_to_numpy(payload)
                 del payload[SL_BACKWARD_TIME]
                 del payload[SL_PER_LAYER_FORWARD_TIMES]
 
@@ -328,7 +314,6 @@ class SLExecutor:
                 if payload is None:
                     continue
 
-                payload = torch_to_numpy(payload)
                 del payload[SL_BACKWARD_TIME]
                 del payload[SL_PER_LAYER_FORWARD_TIMES]
 
@@ -385,7 +370,6 @@ class SLExecutor:
                 if payload is None:
                     continue
 
-                payload = torch_to_numpy(payload)
                 del payload[SL_BACKWARD_TIME]
                 del payload[SL_PER_LAYER_FORWARD_TIMES]
 

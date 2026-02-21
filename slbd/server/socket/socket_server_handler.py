@@ -15,7 +15,7 @@ from slbd.common.constants import (
     SL_DOWNLINK_THROUGHPUT, SL_OPTIM_STATES, SL_WEIGHTS, SL_GRAD,
     SL_PER_LAYER_FORWARD_TIMES, SL_BACKWARD_TIME
 )
-from slbd.common.parameter import ndarray_dict_to_bytes, bytes_to_ndarray_dict
+from slbd.common.parameter import np_dict_to_torch_dict, torch_dict_to_np_dict
 from slbd.common.socket_utils import send_message_async, recv_message_async
 from slbd.server.batching_worker_manager import BatchingWorkerManager
 from slbd.server.server_model.manager import ServerModelManager
@@ -106,7 +106,7 @@ class SocketServerHandler:
 
                     # Create forward data
                     data_fwd = BatchDataForward(
-                        data=message["data"],
+                        data=np_dict_to_torch_dict(message["data"]),
                         is_training=message["training"],
                         client_timing_metrics=timing_metrics
                     )
@@ -122,7 +122,7 @@ class SocketServerHandler:
 
                     # Create forward data
                     data_fwd = BatchDataForward(
-                        data=message["data"],
+                        data=np_dict_to_torch_dict(message["data"]),
                         is_training=message["training"],
                         client_timing_metrics=timing_metrics
                     )
@@ -165,7 +165,7 @@ class SocketServerHandler:
 
         return {
             "type": "backward",
-            "data": backward_data,
+            "data": torch_dict_to_np_dict(backward_data),
             "layers_diff": data.layers_diff,
             "training_loss": data.training_loss,
         }

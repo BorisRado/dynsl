@@ -155,13 +155,13 @@ class BatchingWorkerManager:
 
         kwargs = {}
         for key in kwargs_list[0]:
-            if isinstance(kwargs_list[0][key], np.ndarray):
-                kwargs[key] = [torch.from_numpy(d[key]) for d in kwargs_list]
+            if isinstance(kwargs_list[0][key], torch.Tensor):
+                kwargs[key] = [d[key] for d in kwargs_list]
             else:
                 tpls = [d[key] for d in kwargs_list]
                 n_elements = len(tpls[0])
                 kwargs[key] = tuple(
-                    [torch.from_numpy(tpl[i]) for tpl in tpls]
+                    [tpl[i] for tpl in tpls]
                     for i in range(n_elements)
                 )
 
