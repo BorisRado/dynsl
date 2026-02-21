@@ -10,6 +10,7 @@ defaults:
 general:
   seed: 10
   rounds: 1
+  patience: 10
 server:
   async_: true
   communication_channel: socket # options: grpc, socket
@@ -32,6 +33,7 @@ strategy:
   min_evaluate_clients: 0
   min_available_clients: 1
   num_server_models: ${algorithm.num_server_models}
+  patience: ${general.patience}
 server_model_servicer:
   servicer_name: queue
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
