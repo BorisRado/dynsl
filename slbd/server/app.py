@@ -116,7 +116,7 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
     del tmp_optimizer
     if layer_allocator_config["max_client_layers"] < 0 or layer_allocator_config["max_client_layers"] > model.meaningful_split_points[-1]:
         layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
-    assert layer_allocator_config["max_client_layers"] < get_num_layers(model)
+    assert layer_allocator_config["max_client_layers"] <= get_num_layers(model)
     per_layer_parameters = {
         idx: sum(p.numel() for p in layer.state_dict().values())
         for idx, layer in enumerate(model.children())
@@ -154,7 +154,7 @@ def init_dynsl_w_profiling(config, model, model_evaluate_fn):
 
     if layer_allocator_config["max_client_layers"] < 0 or layer_allocator_config["max_client_layers"] > model.meaningful_split_points[-1]:
         layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
-    assert layer_allocator_config["max_client_layers"] < get_num_layers(model)
+    assert layer_allocator_config["max_client_layers"] <= get_num_layers(model)
     per_layer_parameters = {
         idx: sum(p.numel() for p in layer.state_dict().values())
         for idx, layer in enumerate(model.children())
@@ -207,8 +207,8 @@ def init_ares_components(config, model, model_evaluate_fn):
         model=model,
         optimizer=optimizer,
         batch_size=config.client.init_kwargs.batch_size,
-        iterations=10,
-        dry_runs=0,
+        iterations=200,
+        dry_runs=30,
     )
     log(INFO, "Server profiling completed")
     client_layer_allocator = ARESClientLayerAllocator(

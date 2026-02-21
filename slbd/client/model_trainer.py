@@ -172,7 +172,10 @@ class ModelTrainer:
         payload, client_output = self.forward_pass(input_vars, labels)
         if payload is None:
             return
-        gradient, control, loss = self._server_model_proxy(**payload, _requires_response_=self._separate_client_clf_head is None)
+        response = self._server_model_proxy(**payload, _requires_response_=self._separate_client_clf_head is None)
+        if response is None:
+            return
+        gradient, control, loss = response
         self.backward_pass(gradient, control, loss, client_output)
 
     def forward_pass(self, input_vars, labels):
@@ -233,6 +236,7 @@ class ModelTrainer:
 
         # Get the total backward time
         self._backward_time = self.timer.get_elapsed_and_reset()
+        self._tot_local_computation_time += self._backward_time
 
         self._update_model(control)
         self._update_metrics(loss, gradient.shape[0])
@@ -272,6 +276,7 @@ class ModelTrainer:
         # print("Total local computation time", self._tot_local_computation_time)
         # print({"training_loss": self._metrics["loss"] / self._dataset_size})
         log(DEBUG, f"Total epoch time: {time.perf_counter() - self._initialization_time:.3f}")
+        log(DEBUG, f"Total computation time: {self._tot_local_computation_time:.3f}")
         return {
             "train/loss": self._metrics["loss"] / self._dataset_size,
             "train/local_computation_time": self._tot_local_computation_time
@@ -318,4 +323,5 @@ class ModelTrainer:
                 self.per_layer_timer.record_layer_end()  # Record after each layer
                 self._per_layer_data_points[idx] += bs
         per_layer_times = self.per_layer_timer.get_per_layer_times()
+        self._tot_local_computation_time += per_layer_times[-1]
         return x, per_layer_times

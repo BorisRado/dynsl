@@ -14,7 +14,7 @@ def generate():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--algorithm", required=True, type=str, help="FL algorithm to be tested",
-                        choices=["splitfed_v1", "splitfed_v2", "ares", "dynsl_v2", "oracle", "fedavg"])
+                        choices=["splitfed_v1", "splitfed_v2", "ares", "dynsl_v2", "oracle", "fedavg", "dynsl_w_profiling", "sfsl"])
     parser.add_argument("--model-name", required=True, type=str, help="Model to be trained")
     parser.add_argument("--num-rounds", required=False, type=int, default=1, help="Number of training rounds")
     parser.add_argument("--num-partitions", required=False, type=int, default=10, help="Number of partitions of the training dataset")
@@ -54,6 +54,9 @@ def generate():
     parser.add_argument("--oracle-nl-lp", required=False, type=int, default=-1, help="... [ORACLE]")
     parser.add_argument("--oracle-nl-op", required=False, type=int, default=-1, help="... [ORACLE]")
 
+    # SFSL
+    parser.add_argument("--sfsl-num-client-layers", required=False, type=int, default=4)
+
     # CONFIGURATION OF BACKGROUND ACTIVITY
     parser.add_argument("--background-processes", required=False, action="store_true")
     parser.add_argument("--bg-proc-delay", required=False, type=float, default=0., help="...")
@@ -86,6 +89,12 @@ def generate():
             if key[predix_len:] not in {"exchange_optimizer_states", "dynamic_layers_strategy"}:
                 prefix += "layer_allocator_init_args."
             algo_args.append(f"{prefix}{key[predix_len:]}={args_dict[key]}")
+
+        if args.algorithm == "dynsl_w_profiling":
+            # delete unnecessary keys
+            delete_keys = ["reallocation_frequency", "gamma", "cache_client_data", "dynamic_layers_strategy", "exchange_optimizer_states"]
+            algo_args = [arg for arg in algo_args if not any(k in arg for k in delete_keys)]
+
         args_dict["algo_config"] = "\n      ".join(algo_args)
 
     if args.algorithm.startswith("oracle"):
@@ -107,6 +116,9 @@ def generate():
             }[device_type_acronym]
             tmp.append(f"+algorithm.layer_allocator_init_args.device_mapping.{device_type}={val}")
         args_dict["algo_config"] = "\n      ".join(tmp)
+
+    if args.algorithm.startswith("sfsl"):
+        args_dict["algo_config"] = "algorithm.num_client_layers=" + str(args_dict["sfsl_num_client_layers"])
 
     # generate a string with the number of devices to be appended to the config
     device_listing = " ".join([

@@ -4,7 +4,7 @@ from typing import Dict
 import torch
 from flwr.common import Config, Scalar
 
-from slbd.common.profiling import profile_cumulative_per_layer_time_full_model
+from slbd.common.profiling import profile_cumulative_per_layer_time_individual_layers
 from slbd.algos.base_numpy_client import BaseNumpyClientAdapter
 from slbd.common.constants import (
     MIN_NUMBER_OF_CLIENT_LAYERS,
@@ -28,12 +28,12 @@ class DynSLClientAdapterWProfiling(BaseNumpyClientAdapter):
         except:
             node_name = str(torch.cuda.is_available())
 
-        per_layer_complexity = profile_cumulative_per_layer_time_full_model(
+        per_layer_complexity = profile_cumulative_per_layer_time_individual_layers(
             model=self.whole_model,
             optimizer_name="adam",
             batch_size=self.torch_client.batch_size,
-            iterations=300 if torch.cuda.is_available() else 100,
-            dry_runs=50 if torch.cuda.is_available() else 10,
+            iterations=100 if torch.cuda.is_available() else 50,
+            dry_runs=20 if torch.cuda.is_available() else 10,
         )
         # convert list to a dictionary as flower does not allow sending lists
         per_layer_complexity = {f"__lc{idx}": per_layer_complexity[idx] for idx in range(len(per_layer_complexity))}

@@ -168,14 +168,13 @@ class BatchingWorkerManager:
         if self.receiving_transform_fn:
             kwargs["embeddings"] = [self.receiving_transform_fn(d) for d in kwargs["embeddings"]]
 
-        with measure_time(self._is_cuda_available) as timer:
-            grad_results = await self.server_model_manager.marshall_train_request(
-                model_id=server_id,
-                num_offloaded_layers=num_offloaded_layers,
-                **kwargs
-            )
+        grad_results = await self.server_model_manager.marshall_train_request(
+            model_id=server_id,
+            num_offloaded_layers=num_offloaded_layers,
+            **kwargs
+        )
 
-        self.client_layer_allocator.update_server_metrics(num_offloaded_layers, timer.elapsed)
+        self.client_layer_allocator.update_server_metrics(num_offloaded_layers, 0.)
 
         results = []
         for (gradient, training_loss), client_id, received_data in zip(grad_results, client_ids, kwargs_list):
