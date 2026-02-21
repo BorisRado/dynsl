@@ -122,6 +122,9 @@ class Server(FlwrServer):
             client_manager=self._client_manager,
             client_layer_allocator=self.client_layer_allocator,
         )
+        if not client_instructions:
+            log(INFO, "evaluate_round %s: no clients selected, cancel", server_round)
+            return None
 
         # make a copy of instructions to avoid modifying the original ones in case multiple
         # ins have the same config dictionary
@@ -129,9 +132,6 @@ class Server(FlwrServer):
         for proxy, ins in client_instructions:
             ins.config[CLIENT_ID_CONFIG_KEY] = proxy.cid
 
-        if not client_instructions:
-            log(INFO, "evaluate_round %s: no clients selected, cancel", server_round)
-            return None
         log(
             INFO,
             "evaluate_round %s: strategy sampled %s clients (out of %s)",
@@ -185,14 +185,14 @@ class Server(FlwrServer):
             client_manager=self._client_manager,
             client_layer_allocator=self.client_layer_allocator,
         )
+        if not client_instructions:
+            log(INFO, "fit_round %s: no clients selected, cancel", server_round)
+            return None
 
         client_instructions = [(proxy, copy.deepcopy(ins)) for proxy, ins in client_instructions]
         for proxy, ins in client_instructions:
             ins.config[CLIENT_ID_CONFIG_KEY] = proxy.cid
 
-        if not client_instructions:
-            log(INFO, "fit_round %s: no clients selected, cancel", server_round)
-            return None
         log(
             INFO,
             "fit_round %s: strategy sampled %s clients (out of %s)",

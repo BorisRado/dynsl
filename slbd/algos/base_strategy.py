@@ -64,6 +64,7 @@ class BaseStrategy(Strategy):
         model_evaluate_fn,
         optimizer_config,
         num_server_models: int,
+        patience: int,
         fraction_fit: float = 1.0,
         fraction_evaluate: float = 1.0,
         config_client_fit_fn: Optional[Callable[[str], Dict[str, Scalar]]] = None,
@@ -84,6 +85,10 @@ class BaseStrategy(Strategy):
         self.min_fit_clients = min_fit_clients
         self.min_evaluate_clients = min_evaluate_clients
         self.min_available_clients = min_available_clients
+        self.patience = patience
+        self.iter_wo_improve = 0
+        self._best_test_acc = -1.
+        self.has_converged = False
         self._cid_to_sid_mapping = {}
         self.num_server_models = num_server_models
         assert num_server_models in {1, 0, -1}
@@ -98,6 +103,8 @@ class BaseStrategy(Strategy):
         model_state_dict: OrderedDict,
     ) -> Optional[Tuple[float, Dict[str, Scalar]]]:
         _ = (server_round, model_state_dict, )
+        if self.has_converged:
+            return None
         self.model.load_state_dict(model_state_dict, strict=True)
         test_loss, test_accuracy = self.model_evaluate_fn(self.model)
         print(f"Test loss {test_loss:.3f}")
@@ -108,6 +115,13 @@ class BaseStrategy(Strategy):
         }
         if wandb.run is not None:
             wandb.log(metrics)
+        if metrics["test/accuracy"] > self._best_test_acc:
+            self._best_test_acc = metrics["test/accuracy"]
+            self.iter_wo_improve = 0
+        else:
+            self.iter_wo_improve += 1
+            if self.iter_wo_improve == self.patience:
+                self.has_converged = True
         torch.cuda.empty_cache()
         return metrics["test/loss"], metrics
 
@@ -213,6 +227,8 @@ class BaseStrategy(Strategy):
         return all_clients_fit_ins, all_server_models_fit_ins
 
     def sample_epoch_clients(self, client_manager, is_training):
+        if self.has_converged:
+            return []
         if is_training:
             sample_size, min_num_clients = self.num_fit_clients(
                 client_manager.num_available()
