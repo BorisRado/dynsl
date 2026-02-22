@@ -273,8 +273,9 @@ class ModelTrainer:
         # print({"training_loss": self._metrics["loss"] / self._dataset_size})
         log(DEBUG, f"Total epoch time: {time.perf_counter() - self._initialization_time:.3f}")
         log(DEBUG, f"Total computation time: {self._tot_local_computation_time:.3f}")
+        loss_key = "loss" if self._separate_client_clf_head is None else "client_loss"
         return {
-            "train/loss": self._metrics["loss"] / self._dataset_size,
+            f"train/{loss_key}": self._metrics["loss"] / self._dataset_size,
             "train/local_computation_time": self._tot_local_computation_time
         }
 

@@ -3,6 +3,7 @@ import random
 import asyncio
 from typing import List, Tuple
 
+import uvloop
 import numpy as np
 import torch
 from flwr.server.client_manager import ClientManager
@@ -107,6 +108,7 @@ class SLExecutor:
         self.dynamic_layers_strategy = dynamic_layers_strategy
         self.client_clf_head = client_clf_head
         self.client_exchange_optimizer_states = client_exchange_optimizer_states
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
         self.event_loop = asyncio.new_event_loop()
         self._no_metrics = SocketTimingMetrics(
             uplink_throughput_Mbps=1e8,
@@ -146,7 +148,10 @@ class SLExecutor:
 
             init_parameters = parameters_to_ndarrays(ins.parameters)
             if self.client_clf_head is not None:
-                nclf_params = len(list(self.client_clf_head.parameters()))
+                if isinstance(self.client_clf_head, dict):
+                    nclf_params = len(list(self.client_clf_head[num_received_layers].parameters()))
+                else:
+                    nclf_params = len(list(self.client_clf_head.parameters()))
                 init_parameters, clf_parameters = init_parameters[:-nclf_params], init_parameters[-nclf_params:]
 
             model_trainer = ModelTrainer(
@@ -162,8 +167,12 @@ class SLExecutor:
                 exchange_optimizer_states=self.client_exchange_optimizer_states,
             )
             if self.client_clf_head is not None:
+                if isinstance(self.client_clf_head, dict):
+                    tmp_head = self.client_clf_head[num_received_layers]
+                else:
+                    tmp_head = self.client_clf_head
                 assert clf_parameters[-1].ndim == 1
-                client_clf_head = copy.deepcopy(self.client_clf_head)
+                client_clf_head = copy.deepcopy(tmp_head)
                 state_dict = param_list_to_state_dict(clf_parameters, client_clf_head)
                 client_clf_head.load_state_dict(state_dict, strict=True)
                 if torch.cuda.is_available():

@@ -19,6 +19,11 @@ from exp.src.data.utils import get_dataloader
 
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
+
+    import uvloop
+    import asyncio
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
     OmegaConf.resolve(cfg)
     if cfg.wandb:
         if run_exists_already(cfg):

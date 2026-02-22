@@ -1,0 +1,15 @@
+name: dtfl_simulation
+layer_allocator_init_args:
+  client_configuration:
+    - ids: "0-13"
+      num_layers: 4
+    - ids: "14-27"
+      num_layers: 6
+    - ids: "28-40"
+      num_layers: 7
+strategy_init_args:
+  num_classes: ${data.num_classes}
+  clf_head_dimensions: [256,]
+  all_split_points: [4,5,6,7]
+client_adapter_args: {}
+num_server_models: -1

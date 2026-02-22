@@ -106,7 +106,6 @@ class SFSLClientAdapter(BaseNumpyClientAdapter):
         for _, param in clf_head.state_dict().items():
             trained_parameters.append(param.detach().cpu().numpy())
         combined_metrics = processed_data_points_dict | metrics | {"local_train_time": runtime}
-        combined_metrics["train/client_loss"] = combined_metrics.pop("train/loss")
         dataset_size = model_trainer._dataset_size
         del model_trainer
         return trained_parameters, dataset_size, combined_metrics

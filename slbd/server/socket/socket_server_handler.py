@@ -107,7 +107,7 @@ class SocketServerHandler:
                     # Create forward data
                     data_fwd = BatchDataForward(
                         data=np_dict_to_torch_dict(message["data"]),
-                        is_training=message["training"],
+                        is_training=True,
                         client_timing_metrics=timing_metrics
                     )
 
@@ -123,7 +123,7 @@ class SocketServerHandler:
                     # Create forward data
                     data_fwd = BatchDataForward(
                         data=np_dict_to_torch_dict(message["data"]),
-                        is_training=message["training"],
+                        is_training=True,
                         client_timing_metrics=timing_metrics
                     )
 

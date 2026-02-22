@@ -74,7 +74,6 @@ class SocketServerModelProxy(ServerModelProxy):
         message = {
             "type": "fwd" if _requires_response_ else "sfwd", # sfwd for "streaming" fwd
             "data": batch_data,
-            "training": training,
             SL_DOWNLINK_THROUGHPUT: self.downlink_throughput,
             SL_PER_LAYER_FORWARD_TIMES: kwargs[SL_PER_LAYER_FORWARD_TIMES],
             SL_BACKWARD_TIME: kwargs[SL_BACKWARD_TIME],

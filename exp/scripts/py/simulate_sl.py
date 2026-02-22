@@ -15,10 +15,13 @@ from slbd.algos.dynsl import DynSLStrategy
 from slbd.algos.dynsl.simulation_layer_allocator import DynSLSimulationClientLayerAllocator
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
+from slbd.algos.dtfl import DTFLStrategy, DTFLSimulationClientLayerAllocator
 from slbd.algos.oracle import OracleSimulationClientLayerAllocator, OracleStrategy
 from slbd.algos.sfsl import SFSLClientLayerAllocator, SFSLStrategy
 from slbd.torch.model_utils import get_num_layers
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
+from slbd.torch.utils import create_classification_head
+from slbd.torch.model_utils import extract_submodel
 
 from exp.src.common.wandb import init_wandb, finish_wandb, run_exists_already
 from exp.src.common.stochasticity import set_seed
@@ -48,7 +51,6 @@ def run(cfg: DictConfig):
     del cfg.server_model_servicer.servicer_name
 
     # sanity checks
-    assert cfg.algorithm.name in {"splitfed_v1", "splitfed_v2", "dynsl_simulation", "fedavg", "oracle", "sfsl"}
     assert len([v for v in cfg.client.init_kwargs.keys() if v.startswith("bg_")]) == 0, \
         "Makes no sense to use background processes when using simulations"
 
@@ -56,10 +58,14 @@ def run(cfg: DictConfig):
     model = instantiate(cfg.model)
     client_clf_head = None
     if cfg.algorithm.name == "sfsl":
-        from slbd.torch.utils import create_classification_head
-        from slbd.torch.model_utils import extract_submodel
         encoder = extract_submodel(model, 0, cfg.algorithm.num_client_layers)
         client_clf_head = create_classification_head(encoder, cfg.data.num_classes, cfg.algorithm.strategy_init_args.clf_head_dimensions)
+    elif cfg.algorithm.name.startswith("dtfl"):
+        client_clf_head = {}
+        for sp in cfg.algorithm.strategy_init_args.all_split_points:
+            encoder = extract_submodel(model, 0, sp)
+            sp_head = create_classification_head(encoder, cfg.data.num_classes, cfg.algorithm.strategy_init_args.clf_head_dimensions)
+            client_clf_head[sp] = sp_head
 
     if cfg.wandb:
         if run_exists_already(cfg):
@@ -93,6 +99,7 @@ def run(cfg: DictConfig):
         "dynsl_simulation": DynSLStrategy,
         "splitfed_v1": SplitFedStrategy,
         "splitfed_v2": SplitFedStrategy,
+        "dtfl_simulation": DTFLStrategy,
         "sfsl": SFSLStrategy,
         "oracle": OracleStrategy,
         "fedavg": FedAvgStrategy,
@@ -108,6 +115,7 @@ def run(cfg: DictConfig):
         "dynsl_simulation": DynSLSimulationClientLayerAllocator,
         "splitfed_v1": SplitFedClientLayerAllocator,
         "splitfed_v2": SplitFedClientLayerAllocator,
+        "dtfl_simulation": DTFLSimulationClientLayerAllocator,
         "sfsl": SFSLClientLayerAllocator,
         "oracle": OracleSimulationClientLayerAllocator,
         "fedavg": FedAvgClientLayerAllocator
@@ -140,7 +148,6 @@ def run(cfg: DictConfig):
     model_state_dict = model.state_dict()
 
     start_time = time.time()
-    all_losses = []
 
     for epoch_idx in range(1, cfg.general.rounds+1):
         client_instructions, server_model_configs = strategy.configure_fit(
@@ -170,7 +177,7 @@ def run(cfg: DictConfig):
             has_batch_concatenation=cfg.server_model_servicer.num_concat_batches > 1
         )
         server_fit_res = server_model_manager.collect_server_fit_results()
-        model_state_dict, metrics = strategy.aggregate_fit(
+        model_state_dict, _ = strategy.aggregate_fit(
             server_round=epoch_idx,
             client_results=results,
             server_results=server_fit_res,
@@ -181,12 +188,10 @@ def run(cfg: DictConfig):
             server_round=epoch_idx,
             model_state_dict=model_state_dict
         )
-        all_losses.append(metrics["train/loss"])
         client_layer_allocator.finalize_epoch()
         if strategy.has_converged:
             break
     print(f"Total runtime {time.time() - start_time:.2f}")
-    print(all_losses)
     sl_executor.shutdown()
     finish_wandb()
 
