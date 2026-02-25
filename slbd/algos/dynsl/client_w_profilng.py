@@ -5,7 +5,7 @@ import torch
 from flwr.common import Config, Scalar
 
 from slbd.common.profiling import profile_cumulative_per_layer_time_individual_layers
-from slbd.algos.base_numpy_client import BaseNumpyClientAdapter
+from slbd.algos.dynsl.client import DynSLClientAdapter
 from slbd.common.constants import (
     MIN_NUMBER_OF_CLIENT_LAYERS,
     CLIENT_DATASET_SIZE,
@@ -16,7 +16,7 @@ from slbd.common.constants import (
 from exp.src.common.k8s import get_node_name
 
 
-class DynSLClientAdapterWProfiling(BaseNumpyClientAdapter):
+class DynSLClientAdapterWProfiling(DynSLClientAdapter):
 
     def get_properties(self, config: Config) -> Dict[str, Scalar]:
         _ = (config, )

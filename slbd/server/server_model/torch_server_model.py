@@ -158,7 +158,7 @@ class TorchServerModel:
                 server_param.data \
                     .mul_(s_weight) \
                     .add_(
-                        torch.from_numpy(client_param).to(server_param.device) * c_weight
+                        client_param.to(server_param.device) * c_weight
                     )
                 integrated_parameters.append(server_param)
 

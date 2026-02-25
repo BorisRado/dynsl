@@ -70,9 +70,9 @@ def extract_submodel_weights(
                 assert False
                 continue
             optimizer_states.append({
-                k: v.detach().cpu().numpy() for k, v in optimizer.state[w].items()
+                k: v.detach() for k, v in optimizer.state[w].items()
             })
-    weights = [w.detach().cpu().numpy() for w in weights]
+    weights = [w.detach() for w in weights]
     return weights, optimizer_states
 
 
@@ -148,9 +148,14 @@ def param_list_to_state_dict(
     param_list: List[np.ndarray],
     model: FlexibleSequential
 ):
-    return OrderedDict([
-        (key, torch.from_numpy(param)) for param, key in zip(param_list, model.state_dict().keys())
-    ])
+    if isinstance(param_list[0], np.ndarray):
+        return OrderedDict([
+            (key, torch.from_numpy(param)) for param, key in zip(param_list, model.state_dict().keys())
+        ])
+    else:
+        return OrderedDict([
+            (key, param) for param, key in zip(param_list, model.state_dict().keys())
+        ])
 
 
 def remove_layers_from_model(
@@ -220,7 +225,7 @@ def attach_layers(
 def override_optimizer_state(optimizer, optimizer_state_list, parameters):
     assert len(parameters) == len(optimizer_state_list)
     for param, state in zip(parameters, optimizer_state_list):
-        optimizer.state[param] = {k: torch.from_numpy(v).to(param.device) for k, v in state.items()}
+        optimizer.state[param] = {k: v.to(param.device) for k, v in state.items()}
 
 
 def get_state_dict_keys_between_limits(model, start_idx, end_idx):

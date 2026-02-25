@@ -80,18 +80,19 @@ class BaseNumpyClientAdapter(FlwrNumpyClient):
 
         # call the model-owner training logic, and measure the time it takes
         start_time = time.time()
+        trained_parameters, dataset_size, combined_metrics = [], 0, {}
         try:
             self.torch_client.fit(config, model_trainer)
+            trained_parameters, processed_data_points_dict, metrics = model_trainer.get_fit_results()
+            runtime = time.time() - start_time
+            combined_metrics = processed_data_points_dict | metrics | {"local_train_time": runtime}
+            dataset_size = model_trainer._dataset_size
         except Exception as e:
             print("Exception!!")
             traceback.print_exc()
             self.server_model_proxy.close_stream(error=True)
-        runtime = time.time() - start_time
 
         # extract trained parameters
-        trained_parameters, processed_data_points_dict, metrics = model_trainer.get_fit_results()
-        combined_metrics = processed_data_points_dict | metrics | {"local_train_time": runtime}
-        dataset_size = model_trainer._dataset_size
         del model_trainer
         return trained_parameters, dataset_size, combined_metrics
 

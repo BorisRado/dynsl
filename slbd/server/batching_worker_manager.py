@@ -207,3 +207,12 @@ class BatchingWorkerManager:
             ))
 
         return results
+
+    async def immediately_integrate_client_parameters(self, cid, client_parameters):
+        await self.server_model_manager \
+            .marshall_weight_integration_request(
+                model_id=self.server_model_manager.strategy.route_client_request_to_server_model(cid),
+                client_parameters=client_parameters,
+                cid=cid,
+                client_optimizer_states=None
+            )

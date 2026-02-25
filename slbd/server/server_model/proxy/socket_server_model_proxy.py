@@ -2,6 +2,7 @@ import socket
 from logging import DEBUG
 from typing import Optional
 
+import numpy as np
 import torch
 from flwr.common import log
 
@@ -119,3 +120,16 @@ class SocketServerModelProxy(ServerModelProxy):
 
         self.sock.close()
         self.sock = None
+
+    def integrate_weights(self, model_parameters, processed_data_points_per_layer):
+        # convert dictionary to list as expected on the server
+        layer_idxs = sorted(int(k[len("_proc"):]) for k in processed_data_points_per_layer)
+        proc_dp = np.array([processed_data_points_per_layer[f"_proc{idx}"] for idx in layer_idxs])
+        model_parameters.append(proc_dp)
+        message = {
+            "type": "weight_integration",
+            SL_WEIGHTS: model_parameters,
+        }
+        send_message(self.sock, message)
+        response = recv_message(self.sock)[0]
+        assert response == {"message": "ok"}

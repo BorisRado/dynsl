@@ -24,7 +24,7 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 class DynSLStrategy(BaseStrategy):
 
-    def __init__(self, dynamic_layers_strategy: str, **kwargs):
+    def __init__(self, dynamic_layers_strategy: str, end_epoch_weight_integration_strategy: str, **kwargs):
         """Initialize
 
         Parameters
@@ -36,8 +36,11 @@ class DynSLStrategy(BaseStrategy):
         # cnt -- counter: send entire model to clients, just change the counter of how many layers client is training
         # afl -- use asynchronous FL-like aggregation. Send weight to client when increasing
         #        and client sends weights when decreasing
-        assert dynamic_layers_strategy in {"cnt", "afl"}
+        assert dynamic_layers_strategy in {"afl", None}
+        if dynamic_layers_strategy is None:
+            assert end_epoch_weight_integration_strategy == "immediate"
         self._dynamic_layers_strategy = dynamic_layers_strategy
+        self._end_epoch_weight_integration_strategy = end_epoch_weight_integration_strategy
 
     def configure_fit(
         self,
@@ -60,24 +63,13 @@ class DynSLStrategy(BaseStrategy):
         num_initial_client_layers = client_layer_allocator \
             .initialize_epoch(clients, client_manager, True)
 
-        if self._dynamic_layers_strategy == "afl":
-            # when forking, we sent to the client only the initial weights it will train
-            all_clients_fit_ins = self._setup_epoch_clients(
-                server_round, clients, num_initial_client_layers, model_state_dict, True, config
-            )
-        elif self._dynamic_layers_strategy == "cnt":
-            # we do not fork server models. For simplicity, we send all the possible
-            # weights at the beginning of the epoch
-            max_layers = [client_layer_allocator.get_max_client_layers(proxy.cid) for  proxy in clients]
-            all_clients_fit_ins = self._setup_epoch_clients(
-                server_round, clients, max_layers, model_state_dict, True, config
-            )
-            for nitl, (_, fit_ins) in zip(num_initial_client_layers, all_clients_fit_ins):
-                fit_ins.config[CLIENT_NUM_RECEIVED_LAYERS] = fit_ins.config[CLIENT_LAST_LAYER_IDX_KEY]
-                fit_ins.config[CLIENT_LAST_LAYER_IDX_KEY] = nitl
+        all_clients_fit_ins = self._setup_epoch_clients(
+            server_round, clients, num_initial_client_layers, model_state_dict, True, config
+        )
 
         if self.num_server_models == 1:
-            min_layers = min(client_layer_allocator.get_min_client_layers(proxy.cid) for proxy in clients)
+            min_layers = self.model.meaningful_split_points[0]
+            print(f"Assigning min layers: {min_layers}")
             all_server_models_fit_ins = self._setup_epoch_server_models(
                 [("", min_layers, [proxy.cid for proxy in clients])],
                 model_state_dict, True, config
@@ -85,6 +77,7 @@ class DynSLStrategy(BaseStrategy):
         if self.num_server_models == 0:
             raise Exception("Cannot use model per split point --- would it make sense to integrate?")
         elif self.num_server_models == -1:
+            assert self._end_epoch_weight_integration_strategy == "hierarchical"
             all_server_models_fit_ins = self._setup_epoch_server_models([
                 (
                     proxy.cid,
@@ -136,6 +129,13 @@ class DynSLStrategy(BaseStrategy):
         _ = (server_round, )
 
         if self._dynamic_layers_strategy == "cnt":
+            return super().aggregate_fit(
+                server_round, client_results, server_results, layer_allocator, failures
+            )
+
+        if self._end_epoch_weight_integration_strategy == "immediate":
+            # ALL AFL DATA SHOULD BE EMPTY
+            assert [server_res.afl_data == {} for server_res in server_results]
             return super().aggregate_fit(
                 server_round, client_results, server_results, layer_allocator, failures
             )

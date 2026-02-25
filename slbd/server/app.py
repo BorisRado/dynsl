@@ -135,11 +135,12 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
 
 
 def init_dynsl_w_profiling(config, model, model_evaluate_fn):
-    strategy = OracleStrategy(
+    strategy = DynSLStrategy(
         model=model,
         model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),
         **OmegaConf.to_container(config.strategy, resolve=True),
+        **OmegaConf.to_container(config.algorithm.strategy_init_args, resolve=True),
     )
     layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
     tmp_optimizer = optim.Adam(model.parameters())

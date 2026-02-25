@@ -130,6 +130,12 @@ class SocketServerHandler:
                     _ = await self._batching_worker.enqueue_and_get_future(client_id, data_fwd)
                     # in streaming FSL, the client trains only on the local loss -- we do not send the gradient back
 
+                elif message["type"] == "weight_integration":
+                    await self._batching_worker.immediately_integrate_client_parameters(
+                        client_id, [torch.from_numpy(array) for array in message[SL_WEIGHTS]]
+                    )
+                    await send_message_async(client_socket, {"message": "ok"}, self._loop)
+
         except Exception as e:
             import traceback
             log(INFO, f"Error handling socket client {client_id}: {e}")

@@ -61,9 +61,15 @@ class MultithreadingServerModelManager(BaseServerModelManager):
         *client_parameters, num_dp_per_layer = client_parameters
         num_layers = len(num_dp_per_layer)
         # received layers have an absolute value
-        received_layers = sorted(self._afl_coord_data[cid])[-num_layers:]
+        if cid in self._afl_coord_data:
+            received_layers = sorted(self._afl_coord_data[cid])[-num_layers:]
+            num_server_dp_when_forked = {k: self._afl_coord_data[cid].pop(k) for k in received_layers}
+        else:
+            print(f"Warning -- {cid} not tracked. Assuming layer was sent at the beginning of the epoch.")
+            initial_received_layer = self.base_model.meaningful_split_points[0]
+            received_layers = range(initial_received_layer, initial_received_layer+num_layers)
+            num_server_dp_when_forked = {k: 0 for k in received_layers}
         num_client_dp_per_layer = {k: v for k, v in zip(received_layers, num_dp_per_layer)}
-        num_server_dp_when_forked = {k: self._afl_coord_data[cid].pop(k) for k in received_layers}
         async with self._model_locks[model_id]:
             integration_model = self.spanned_server_models[model_id]
             num_current_server_dp = {}

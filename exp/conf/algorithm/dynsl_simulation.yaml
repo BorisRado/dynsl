@@ -28,6 +28,7 @@ layer_allocator_init_args:
           num_layers: 6
 strategy_init_args:
   dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
+  end_epoch_weight_integration_strategy: hierarchical
 client_adapter_args:
   dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
   exchange_optimizer_states: ${algorithm.exchange_optimizer_states}
