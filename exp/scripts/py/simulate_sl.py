@@ -190,6 +190,7 @@ def run(cfg: DictConfig):
         )
         client_layer_allocator.finalize_epoch()
         if strategy.has_converged:
+            print("Early exit....")
             break
     print(f"Total runtime {time.time() - start_time:.2f}")
     sl_executor.shutdown()

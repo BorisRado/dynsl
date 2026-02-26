@@ -1,0 +1,34 @@
+name: dynsl_simulation
+num_server_models: -1
+dynamic_layers_strategy: afl
+exchange_optimizer_states: false
+layer_allocator_init_args:
+  client_configuration:
+    - ids: "0-19"
+      evolution:
+        - start: 0.0
+          num_layers: 3
+        - start: 0.4
+          num_layers: 5
+        - start: 0.8
+          num_layers: 9
+    - ids: "20-37"
+      evolution:
+        - start: 0.0
+          num_layers: 3
+        - start: 0.2
+          num_layers: 5
+    - ids: "38-50"
+      evolution:
+        - start: 0.0
+          num_layers: 3
+        - start: 0.1
+          num_layers: 9
+        - start: 0.7
+          num_layers: 5
+strategy_init_args:
+  dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
+  end_epoch_weight_integration_strategy: hierarchical
+client_adapter_args:
+  dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
+  exchange_optimizer_states: ${algorithm.exchange_optimizer_states}

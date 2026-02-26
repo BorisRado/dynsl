@@ -1,0 +1,4 @@
+_target_: exp.src.model.architectures.efficientnet.EfficientNet
+num_classes: ${data.num_classes}
+use_groupnorm: true
+num_groups: 8

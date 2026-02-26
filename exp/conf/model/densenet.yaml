@@ -2,4 +2,5 @@ _target_: exp.src.model.architectures.densenet.DenseNet3
 depth: 40
 num_classes: ${data.num_classes}
 use_groupnorm: true
-num_groups: 12
+num_groups: 4
+dropRate: 0.1
