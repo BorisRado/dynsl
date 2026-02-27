@@ -1,4 +1,5 @@
 import time
+import uvloop
 import asyncio
 from functools import wraps
 from collections import OrderedDict
@@ -22,7 +23,7 @@ def run_async(func):
             return func(*args, **kwargs)
 
         # If no event loop is running, create one and run the function
-        return asyncio.run(func(*args, **kwargs))
+        return uvloop.run(func(*args, **kwargs))
 
     return wrapper
 
