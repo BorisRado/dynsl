@@ -30,7 +30,6 @@ class BatchingWorkerManager:
         request_group_timeout: float,
         sending_transform_fn: Optional[Callable],
         receiving_transform_fn: Optional[Callable],
-        dynamic_layers_strategy: str,
         exchange_optimizer_states: Optional[bool],
         is_cuda_available: bool,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
@@ -42,7 +41,6 @@ class BatchingWorkerManager:
         self.request_group_timeout = request_group_timeout
         self.sending_transform_fn = sending_transform_fn
         self.receiving_transform_fn = receiving_transform_fn
-        self._dynamic_layers_strategy = dynamic_layers_strategy
         self._exchange_optimizer_states = exchange_optimizer_states
         self._is_cuda_available = is_cuda_available
         self._workers = {}
@@ -189,7 +187,6 @@ class BatchingWorkerManager:
                 tmp_id = self.client_layer_allocator._cid_to_node_name[client_id] if hasattr(self.client_layer_allocator, "_cid_to_node_name") else client_id
                 log(INFO, "\tChange in offload strategy for %s. Difference in number of layers: %d",
                     tmp_id, num_layers_diff)
-                assert self._dynamic_layers_strategy == "afl"
 
                 if num_layers_diff > 0:
                     params, optimizer_states = await self.server_model_manager \

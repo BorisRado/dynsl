@@ -66,6 +66,8 @@ def run(cfg: DictConfig):
             encoder = extract_submodel(model, 0, sp)
             sp_head = create_classification_head(encoder, cfg.data.num_classes, cfg.algorithm.strategy_init_args.clf_head_dimensions)
             client_clf_head[sp] = sp_head
+    elif cfg.algorithm.name.startswith("dynsl"):
+        assert cfg.algorithm.strategy_init_args.end_epoch_weight_integration_strategy == "hierarchical"
 
     if cfg.wandb:
         if run_exists_already(cfg):
@@ -140,7 +142,6 @@ def run(cfg: DictConfig):
         num_concat_batches=cfg.server_model_servicer.num_concat_batches,
         whole_model=copy.deepcopy(model),
         client_clf_head=client_clf_head,
-        dynamic_layers_strategy=cfg.algorithm.get("dynamic_layers_strategy", None),
         server_exchange_optimizer_states=cfg.algorithm.get("exchange_optimizer_states", None),
         client_exchange_optimizer_states=cfg.algorithm.get("client_adapter_args", {}).get("exchange_optimizer_states", None),
     )

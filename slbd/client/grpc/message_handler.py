@@ -22,8 +22,6 @@ from flwr.common.recordset_compat import (
 
 from slbd.torch.sequential_model import FlexibleSequential
 from slbd.common.constants import CLIENT_ID_CONFIG_KEY
-from slbd.proto.server_model_pb2_grpc import ServerModelStub
-from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
 from slbd.server.server_model.proxy.socket_server_model_proxy import SocketServerModelProxy
 
 
@@ -32,7 +30,6 @@ def handle_legacy_message_from_msgtype(
     model: FlexibleSequential,
     message: Message,
     context: Context,
-    server_model_stub: ServerModelStub,
     client_adapter_cls: Type[NumPyClient],
     use_socket: bool = False,
     socket_address: str = None,
@@ -47,14 +44,12 @@ def handle_legacy_message_from_msgtype(
         server_cid = config_record.pop(CLIENT_ID_CONFIG_KEY)
 
     # Create appropriate proxy based on transport type
-    if use_socket:
-        server_model_proxy = SocketServerModelProxy(
-            server_address=socket_address,
-            server_port=socket_port,
-            cid=server_cid
-        )
-    else:
-        server_model_proxy = GrpcServerModelProxy(stub=server_model_stub, cid=server_cid)
+    assert use_socket
+    server_model_proxy = SocketServerModelProxy(
+        server_address=socket_address,
+        server_port=socket_port,
+        cid=server_cid
+    )
 
     client = client_adapter_cls(
         torch_client=client_fn(),
@@ -62,8 +57,6 @@ def handle_legacy_message_from_msgtype(
         server_model_proxy=server_model_proxy,
     )
     client = client.to_client()
-
-    client.set_context(context)
 
     message_type = message.metadata.message_type
 

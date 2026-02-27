@@ -1,6 +1,5 @@
 name: dynsl_simulation
 num_server_models: -1
-dynamic_layers_strategy: afl
 exchange_optimizer_states: false
 layer_allocator_init_args:
   client_configuration:
@@ -27,8 +26,6 @@ layer_allocator_init_args:
         - start: 0.7
           num_layers: 6
 strategy_init_args:
-  dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
   end_epoch_weight_integration_strategy: hierarchical
 client_adapter_args:
-  dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
   exchange_optimizer_states: ${algorithm.exchange_optimizer_states}

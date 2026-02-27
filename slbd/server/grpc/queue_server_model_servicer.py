@@ -30,7 +30,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         server_model_manager: ServerModelManager,
         client_layer_allocator: ClientLayerAllocator,
         num_concat_batches: int,
-        dynamic_layers_strategy: str,
         request_group_timeout: float,
         sending_transform_fn_config: Optional[Callable],
         receiving_transform_fn_config: Optional[Callable],
@@ -39,8 +38,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
         super().__init__()
         self.server_model_manager = server_model_manager
         self.request_group_timeout = request_group_timeout
-        assert dynamic_layers_strategy in {None, "cnt", "afl"}
-        self._dynamic_layers_strategy = dynamic_layers_strategy
         self._is_cuda_available = torch.cuda.is_available()
         self.client_layer_allocator: ClientLayerAllocator = client_layer_allocator
 
@@ -57,7 +54,6 @@ class ServerModelServicer(server_model_pb2_grpc.ServerModelServicer):
             request_group_timeout=request_group_timeout,
             sending_transform_fn=self.sending_transform_fn,
             receiving_transform_fn=self.receiving_transform_fn,
-            dynamic_layers_strategy=dynamic_layers_strategy,
             is_cuda_available=self._is_cuda_available,
             exchange_optimizer_states=exchange_optimizer_states,
         )

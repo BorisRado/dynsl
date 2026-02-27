@@ -36,4 +36,5 @@ class ARESNumpyClientAdapter(BaseNumpyClientAdapter):
         }
         out[CLIENT_DATASET_SIZE] = self.torch_client.get_trainloader_size()
         log(INFO, "Profiling complete %s", str(out))
+        torch.cuda.empty_cache()
         return out

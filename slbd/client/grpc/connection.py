@@ -37,8 +37,6 @@ from flwr.proto.transport_pb2 import (  # pylint: disable=E0611
 from flwr.proto.transport_pb2_grpc import FlowerServiceStub  # pylint: disable=E0611
 from flwr.common.constant import MessageType, MessageTypeLegacy
 
-from slbd.proto.server_model_pb2_grpc import ServerModelStub
-
 
 def init_connection(transport: Optional[str], server_address: str) -> Tuple[
     Callable[
@@ -162,7 +160,6 @@ def grpc_connection(  # pylint: disable=R0913, R0915
         maxsize=1
     )
     stub = FlowerServiceStub(channel)
-    server_model_servicer_stub = ServerModelStub(channel)
 
     server_message_iterator: Iterator[ServerMessage] = stub.Join(iter(queue.get, None))
 
@@ -257,7 +254,7 @@ def grpc_connection(  # pylint: disable=R0913, R0915
 
     try:
         # Yield methods
-        yield (receive, send, server_model_servicer_stub, None, None, None)
+        yield (receive, send, None, None, None)
     finally:
         # Make sure to have a final
         channel.close()

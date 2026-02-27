@@ -14,9 +14,14 @@ def warmup_device(model: nn.Sequential):
     print(f"[Warm-up] Using device: {device}")
 
     # Define a minimal dummy model
-    state_dict_copy = copy.deepcopy(model.state_dict())
+    is_meta = next(iter(model.parameters())).device.type == "meta"
+    if not is_meta:
+        state_dict_copy = copy.deepcopy(model.state_dict())
+        model.to(device)
+    else:
+        model = copy.deepcopy(model)
+        model = model.to_empty(device=device)
 
-    model.to(device)
 
     # Dummy input and target
     bs = 8
@@ -28,7 +33,7 @@ def warmup_device(model: nn.Sequential):
     criterion = nn.CrossEntropyLoss()
 
     # Optimizer (any small one)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(model.parameters())
 
     # Perform a few dummy forward + backward passes
     for _ in range(steps):
@@ -38,11 +43,15 @@ def warmup_device(model: nn.Sequential):
         loss.backward()
         optimizer.step()
 
+    del optimizer
+
     # Synchronize (important for GPU warm-up)
     if device.type == "cuda":
         torch.cuda.synchronize()
-    model.cpu()
-    model.load_state_dict(state_dict_copy)
+
+    if not is_meta:
+        model.cpu()
+        model.load_state_dict(state_dict_copy)
 
     print("[Warm-up] Completed.")
 

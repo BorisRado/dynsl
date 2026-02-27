@@ -36,7 +36,6 @@ class SFSLClientAdapter(BaseNumpyClientAdapter):
         whole_model: FlexibleSequential,
         server_model_proxy: GrpcServerModelProxy,
         data_manipulation_config,
-        dynamic_layers_strategy: Optional[str]=None,
         exchange_optimizer_states: Optional[bool]=False,
         clf_head_dimensions=[256,],
     ):
@@ -45,7 +44,6 @@ class SFSLClientAdapter(BaseNumpyClientAdapter):
         self.server_model_proxy = server_model_proxy
         self.sending_transform_fn = instantiate(data_manipulation_config.sending_fn, _partial_=True)
         self.receiving_transform_fn = instantiate(data_manipulation_config.receiving_fn, _partial_=True)
-        self.dynamic_layers_strategy = dynamic_layers_strategy
         self.exchange_optimizer_states = exchange_optimizer_states
         self.clf_head_dimensions = clf_head_dimensions
 
@@ -73,7 +71,6 @@ class SFSLClientAdapter(BaseNumpyClientAdapter):
             sending_transform_fn=self.sending_transform_fn,
             receiving_transform_fn=self.receiving_transform_fn,
             is_training=True,
-            dynamic_layers_strategy=self.dynamic_layers_strategy,
             exchange_optimizer_states=self.exchange_optimizer_states,
             separate_client_clf_head=None,
         )

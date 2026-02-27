@@ -30,7 +30,6 @@ class SocketServerHandler:
         server_model_manager: ServerModelManager,
         client_layer_allocator: ClientLayerAllocator,
         num_concat_batches: int,
-        dynamic_layers_strategy: str,
         request_group_timeout: float,
         sending_transform_fn_config: Optional[Callable],
         receiving_transform_fn_config: Optional[Callable],
@@ -40,8 +39,6 @@ class SocketServerHandler:
         self.server_model_manager = server_model_manager
         self.client_layer_allocator = client_layer_allocator
         self.request_group_timeout = request_group_timeout
-        assert dynamic_layers_strategy in {None, "cnt", "afl"}
-        self._dynamic_layers_strategy = dynamic_layers_strategy
         self._loop = event_loop
         self._is_cuda_available = torch.cuda.is_available()
 
@@ -56,7 +53,6 @@ class SocketServerHandler:
             request_group_timeout=request_group_timeout,
             sending_transform_fn=self.sending_transform_fn,
             receiving_transform_fn=self.receiving_transform_fn,
-            dynamic_layers_strategy=dynamic_layers_strategy,
             exchange_optimizer_states=exchange_optimizer_states,
             is_cuda_available=self._is_cuda_available,
             event_loop=event_loop,

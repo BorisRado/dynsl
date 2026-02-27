@@ -44,7 +44,6 @@ class ModelTrainer:
         is_training,
         sending_transform_fn,
         receiving_transform_fn,
-        dynamic_layers_strategy,
         exchange_optimizer_states,
         separate_client_clf_head=None,
     ):
@@ -60,9 +59,6 @@ class ModelTrainer:
             learning_rate: Learning rate for optimizer
             momentum: Momentum for SGD optimizer
         """
-        # sanity checks
-        assert dynamic_layers_strategy in {None, "afl"}
-
         self._whole_model = whole_model
         self._num_layers_entire_model = get_num_layers(self._whole_model)
         self._num_received_layers = num_received_layers
@@ -73,7 +69,6 @@ class ModelTrainer:
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self._server_model_proxy = server_model_proxy
         self._is_training = is_training
-        self._dynamic_layers_strategy = dynamic_layers_strategy
         self._criterion = torch.nn.CrossEntropyLoss()
         self._removed_weights = []
         self._removed_optimizer_states = []
@@ -117,8 +112,6 @@ class ModelTrainer:
             # if not None, it means that we need to change the architecture of the client model
             # i.e., either add or remove some layers
             return
-
-        assert self._dynamic_layers_strategy == "afl"
 
         prev_num_of_layers = len(self._model)
         new_num_training_layers = prev_num_of_layers + control.layers_diff

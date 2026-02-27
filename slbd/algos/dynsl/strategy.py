@@ -1,5 +1,4 @@
 from collections import OrderedDict, defaultdict
-from logging import ERROR
 from typing import List, Tuple, Union, Dict
 
 import wandb
@@ -8,7 +7,6 @@ from flwr.common import (
     FitIns,
     Scalar,
     parameters_to_ndarrays,
-    log,
 )
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
@@ -16,7 +14,6 @@ from flwr.server.client_manager import ClientManager
 import torch
 
 from slbd.common import ServerModelFitRes
-from slbd.common.constants import CLIENT_LAST_LAYER_IDX_KEY, CLIENT_NUM_RECEIVED_LAYERS
 from slbd.torch.model_utils import get_layer_idx
 from slbd.algos.base_strategy import BaseStrategy
 from slbd.server.client_layer_allocator import ClientLayerAllocator
@@ -24,22 +21,17 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 class DynSLStrategy(BaseStrategy):
 
-    def __init__(self, dynamic_layers_strategy: str, end_epoch_weight_integration_strategy: str, **kwargs):
+    def __init__(self, end_epoch_weight_integration_strategy: str, **kwargs):
         """Initialize
 
         Parameters
         ----------
-        dynamic_layers_strategy : str
-            What kind of strategy we use for dynamically changing the number of layers on the client
+        end_epoch_weight_integration_strategy : str
+            Whether we integrate weights immediately or not
         """
         super().__init__(**kwargs)
-        # cnt -- counter: send entire model to clients, just change the counter of how many layers client is training
-        # afl -- use asynchronous FL-like aggregation. Send weight to client when increasing
-        #        and client sends weights when decreasing
-        assert dynamic_layers_strategy in {"afl", None}
-        if dynamic_layers_strategy is None:
-            assert end_epoch_weight_integration_strategy == "immediate"
-        self._dynamic_layers_strategy = dynamic_layers_strategy
+        if self.num_server_models == -1:
+            assert end_epoch_weight_integration_strategy == "hierarchical"
         self._end_epoch_weight_integration_strategy = end_epoch_weight_integration_strategy
 
     def configure_fit(
@@ -127,12 +119,6 @@ class DynSLStrategy(BaseStrategy):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )
-
-        if self._dynamic_layers_strategy == "cnt":
-            return super().aggregate_fit(
-                server_round, client_results, server_results, layer_allocator, failures
-            )
-
         if self._end_epoch_weight_integration_strategy == "immediate":
             # ALL AFL DATA SHOULD BE EMPTY
             assert [server_res.afl_data == {} for server_res in server_results]

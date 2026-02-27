@@ -225,7 +225,6 @@ def _start_client_internal(
         on_backoff=_on_backoff,
     )
 
-    node_state = NodeState()
     # At this point, only `load_flower_callable_fn` should be used
     # Both `client` and `client_fn` must not be used directly
 
@@ -239,7 +238,7 @@ def _start_client_internal(
             root_certificates,
             authentication_keys,
         ) as conn:
-            receive, send, server_model_stub, create_node, delete_node, _ = conn
+            receive, send, create_node, delete_node, _ = conn
 
             if create_node is not None:
                 create_node()  # pylint: disable=not-callable
@@ -267,14 +266,6 @@ def _start_client_internal(
                         send(out_message)
                         break
 
-                    # Register context for this run
-                    node_state.register_context(run_id=message.metadata.run_id)
-
-                    # Retrieve context for this run
-                    context = node_state.retrieve_context(
-                        run_id=message.metadata.run_id
-                    )
-
                     # Create an error reply message that will never be used to prevent
                     # the used-before-assignment linting error
                     reply_message = message.create_error_reply(
@@ -289,8 +280,7 @@ def _start_client_internal(
                         # Execute ClientApp
                         reply_message = client_app(
                             message=message,
-                            context=context,
-                            server_model_stub=server_model_stub
+                            context=None,
                         )
                     except Exception as ex:  # pylint: disable=broad-exception-caught
 
@@ -322,12 +312,6 @@ def _start_client_internal(
                         # Create error message
                         reply_message = message.create_error_reply(
                             error=Error(code=e_code, reason=reason)
-                        )
-                    else:
-                        # No exception, update node state
-                        node_state.update_context(
-                            run_id=message.metadata.run_id,
-                            context=context,
                         )
 
                     # Send

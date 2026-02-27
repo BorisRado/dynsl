@@ -86,13 +86,13 @@ def generate():
                 continue
             prefix = "algorithm."
             print(key)
-            if key[predix_len:] not in {"exchange_optimizer_states", "dynamic_layers_strategy"}:
+            if key[predix_len:] not in {"exchange_optimizer_states"}:
                 prefix += "layer_allocator_init_args."
             algo_args.append(f"{prefix}{key[predix_len:]}={args_dict[key]}")
 
         if args.algorithm == "dynsl_w_profiling":
             # delete unnecessary keys
-            delete_keys = ["reallocation_frequency", "gamma", "cache_client_data", "dynamic_layers_strategy", "exchange_optimizer_states"]
+            delete_keys = ["reallocation_frequency", "gamma", "cache_client_data", "exchange_optimizer_states"]
             algo_args = [arg for arg in algo_args if not any(k in arg for k in delete_keys)]
 
         args_dict["algo_config"] = "\n      ".join(algo_args)

@@ -97,7 +97,6 @@ class SLExecutor:
         num_concat_batches: int,
         request_group_timeout: float,
         client_clf_head = None,
-        dynamic_layers_strategy=None,
         client_exchange_optimizer_states=None,
         server_exchange_optimizer_states=None,
     ):
@@ -105,7 +104,6 @@ class SLExecutor:
         self.server_model_manager = server_model_manager
         self.whole_model = whole_model
         self.client_layer_allocator = client_layer_allocator
-        self.dynamic_layers_strategy = dynamic_layers_strategy
         self.client_clf_head = client_clf_head
         self.client_exchange_optimizer_states = client_exchange_optimizer_states
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
@@ -123,7 +121,6 @@ class SLExecutor:
             request_group_timeout=request_group_timeout,
             sending_transform_fn=None,
             receiving_transform_fn=None,
-            dynamic_layers_strategy=dynamic_layers_strategy,
             exchange_optimizer_states=server_exchange_optimizer_states,
             is_cuda_available=torch.cuda.is_available(),
             event_loop=self.event_loop,
@@ -163,7 +160,6 @@ class SLExecutor:
                 is_training=True,
                 sending_transform_fn=None,
                 receiving_transform_fn=None,
-                dynamic_layers_strategy=self.dynamic_layers_strategy,
                 exchange_optimizer_states=self.client_exchange_optimizer_states,
             )
             if self.client_clf_head is not None:

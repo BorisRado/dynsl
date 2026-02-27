@@ -1,5 +1,6 @@
 import os
 
+import torch
 import hydra
 from hydra.utils import instantiate
 from omegaconf import DictConfig, OmegaConf
@@ -64,8 +65,11 @@ def run(cfg: DictConfig):
         seed=cfg.general.seed,
     )
 
-    model = instantiate(cfg.model)
+    with torch.device("meta"):
+        model = instantiate(cfg.model)
     warmup_device(model)
+    torch.cuda.empty_cache()
+    assert next(iter(model.parameters())).device.type == "meta"
     client = MOTorchClient(
         **client_init_kwargs,
         trainset=trainset,

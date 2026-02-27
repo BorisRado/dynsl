@@ -37,6 +37,9 @@ def extract_submodel(model: FlexibleSequential, start_idx: int, end_idx: int) ->
     sub_layers = copy.deepcopy(list(model.children())[start_idx:end_idx])
     submodel = FlexibleSequential(*sub_layers)
     submodel._is_complete = end_idx == max_num_layers
+    # If model is on meta device -> materialize it
+    if next(model.parameters()).device.type == "meta":
+        submodel = submodel.to_empty(device="cpu")
     return submodel
 
 

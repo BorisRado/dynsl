@@ -32,11 +32,12 @@ class DynSLClientAdapterWProfiling(DynSLClientAdapter):
             model=self.whole_model,
             optimizer_name="adam",
             batch_size=self.torch_client.batch_size,
-            iterations=100 if torch.cuda.is_available() else 50,
-            dry_runs=20 if torch.cuda.is_available() else 10,
+            iterations=80 if torch.cuda.is_available() else 20,
+            dry_runs=20 if torch.cuda.is_available() else 5,
         )
         # convert list to a dictionary as flower does not allow sending lists
         per_layer_complexity = {f"__lc{idx}": per_layer_complexity[idx] for idx in range(len(per_layer_complexity))}
+        torch.cuda.empty_cache()
         return {
             MIN_NUMBER_OF_CLIENT_LAYERS: 2,
             CLIENT_DATASET_SIZE: self.torch_client.get_trainloader_size(),

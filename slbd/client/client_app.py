@@ -1,10 +1,9 @@
-from typing import Dict, Type
+from typing import Type
 
 from flwr.client.mod.utils import make_ffn
 from flwr.client import NumPyClient, ClientFn
 from flwr.common import Context, Message, Scalar
 
-from slbd.proto.server_model_pb2_grpc import ServerModelStub
 from slbd.client.grpc.message_handler import handle_legacy_message_from_msgtype
 
 
@@ -56,14 +55,12 @@ class ClientApp:
         def ffn(
             message: Message,
             context: Context,
-            server_model_stub: ServerModelStub,
         ) -> Message:  # pylint: disable=invalid-name
             out_message = handle_legacy_message_from_msgtype(
                 client_fn=client_fn,
                 model=model,
                 message=message,
                 context=context,
-                server_model_stub=server_model_stub,
                 client_adapter_cls=client_adapter_cls,
                 use_socket=use_socket,
                 socket_address=socket_address,
@@ -79,7 +76,6 @@ class ClientApp:
         self,
         message: Message,
         context: Context,
-        server_model_stub: ServerModelStub
     ) -> Message:
         """Execute `ClientApp`."""
-        return self._call(message, context, server_model_stub)
+        return self._call(message, context)

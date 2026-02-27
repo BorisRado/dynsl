@@ -428,7 +428,6 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
             server_model_manager=initialized_server.server_model_manager,
             client_layer_allocator=initialized_server.get_client_layer_allocator(),
             num_concat_batches=config.server_model_servicer.num_concat_batches,
-            dynamic_layers_strategy=config.server_model_servicer.dynamic_layers_strategy,
             request_group_timeout=config.server_model_servicer.request_group_timeout,
             sending_transform_fn_config=config.data_manipulation.server.sending_fn,
             receiving_transform_fn_config=config.data_manipulation.server.receiving_fn,
