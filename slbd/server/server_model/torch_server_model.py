@@ -27,6 +27,7 @@ class TorchServerModel:
         self._criterion = torch.nn.CrossEntropyLoss()
         self._per_layer_data_points = defaultdict(int) # layer idxs are absolute!!!
         self._metrics_dict = {"train/server_loss": 0.}
+        self._weight_integration_strategy = None
 
     def get_train_results(self):
         state_dict = shift_state_dict(
@@ -58,6 +59,7 @@ class TorchServerModel:
         self._model = self._get_model_from_ins(instructions)
         self._model.train()
         self._model.to(self.device)
+        self._weight_integration_strategy = instructions.config.get("weight_integration_strategy", None)
         optim_config = {k: v for k, v in instructions.config.items() if k.startswith("optim.")}
         self._optimizer = init_optimizer(self._model.parameters(), **optim_config)
 
@@ -89,6 +91,7 @@ class TorchServerModel:
         loss = self._criterion(logits, labels)
         self._metrics_dict["train/server_loss"] += loss.item() * logits.shape[0]
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=2.0)
         self._optimizer.step()
 
         if is_tuple:
@@ -149,12 +152,6 @@ class TorchServerModel:
             for server_param in self._model[server_layer_idx].parameters():
                 client_param = parameters[idx]
                 assert client_param.shape == server_param.shape
-                # TODO: aggregate weights that are of type LONG
-                # compute (client_param * c_weight + server_param * s_weight) / (c_weight + s_weight)
-                # c_weight + s_weight == 1, so we don't need the final division => one spared operation
-                # if server_param.data.dtype == torch.long:
-                #     server_param.data = (server_param.data.float() * s_weight + (torch.from_numpy(client_param).to(server_param.device).float() * c_weight)).round().long()
-                # else:
                 server_param.data \
                     .mul_(s_weight) \
                     .add_(
@@ -163,7 +160,13 @@ class TorchServerModel:
                 integrated_parameters.append(server_param)
 
                 # since we "override" the weight, we reset the optimizer state for the considered parameter
-                self._optimizer.state[server_param] = {}
+                if self._weight_integration_strategy == "reset_optim_state":
+                    self._optimizer.state[server_param] = {}
+                elif self._weight_integration_strategy == "keep_optim_state":
+                    pass
+                else:
+                    raise Exception("self._weight_integration_strategy MUST NOT BE NONE")
+
                 idx += 1
             if idx == len(parameters):
                 break
@@ -171,6 +174,7 @@ class TorchServerModel:
         # Restore optimizer states if provided -- should only be used when clients are paired
         # with a dedicated classificaiton head
         if optimizer_states:
+            assert self._weight_integration_strategy is None
             override_optimizer_state(self._optimizer, optimizer_states, integrated_parameters)
 
     def get_current_layer_data_points(self, layer_idx):

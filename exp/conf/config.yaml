@@ -2,7 +2,7 @@ defaults:
   - model: cnn
   - data: cifar10
   - partitioning: iid
-  - optimizer: sgd
+  - optimizer: adam
   - data_manipulation: cv
   - algorithm: splitfed_v2
   - server_model_manager: multithreading
@@ -38,7 +38,6 @@ server_model_servicer:
   servicer_name: queue
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
   request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model
-  dynamic_layers_strategy: ${oc.select:algorithm.dynamic_layers_strategy,null}
   exchange_optimizer_states: ${oc.select:algorithm.exchange_optimizer_states,false}
 wandb: false
 experiment_name: ... # helper to search experiments in wandb database

@@ -183,9 +183,11 @@ class ModelTrainer:
             with self.timer:
                 loss = self._criterion(client_output, labels.to(self._device))
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=2.0)
                 self._optimizer.step()
             loss = loss.item()
             self._update_metrics(loss, labels.shape[0])
+            self._tot_local_computation_time += self.timer.get_elapsed_and_reset()
             return None, None
         if self._separate_client_clf_head is not None:
             # client has encoder+separate classification head -- compute the loss locally using the small head

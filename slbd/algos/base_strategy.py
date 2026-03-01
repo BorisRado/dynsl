@@ -120,7 +120,8 @@ class BaseStrategy(Strategy):
             self.iter_wo_improve = 0
         else:
             self.iter_wo_improve += 1
-            if self.iter_wo_improve == self.patience:
+            tmp_patience = self.patience if self._best_test_acc > 0.2 else self.patience * 1.5
+            if self.iter_wo_improve == tmp_patience:
                 self.has_converged = True
         torch.cuda.empty_cache()
         return metrics["test/loss"], metrics

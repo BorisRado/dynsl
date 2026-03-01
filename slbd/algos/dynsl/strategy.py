@@ -21,7 +21,7 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 class DynSLStrategy(BaseStrategy):
 
-    def __init__(self, end_epoch_weight_integration_strategy: str, **kwargs):
+    def __init__(self, end_epoch_weight_integration_strategy: str, server_optim_state_handling, **kwargs):
         """Initialize
 
         Parameters
@@ -32,6 +32,13 @@ class DynSLStrategy(BaseStrategy):
         super().__init__(**kwargs)
         if self.num_server_models == -1:
             assert end_epoch_weight_integration_strategy == "hierarchical"
+
+        assert end_epoch_weight_integration_strategy in {"hierarchical", "immediate"}
+        if end_epoch_weight_integration_strategy == "hierarchical":
+            assert server_optim_state_handling is None
+        else:
+            assert server_optim_state_handling in {"reset_optim_state", "keep_optim_state"}
+        self._server_optim_state_handling = server_optim_state_handling
         self._end_epoch_weight_integration_strategy = end_epoch_weight_integration_strategy
 
     def configure_fit(
@@ -61,10 +68,12 @@ class DynSLStrategy(BaseStrategy):
 
         if self.num_server_models == 1:
             min_layers = self.model.meaningful_split_points[0]
+            server_config = config.copy()
+            server_config["weight_integration_strategy"] = self._server_optim_state_handling
             print(f"Assigning min layers: {min_layers}")
             all_server_models_fit_ins = self._setup_epoch_server_models(
                 [("", min_layers, [proxy.cid for proxy in clients])],
-                model_state_dict, True, config
+                model_state_dict, True, server_config
             )
         if self.num_server_models == 0:
             raise Exception("Cannot use model per split point --- would it make sense to integrate?")
@@ -119,9 +128,8 @@ class DynSLStrategy(BaseStrategy):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )
-        if self._end_epoch_weight_integration_strategy == "immediate":
-            # ALL AFL DATA SHOULD BE EMPTY
-            assert [server_res.afl_data == {} for server_res in server_results]
+        if all([server_res.afl_data == {} for server_res in server_results]):
+            print("Aggregating with plain aggragation -- ok if w_profiling or immediate aggregation")
             return super().aggregate_fit(
                 server_round, client_results, server_results, layer_allocator, failures
             )

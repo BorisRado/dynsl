@@ -41,7 +41,7 @@ from slbd.common.profiling import (
     measure_per_layer_complexity
 )
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
-from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2, DynSLClientLayerAllocatorWProfiling, DynSLStrategyWProfiling
+from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2, DynSLClientLayerAllocatorWProfiling
 from slbd.algos.sfsl import SFSLClientLayerAllocator, SFSLStrategy
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
@@ -135,7 +135,7 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
 
 
 def init_dynsl_w_profiling(config, model, model_evaluate_fn):
-    strategy = DynSLStrategyWProfiling(
+    strategy = DynSLStrategy(
         model=model,
         model_evaluate_fn=model_evaluate_fn,
         optimizer_config=OmegaConf.to_container(config.optimizer),

@@ -1,7 +1,7 @@
 import copy
 import random
 import asyncio
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import uvloop
 import numpy as np
@@ -96,6 +96,9 @@ class SLExecutor:
         client_layer_allocator,
         num_concat_batches: int,
         request_group_timeout: float,
+        training_speed_imbalance_value: Optional[float],
+        end_epoch_weight_integration_strategy,
+        client_optim_state_resetting_frequency=-1,
         client_clf_head = None,
         client_exchange_optimizer_states=None,
         server_exchange_optimizer_states=None,
@@ -106,6 +109,7 @@ class SLExecutor:
         self.client_layer_allocator = client_layer_allocator
         self.client_clf_head = client_clf_head
         self.client_exchange_optimizer_states = client_exchange_optimizer_states
+        self.client_optim_state_resetting_frequency = client_optim_state_resetting_frequency
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
         self.event_loop = asyncio.new_event_loop()
         self._no_metrics = SocketTimingMetrics(
@@ -114,6 +118,8 @@ class SLExecutor:
             per_layer_forward_times=[],
             tot_backward_time=-1
         )
+        self.training_speed_imbalance_value = training_speed_imbalance_value
+        self._end_epoch_weight_integration_strategy = end_epoch_weight_integration_strategy
         self._worker_manager = BatchingWorkerManager(
             server_model_manager=server_model_manager,
             client_layer_allocator=client_layer_allocator,
@@ -287,6 +293,49 @@ class SLExecutor:
 
         return self.collect_results(clients)
 
+    async def _iterate_client_fw_bck_pass(self, clients, sampled_client_idx, remaining):
+        entry = clients[sampled_client_idx]
+        try:
+            with entry["rng"]:
+                batch = next(entry["iterator"])
+                if entry["dataset_type"] == "cv":
+                    payload, client_output = \
+                        entry["trainer"].forward_pass(batch["img"], batch["label"])
+                else:
+                    payload, client_output = \
+                        entry["trainer"].forward_pass(
+                            input_vars=(batch["input_ids"], batch["attention_mask"]),
+                            labels=batch["labels"]
+                        )
+        except StopIteration:
+            remaining[sampled_client_idx] = 0
+            return
+
+        if payload is None:
+            return
+
+        del payload[SL_BACKWARD_TIME]
+        del payload[SL_PER_LAYER_FORWARD_TIMES]
+
+        data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=self._no_metrics)
+        backward_data: BatchDataBackward = await self._worker_manager \
+            .enqueue_and_get_future(client_id=entry["cid"], data=data)
+        gradient = backward_data.data
+        layer_change_info = None
+        if backward_data.layers_diff != 0:
+            layer_change_info = LayerChangeInfo(
+                layers_diff=backward_data.layers_diff,
+                additional_layers_parameters=backward_data.additional_layers_parameters,
+                additional_optimizer_states=backward_data.additional_optimizer_states
+            )
+        entry["trainer"].backward_pass(
+            gradient=gradient,
+            control=layer_change_info,
+            loss=backward_data.training_loss,
+            client_output=client_output
+        )
+        remaining[sampled_client_idx] -= 1
+
     async def run_wo_concatenation(self):
         # has lower memory usage
 
@@ -295,53 +344,94 @@ class SLExecutor:
         # compute number of batches per client (dataloader drop_last=True so lengths equal-ish)
         remaining = [len(c["dataloader"]) for c in clients]
 
+        iteration = 0
         while any(r > 0 for r in remaining):
             order = [i for i, r in enumerate(remaining) if r > 0]
             random.shuffle(order)
             for idx in order:
-                entry = clients[idx]
-                try:
-                    with entry["rng"]:
-                        batch = next(entry["iterator"])
-                        if entry["dataset_type"] == "cv":
-                            payload, client_output = \
-                                entry["trainer"].forward_pass(batch["img"], batch["label"])
-                        else:
-                            payload, client_output = \
-                                entry["trainer"].forward_pass(
-                                    input_vars=(batch["input_ids"], batch["attention_mask"]),
-                                    labels=batch["labels"]
-                                )
-                except StopIteration:
-                    remaining[idx] = 0
-                    continue
+                await self._iterate_client_fw_bck_pass(clients, idx, remaining)
 
-                if payload is None:
-                    continue
-
-                del payload[SL_BACKWARD_TIME]
-                del payload[SL_PER_LAYER_FORWARD_TIMES]
-
-                data = BatchDataForward(data=payload, is_training=True, client_timing_metrics=self._no_metrics)
-                backward_data: BatchDataBackward = await self._worker_manager \
-                    .enqueue_and_get_future(client_id=entry["cid"], data=data)
-                gradient = backward_data.data
-                layer_change_info = None
-                if backward_data.layers_diff != 0:
-                    layer_change_info = LayerChangeInfo(
-                        layers_diff=backward_data.layers_diff,
-                        additional_layers_parameters=backward_data.additional_layers_parameters,
-                        additional_optimizer_states=backward_data.additional_optimizer_states
-                    )
-                entry["trainer"].backward_pass(
-                    gradient=gradient,
-                    control=layer_change_info,
-                    loss=backward_data.training_loss,
-                    client_output=client_output
-                )
-                remaining[idx] -= 1
-
+            iteration += 1
+            if self.client_optim_state_resetting_frequency > 0 and iteration % self.client_optim_state_resetting_frequency == 0:
+                # reset all the client optimizers
+                print("Resetting optimizer states")
+                for client in clients:
+                    client["trainer"]._optimizer.state.clear()
         return self.collect_results(clients)
+
+    async def run_stochastic_order(self):
+        # Stochastic order: sample a client each step according to a per-client "speed".
+        clients = self._clients
+        n_clients = len(clients)
+        remaining = [len(c["dataloader"]) for c in clients]
+
+        num_clients = len(clients)
+        sigma = float(self.training_speed_imbalance_value)
+        mu = -0.5 * sigma * sigma
+        speeds = np.random.lognormal(mean=mu, sigma=sigma, size=num_clients)
+        speeds = speeds / float(speeds.mean())  # normalize so mean speed == 1.0
+
+        iter_since_sampling = [3] * len(clients)
+        results = []
+        while any(r > 0 for r in remaining):
+            active = [i for i, r in enumerate(remaining) if r > 0]
+            weights = [
+                speeds[i] * 3 if iter_since_sampling[i] > 2 * n_clients
+                else 0. if (iter_since_sampling[i] < 2 and len(active) > 4)
+                else speeds[i]
+                for i in active
+            ]
+            assert sum(weights) > 0
+            sampled_client_idx = random.choices(active, weights=weights, k=1)[0]
+            for idx in range(n_clients):
+                iter_since_sampling[idx] += 1
+            iter_since_sampling[sampled_client_idx] = 0
+            await self._iterate_client_fw_bck_pass(clients, sampled_client_idx, remaining)
+            if remaining[sampled_client_idx] == 0 and self._end_epoch_weight_integration_strategy == "immediate":
+                results.append(
+                    await self._handle_early_finishing_client(clients[sampled_client_idx])
+                )
+        if self._end_epoch_weight_integration_strategy == "immediate":
+            print("returning previously collected results")
+            return results
+        return self.collect_results(clients)
+
+    async def _handle_early_finishing_client(self, entry):
+        # immediately extract the weights and send them to the server
+        trained_parameters, processed_data_points_dict, metrics = entry["trainer"].get_fit_results()
+        combined_metrics = processed_data_points_dict | metrics
+        print("Client has finished training!", len(entry["trainer"]._model))
+        assert entry["trainer"]._separate_client_clf_head is None
+
+        dataset_size = entry["trainer"]._dataset_size
+
+        n_late_params = 0 # "late" parameters will be aggregated at the end of the epoch as usual
+        for layer, _ in zip(self.whole_model, range(self.whole_model.meaningful_split_points[0])):
+            n_late_params += len(list(layer.parameters()))
+
+        trained_parameters, immediate_integration_parameters = \
+            trained_parameters[:n_late_params], trained_parameters[n_late_params:]
+        nl_end = len([k for k in combined_metrics if k.startswith("_proc")])
+        extract_keys = [f"_proc{idx}" for idx in range(self.whole_model.meaningful_split_points[0], nl_end)]
+        send_dps_dict = {k: combined_metrics.pop(k) for k in extract_keys}
+
+        layer_idxs = sorted(int(k[len("_proc"):]) for k in send_dps_dict)
+        proc_dp = np.array([send_dps_dict[f"_proc{idx}"] for idx in layer_idxs])
+        immediate_integration_parameters.append(proc_dp)
+        await self._worker_manager.immediately_integrate_client_parameters(
+            cid=entry["cid"],
+            client_parameters=[torch.from_numpy(t) for t in immediate_integration_parameters],
+        )
+        return (
+            entry["proxy"],
+            FitRes(
+                status=Status(code=Code.OK, message="Success"),
+                parameters=ndarrays_to_parameters(trained_parameters),
+                num_examples=dataset_size,
+                metrics=combined_metrics,
+            )
+        )
+
 
     async def run_no_backward_wo_concatenation(self):
         # has lower memory usage
@@ -392,7 +482,9 @@ class SLExecutor:
     ):
 
         self.init_epoch(client_instructions)
-        if self.client_clf_head is not None and not has_batch_concatenation:
+        if self.training_speed_imbalance_value is not None:
+            results = self.event_loop.run_until_complete(self.run_stochastic_order())
+        elif self.client_clf_head is not None and not has_batch_concatenation:
             print("Running SFSL")
             results = self.event_loop.run_until_complete(self.run_no_backward_wo_concatenation())
         elif self.client_clf_head is not None and has_batch_concatenation:

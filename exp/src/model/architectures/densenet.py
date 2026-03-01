@@ -10,7 +10,7 @@ class BasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, dropRate=0.0):
         super(BasicBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=False)
         self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=1,
                                padding=1, bias=False)
         self.droprate = dropRate
@@ -25,7 +25,7 @@ class BottleneckBlock(nn.Module):
         super(BottleneckBlock, self).__init__()
         inter_planes = out_planes * 4
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=False)
         self.conv1 = nn.Conv2d(in_planes, inter_planes, kernel_size=1, stride=1,
                                padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(inter_planes)
@@ -45,7 +45,7 @@ class TransitionBlock(nn.Module):
     def __init__(self, in_planes, out_planes, dropRate=0.0):
         super(TransitionBlock, self).__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU(inplace=False)
         self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1,
                                padding=0, bias=False)
         self.droprate = dropRate
@@ -99,7 +99,7 @@ class DenseNet3(nn.Sequential):
         in_planes = int(in_planes+n*growth_rate)
         # global average pooling and classifier
         bn1 = nn.BatchNorm2d(in_planes)
-        relu = nn.ReLU(inplace=True)
+        relu = nn.ReLU(inplace=False)
         fc = nn.Linear(in_planes, num_classes)
         in_planes = in_planes
         self.meaningful_split_points = [3, 5, 9]

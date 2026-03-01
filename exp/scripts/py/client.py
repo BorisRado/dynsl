@@ -65,8 +65,7 @@ def run(cfg: DictConfig):
         seed=cfg.general.seed,
     )
 
-    with torch.device("meta"):
-        model = instantiate(cfg.model)
+    model = instantiate(cfg.model).to("meta")
     warmup_device(model)
     torch.cuda.empty_cache()
     assert next(iter(model.parameters())).device.type == "meta"

@@ -8,21 +8,21 @@ layer_allocator_init_args:
         - start: 0.0
           num_layers: 4
         - start: 0.4
-          num_layers: 5
+          num_layers: 6
         - start: 0.8
-          num_layers: 8
+          num_layers: 7
     - ids: "20-37"
       evolution:
         - start: 0.0
           num_layers: 4
         - start: 0.2
-          num_layers: 8
-    - ids: "38-50"
+          num_layers: 7
+    - ids: "38-40"
       evolution:
         - start: 0.0
           num_layers: 4
         - start: 0.1
-          num_layers: 8
+          num_layers: 7
         - start: 0.7
           num_layers: 6
 strategy_init_args:

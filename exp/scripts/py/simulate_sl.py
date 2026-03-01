@@ -66,8 +66,8 @@ def run(cfg: DictConfig):
             encoder = extract_submodel(model, 0, sp)
             sp_head = create_classification_head(encoder, cfg.data.num_classes, cfg.algorithm.strategy_init_args.clf_head_dimensions)
             client_clf_head[sp] = sp_head
-    elif cfg.algorithm.name.startswith("dynsl"):
-        assert cfg.algorithm.strategy_init_args.end_epoch_weight_integration_strategy == "hierarchical"
+    elif cfg.algorithm.name.startswith("dynsl") and cfg.algorithm.end_epoch_weight_integration_strategy == "immediate":
+        assert cfg.general.get("training_speed_imbalance_value") > 0
 
     if cfg.wandb:
         if run_exists_already(cfg):
@@ -99,6 +99,7 @@ def run(cfg: DictConfig):
     # instantiate the layer allocator and the strategy
     strategy = {
         "dynsl_simulation": DynSLStrategy,
+        "dynsl_w_profiling_simulation": DynSLStrategy,
         "splitfed_v1": SplitFedStrategy,
         "splitfed_v2": SplitFedStrategy,
         "dtfl_simulation": DTFLStrategy,
@@ -115,6 +116,7 @@ def run(cfg: DictConfig):
 
     client_layer_allocator = {
         "dynsl_simulation": DynSLSimulationClientLayerAllocator,
+        "dynsl_w_profiling_simulation": OracleSimulationClientLayerAllocator,
         "splitfed_v1": SplitFedClientLayerAllocator,
         "splitfed_v2": SplitFedClientLayerAllocator,
         "dtfl_simulation": DTFLSimulationClientLayerAllocator,
@@ -134,12 +136,18 @@ def run(cfg: DictConfig):
     )
     server_model_manager.set_strategy(strategy)
 
+    training_speed_imbalance_value = cfg.general.get("training_speed_imbalance_value", None)
+    if training_speed_imbalance_value is None:
+        print("Imbalance factor set to None -- considering uniform order of training")
     sl_executor = SLExecutor(
         server_model_manager=server_model_manager,
         client_layer_allocator=client_layer_allocator,
         strategy=strategy,
         request_group_timeout=cfg.server_model_servicer.request_group_timeout,
         num_concat_batches=cfg.server_model_servicer.num_concat_batches,
+        training_speed_imbalance_value=training_speed_imbalance_value,
+        client_optim_state_resetting_frequency=cfg.general.get("optim_reset_frequency", -1),
+        end_epoch_weight_integration_strategy=cfg.algorithm.get("end_epoch_weight_integration_strategy", None),
         whole_model=copy.deepcopy(model),
         client_clf_head=client_clf_head,
         server_exchange_optimizer_states=cfg.algorithm.get("exchange_optimizer_states", None),

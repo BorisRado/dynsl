@@ -415,6 +415,8 @@ def profile_cumulative_per_layer_time_individual_layers(model, optimizer_name, b
     times = []
 
     model = copy.deepcopy(model)
+    if next(iter(model.parameters())).device.type == "meta":
+        model = model.to_empty(device="cpu")
     x = torch.randn(batch_size, 3, 32, 32, device=device)
     for layer in model.children():
         layer.to(device)
