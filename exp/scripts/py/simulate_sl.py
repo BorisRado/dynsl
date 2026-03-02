@@ -86,7 +86,7 @@ def run(cfg: DictConfig):
         seed=cfg.general.seed,
         keep_in_memory=cfg.data.load_onto_memory,
     )
-    testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=256, shuffle=False)
+    testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=1024, shuffle=False)
 
     clients = [
         SimulationClientProxy(cid, MOTorchClient(

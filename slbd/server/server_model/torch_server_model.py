@@ -35,6 +35,13 @@ class TorchServerModel:
             self.first_server_layer
         )
         per_layer_training_examples = {k: int(v) for k, v in self._per_layer_data_points.items()}
+        if len(per_layer_training_examples) != len(self._model):
+            delete_list = []
+            for k in state_dict:
+                if int(k.split(".")[0]) not in per_layer_training_examples:
+                    delete_list.append(k)
+            for k in delete_list:
+                del state_dict[k]
         self._metrics_dict["train/server_loss"] /= max(per_layer_training_examples.values())
         return ServerModelFitRes(
             model_state_dict=state_dict,
@@ -91,7 +98,6 @@ class TorchServerModel:
         loss = self._criterion(logits, labels)
         self._metrics_dict["train/server_loss"] += loss.item() * logits.shape[0]
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=2.0)
         self._optimizer.step()
 
         if is_tuple:
@@ -139,7 +145,9 @@ class TorchServerModel:
         server_model_weights: Dict[int, int],
         optimizer_states: Optional[List[torch.Tensor]] = None,
     ):
-
+        assert False
+        if self._weight_integration_strategy == "ignore":
+            return
         idx = 0
         integrated_parameters = []
         for layer_idx in received_layers:

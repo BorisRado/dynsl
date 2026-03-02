@@ -33,11 +33,9 @@ class DynSLStrategy(BaseStrategy):
         if self.num_server_models == -1:
             assert end_epoch_weight_integration_strategy == "hierarchical"
 
-        assert end_epoch_weight_integration_strategy in {"hierarchical", "immediate"}
-        if end_epoch_weight_integration_strategy == "hierarchical":
-            assert server_optim_state_handling is None
-        else:
-            assert server_optim_state_handling in {"reset_optim_state", "keep_optim_state"}
+        assert end_epoch_weight_integration_strategy in {"hierarchical", "immediate", "ignore"}
+        if end_epoch_weight_integration_strategy == "ignore":
+            assert end_epoch_weight_integration_strategy == "hierarchical"
         self._server_optim_state_handling = server_optim_state_handling
         self._end_epoch_weight_integration_strategy = end_epoch_weight_integration_strategy
 

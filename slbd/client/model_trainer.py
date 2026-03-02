@@ -183,7 +183,6 @@ class ModelTrainer:
             with self.timer:
                 loss = self._criterion(client_output, labels.to(self._device))
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(self._model.parameters(), max_norm=2.0)
                 self._optimizer.step()
             loss = loss.item()
             self._update_metrics(loss, labels.shape[0])
