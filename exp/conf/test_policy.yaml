@@ -1,6 +1,6 @@
 defaults:
   - model: resnet18
-  - optimizer: sgd
+  - optimizer: adam
   - data: cifar10 # not used, but required to initialize model
   - profiled_times: ${model}
   - data_manipulation: cv
@@ -26,7 +26,6 @@ client:
 server_model_servicer: # these kwargs are acutally passed to the batching worker manager, but we keep the old name for backward compatibility
   num_concat_batches: 1 # how many batches need to be received before sending the data to the model
   request_group_timeout: 0.8 # if by this time limit not enough data is received, the request is still given to the model
-  dynamic_layers_strategy: ${oc.select:algorithm.dynamic_layers_strategy,null}
   exchange_optimizer_states: ${oc.select:algorithm.exchange_optimizer_states,false}
 wandb: false
 experiment_name: ... # helper to search experiments in wandb database

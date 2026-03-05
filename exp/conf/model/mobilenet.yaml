@@ -1,0 +1,3 @@
+_target_: exp.src.model.architectures.mobilenet.MobileNet
+num_classes: ${data.num_classes}
+use_groupnorm: true

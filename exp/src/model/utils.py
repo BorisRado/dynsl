@@ -81,14 +81,20 @@ def test_model(model, dataloader):
     return avg_loss, accuracy
 
 
-def replace_bn_with_gn(module, num_groups=2):
+def replace_bn_with_gn(module):
     for name, child in module.named_children():
         if isinstance(child, nn.BatchNorm2d):
+            channels = child.num_features
+            channels_per_group = 2
+            for cpg in [16, 12, 8, 6, 4]:
+                if channels % cpg == 0:
+                    channels_per_group = cpg
+                    break
             gn = nn.GroupNorm(
-                num_groups=num_groups,
-                num_channels=child.num_features,
+                num_groups=channels // channels_per_group,
+                num_channels=channels,
                 affine=True
             )
             setattr(module, name, gn)
         else:
-            replace_bn_with_gn(child, num_groups)
+            replace_bn_with_gn(child)

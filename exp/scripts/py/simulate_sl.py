@@ -5,6 +5,7 @@ import logging
 from logging import INFO
 from dotenv import load_dotenv
 
+import torch
 import hydra
 from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
@@ -86,7 +87,13 @@ def run(cfg: DictConfig):
         seed=cfg.general.seed,
         keep_in_memory=cfg.data.load_onto_memory,
     )
-    testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=1024, shuffle=False)
+    testloader = torch.utils.data.DataLoader(
+        load_cv_testset(cfg.data),
+        batch_size=512,
+        shuffle=False,
+        pin_memory=True,
+        num_workers=2,
+    )
 
     clients = [
         SimulationClientProxy(cid, MOTorchClient(

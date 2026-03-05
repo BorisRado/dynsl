@@ -9,21 +9,18 @@ from exp.src.model.utils import replace_bn_with_gn
 
 
 class ResNet(FlexibleSequential):
-    def __init__(self, num_classes, base_cls, use_groupnorm, num_groups, use_maxpool):
+    def __init__(self, num_classes, base_cls, use_groupnorm):
         model = base_cls(weights=None, num_classes=num_classes)
         # replace the first conv layers, otherwise the resolution is reduced too much
         # same as in https://github.com/kuangliu/pytorch-cifar/blob/master/models/resnet.py
         model.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
         if use_groupnorm:
-            assert num_groups > 1
-            replace_bn_with_gn(model, num_groups=num_groups) # 2 groups in adaptive federated optimization
-        else:
-            assert num_groups == -1
+            replace_bn_with_gn(model) # 2 groups in adaptive federated optimization
         super().__init__(
             model.conv1,
             model.bn1,
             nn.ReLU(), # replace the default relu as it is inplace
-            model.maxpool if use_maxpool else nn.Identity(),
+            nn.Identity(),
             model.layer1,
             model.layer2,
             model.layer3,
@@ -32,7 +29,7 @@ class ResNet(FlexibleSequential):
             nn.Flatten(),
             model.fc,
         )
-        self.meaningful_split_points = [4, 5, 6, 7, 8]
+        self.meaningful_split_points = [4, 5, 6, 7, 8, 11]
         self._data_type = "cv"
 
 
