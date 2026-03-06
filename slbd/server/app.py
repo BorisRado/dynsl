@@ -98,17 +98,17 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
     )
     layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
     tmp_optimizer = optim.Adam(model.parameters())
-    layer_complexities_cuda, tensor_sizes = measure_per_layer_complexity(
+    layer_complexities_cuda, _ = measure_per_layer_complexity(
         model=model,
         optimizer=tmp_optimizer,
         batch_size=config.client.init_kwargs.batch_size * config.server_model_servicer.num_concat_batches,
         iterations=400,
         dry_runs=50,
     )
-    layer_complexities_cpu, _ = measure_per_layer_complexity(
+    layer_complexities_cpu, tensor_sizes = measure_per_layer_complexity(
         model=model,
         optimizer=tmp_optimizer,
-        batch_size=config.client.init_kwargs.batch_size * config.server_model_servicer.num_concat_batches,
+        batch_size=config.client.init_kwargs.batch_size,
         iterations=50,
         dry_runs=5,
         disable_cuda=True

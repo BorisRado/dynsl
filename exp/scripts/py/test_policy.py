@@ -1,4 +1,5 @@
 import time
+import pickle
 import asyncio
 import os
 import json
@@ -20,7 +21,7 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS
 )
 from slbd.common.profiling import measure_per_layer_complexity
-from slbd.common import BatchDataForward, BatchDataBackward, ServerModelFitIns, SocketTimingMetrics
+from slbd.common import BatchDataForward, ServerModelFitIns, SocketTimingMetrics
 from slbd.server.batching_worker_manager import BatchingWorkerManager
 from slbd.torch.sequential_model import FlexibleSequential
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
@@ -32,6 +33,30 @@ from slbd.algos.oracle import OracleClientLayerAllocator
 from slbd.torch.sequential_model import FlexibleSequential
 from slbd.torch.model_utils import get_model_layer_keys
 
+
+class BatchingWorkerManagerInterface:
+    # just a utility class to add some overhead to the server for serialization and deserialization
+    def __init__(self, batching_worker_manager):
+        self.batching_worker_manager = batching_worker_manager
+
+    async def __call__(self, client_id, raw_data, current_fwd_times, current_backward_time):
+        current_data = pickle.loads(raw_data)
+        batch = BatchDataForward(
+            data=current_data,
+            is_training=True,
+            client_timing_metrics=SocketTimingMetrics(
+                uplink_throughput_Mbps=1000.,
+                downlink_throughput_Mbps=1000.,
+                per_layer_forward_times=current_fwd_times,
+                tot_backward_time=current_backward_time,
+            ),
+        )
+        deserialized_response = await self.batching_worker_manager.enqueue_and_get_future(
+            client_id=client_id,
+            data=batch,
+        )
+        _ = pickle.dumps(deserialized_response)
+        return deserialized_response.layers_diff
 
 
 class SimulationClient:
@@ -64,45 +89,42 @@ class SimulationClient:
 
     async def run(self):
         # Simulate sending data to the BatchingWorkerManager
-        current_num_layers = self.initial_num_layers or min(self.embedding_sizes.keys())
+        current_num_layers = self.initial_num_layers
+        current_fwd_times = [self.base_training_times[k] / 2 for k in range(current_num_layers)]
+        current_backward_time = self.base_training_times[current_num_layers] / 2
         batch_size = self.embedding_sizes[current_num_layers][0]
 
-        current_data = {
-            "embeddings": np.random.randn(*self.embedding_sizes[current_num_layers]).astype(np.float32),
-            "labels": np.random.randint(0, self.num_classes, (batch_size,)),
-        }
+        current_data = pickle.dumps({
+            "embeddings": torch.randn(*self.embedding_sizes[current_num_layers]),
+            "labels": torch.randint(0, self.num_classes, (batch_size,)),
+        })
         for iter_idx in range(self.num_iterations):
             local_computation_time = self.base_training_times[current_num_layers]
             if iter_idx > 0:
                 sleep_time = np.random.uniform(local_computation_time * 0.9, local_computation_time * 1.1)
                 await asyncio.sleep(sleep_time)
-            batch = BatchDataForward(
-                data=current_data,
-                is_training=True,
-                # TODO: needs to be fixed!
-                client_timing_metrics=SocketTimingMetrics(
-                    uplink_throughput_Mbps=1000.,
-                    downlink_throughput_Mbps=1000.,
-                    per_layer_forward_times=[],
-                    tot_backward_time=-1,
-                ),
-            )
-            _ = current_data.pop("client_model_weights", None)
-            data_backward: BatchDataBackward = await self.manager.enqueue_and_get_future(
+            layers_diff = await self.manager(
                 client_id=self.cid,
-                data=batch,
+                raw_data=current_data,
+                current_fwd_times=current_fwd_times,
+                current_backward_time=current_backward_time
             )
 
             # ignore additional_layers_parameters and additional_optimizer_states, just change
             # the layer, thus the time for client computation
-            if data_backward.layers_diff:
-                assert isinstance(data_backward.layers_diff, int)
+            if layers_diff:
+                assert isinstance(layers_diff, int)
                 prev_num_layers = current_num_layers
-                current_num_layers += data_backward.layers_diff
+                current_num_layers += layers_diff
+                current_fwd_times = [self.base_training_times[k] / 2 for k in range(current_num_layers)]
+                current_backward_time = self.base_training_times[current_num_layers] / 2
+
                 local_computation_time = self.base_training_times[current_num_layers]
-                print(f"{self.cid} >>> Changed number of layers: {prev_num_layers} -> {current_num_layers}", flush=True)
-                current_data["embeddings"] = np.random.randn(*self.embedding_sizes[current_num_layers]).astype(np.float32)
-                if data_backward.layers_diff < 0:
+                current_data = pickle.dumps({
+                    "embeddings": torch.randn(*self.embedding_sizes[current_num_layers]),
+                    "labels": torch.randint(0, self.num_classes, (batch_size,)),
+                })
+                if layers_diff < 0:
                     # prepare the layer parameters to be sent to the server
                     model_weights = [
                         w
@@ -110,7 +132,7 @@ class SimulationClient:
                         for w in self.model_weights_dictionary[idx]
                     ]
                     # the last tensors states how many data points have been trained on the client
-                    model_weights.append(np.array([10] * len(model_weights)))
+                    model_weights.append(torch.tensor([10] * len(model_weights)))
                     current_data["client_model_weights"] = model_weights
 
     def get_properties(self, *args, **kwargs):
@@ -159,7 +181,7 @@ async def _train_epoch(model_manager, model, allocator, clients, optimization_co
     print(f"Epoch time: {epoch_time:.3f}", flush=True)
     return {
         "epoch_time": epoch_time,
-        "server_training_time": allocator_metrics["tot_server_training_time"],
+        # "server_training_time": allocator_metrics["tot_server_training_time"],
     }
 
 
@@ -199,7 +221,7 @@ def _initialize_clients(cfg, model):
 
 
 def _initialize_layer_allocator(cfg, model):
-    layer_allocator_init_args = OmegaConf.to_container(cfg.algorithm.layer_allocator_init_args)
+    layer_allocator_init_args = OmegaConf.to_container(cfg.algorithm.get("layer_allocator_init_args", {}))
     layer_allocator_init_args["num_model_layers"] = len(model)
     layer_allocator_init_args["meaningful_split_points"] = model.meaningful_split_points
     if cfg.algorithm.name == "dynsl_v2":
@@ -207,17 +229,22 @@ def _initialize_layer_allocator(cfg, model):
         complexity_kwargs = {
             "model": model,
             "optimizer": tmp_optimizer,
-            "batch_size": cfg.experiment.batch_size * cfg.server_model_servicer.num_concat_batches,
         }
+        print("Tesnting with batch size", cfg.experiment.batch_size * cfg.server_model_servicer.num_concat_batches)
+        ncb = cfg.server_model_servicer.num_concat_batches
         layer_complexities_cuda, tensor_sizes = measure_per_layer_complexity(
-            iterations=500,
-            dry_runs=50,
+            iterations=200,
+            dry_runs=30,
+            batch_size=cfg.experiment.batch_size * ncb,
             **complexity_kwargs,
         )
+        assert all(v % ncb == 0 for v in tensor_sizes.values())
+        tensor_sizes = {k: v // cfg.server_model_servicer.num_concat_batches for k, v in tensor_sizes.items()}
         layer_complexities_cpu, _ = measure_per_layer_complexity(
             iterations=50,
             dry_runs=5,
             disable_cuda=True,
+            batch_size=cfg.experiment.batch_size,
             **complexity_kwargs,
         )
         del tmp_optimizer
@@ -256,7 +283,8 @@ async def run_experiment(cfg):
         receiving_transform_fn=None,
         **OmegaConf.to_container(cfg.server_model_servicer),
     )
-    for client in clients: client.set_batching_worker_manager(batching_worker_manager)
+    batching_worker_manager_interface = BatchingWorkerManagerInterface(batching_worker_manager)
+    for client in clients: client.set_batching_worker_manager(batching_worker_manager_interface)
 
     # Run all clients in parallel
     epoch_times = defaultdict(list)
@@ -301,8 +329,8 @@ def run(cfg):
     }
     times_json_contents.append(entry)
     print(times_json_contents)
-    with open(times_json_path, "w") as fp:
-        json.dump(times_json_contents, fp, indent=2)
+    # with open(times_json_path, "w") as fp:
+    #     json.dump(times_json_contents, fp, indent=2)
 
 
 if __name__ == "__main__":

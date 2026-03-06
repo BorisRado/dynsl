@@ -77,7 +77,6 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self.layer_allocation_optimizer = layer_allocation_optimizer
         self.meaningful_split_points = [msp for msp in meaningful_split_points if msp <= max_client_layers]
         self._max_client_layers = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers))
-        self._is_computing_configuration_from_cache = False
 
         # client desires -- client sets the maximum and minimum number of layers it is willing to train
         self._per_client_min_layers: Dict[str, int] = {}
@@ -183,37 +182,6 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._cid_to_node_name[client_proxy.cid] = node_name
         log(INFO, f"Client {client_proxy.cid} requires at least {min_client_layers} layers [{result.properties[CLIENT_DEVICE_TYPE]} -- {node_name}]")
 
-    def _get_initial_number_of_layers_with_caching(self):
-        if len(self._client_training_times) == 0:
-            print("Warning: No client data is available. If it is the first epoch, it's fine. If not, not good...")
-            print("Warning: Returning minimum number of layers")
-            return self._per_client_min_layers
-        self._pending_batches = {cid: self._dataset_sizes[cid] for cid in self._epoch_clients} # batches the client still has to process
-        self._current_number_of_layers_on_devices = {cid: 0 for cid in self._epoch_clients}
-        self._is_computing_configuration_from_cache = True
-        if self.layer_allocation_optimizer == "genetic":
-            initial_configuration = genetic_reallocation(
-                clients=self._epoch_clients,
-                meaningful_split_points=self.meaningful_split_points,
-                allocated_layers_now=self._client_allocated_layers,
-                objective_fn=self._compute_objective
-            )
-        else:
-            assert self.layer_allocation_optimizer in {"bottleneck_descent", "binary_search"}
-            initial_configuration = bottleneck_descent(
-                clients=self._epoch_clients,
-                meaningful_split_points=self.meaningful_split_points,
-                allocated_layers_now=self._client_allocated_layers,
-                objective_fn=self._compute_objective
-            )
-        # clear data from the previous epoch
-        self._is_computing_configuration_from_cache = False
-        self._client_allocated_layers.clear()
-        self._client_training_times.clear()
-        self._client_throughput.clear()
-        print("Using caching -- Got configuration:", initial_configuration)
-        return initial_configuration
-
     def _init_reallocation_thread(self):
         self._reallocation_stop_event = threading.Event()
 
@@ -270,10 +238,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         print(f"Running reallocation {datetime.now().strftime('%H:%M:%S')}")
         print("Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
         # Uncomment following lines to log the tracked metrics
-        # print("Processed batches...", self._client_train_batches_count)
-        # print("Pending batches", {self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
-        # print("Throughputs", {self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
-        # print("Training times", {self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
+
         # print("COUNTS=",{self._cid_to_node_name[k]: v for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers})
         self._allocated_layer_history.append(self._client_allocated_layers.copy())
         if any(v < 2 for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers):
@@ -283,6 +248,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             print("All have completed training. Exiting...")
             return
 
+        # print("_num_concat_batches", self._num_concat_batches)
         # print("_client_training_times=",{self._cid_to_node_name[k]: v for k, v in self._client_training_times.items()})
         # print("_pending_batches=",{self._cid_to_node_name[k]: v for k, v in self._pending_batches.items()})
         # print("_client_throughput=",{self._cid_to_node_name[k]: v for k, v in self._client_throughput.items()})
@@ -291,6 +257,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # print("_server_training_times=", self._server_training_times)
         # print("_per_batch_embedding_sizes_Mbits=", self._per_batch_embedding_sizes_Mbits)
         # print("per_batch_server_communication_time=", self.per_batch_server_communication_time)
+        # print("comput_compl_per_sp=", self.comput_compl_per_sp)
+        # print("meaningful_split_points", self.meaningful_split_points)
         tmp_max_layers = {}
         for k, v in self._per_client_max_layers.items():
             if self._client_was_decreased_last_iteration.get(k, False):
@@ -368,8 +336,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # communication -- * 2 because we need to both send and receive the data
         per_batch_time += 2 * self._per_batch_embedding_sizes_Mbits[L] / self._client_throughput[cid]
 
-        current_num_layers_on_device = \
-            0 if self._is_computing_configuration_from_cache else self._client_allocated_layers[cid]
+        current_num_layers_on_device = self._client_allocated_layers[cid]
         layer_movement_time = 0.
         # if current_num_layers_on_device == L -- there is no additional layer movement ==>> layer_movement_time=0
         # if current_num_layers_on_device > L -- layers are moved from device to server. This has to happend either
