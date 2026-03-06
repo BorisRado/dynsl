@@ -12,9 +12,7 @@ code:
       partitioning.num_partitions={{ num_partitions }}
       client.init_kwargs.num_epochs={{ num_epochs_per_round }}
       algorithm={{ algorithm }}
-      server.communication_channel={{ sl_communication_channel }}
-      {%- if bg_devices %}{{ bg_devices }}{% endif %}
-      {%- if bg_configuration %}{{ bg_configuration }}{% endif %}
+      server.communication_channel={{ sl_communication_channel }} {% if misc %}{{ misc }}{% endif %} {% if bg_devices %}{{ bg_devices }}{% endif %} {% if bg_configuration %}{{ bg_configuration }}{% endif %}
 
   server:
       # algorithm.layer_allocator_init_args.max_client_layers=46
@@ -32,11 +30,7 @@ code:
       partitioning.num_partitions={{ num_partitions }}
       server_model_servicer.num_concat_batches={{ num_concat_batches }}
       experiment_name={{ experiment_name }}
-      {% if algo_config %}{{ algo_config }}{% endif %}
-      {{ device_listing }}
-      {% if misc %}{{ misc }}{% endif %}
-      {% if bg_devices %}{{ bg_devices }}{% endif %}
-      {% if bg_configuration %}{{ bg_configuration }}{% endif %}
+      {{ device_listing }} {%- if algo_config %} {{ algo_config }}{%- endif %} {% if misc %}{{ misc }}{% endif %} {% if bg_devices %}{{ bg_devices }}{% endif %} {% if bg_configuration %}{{ bg_configuration }}{% endif %}
 
 clients:
   - dev_type: JetsonAGXOrin

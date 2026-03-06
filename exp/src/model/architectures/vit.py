@@ -98,5 +98,5 @@ class ViT(nn.Sequential):
             TokenExtractor(),
             fc
         )
-        self.meaningful_split_points = list(range(3, num_layers+1))
+        self.meaningful_split_points = list(range(2, num_layers+1)) + [num_layers+3,]
         self._data_type = "cv"

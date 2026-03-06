@@ -40,6 +40,7 @@ class Server(FlwrServer):
         self.server_model_manager: ServerModelManager = server_model_manager
         self.server_model_manager.set_strategy(strategy)
         self.client_layer_allocator = client_layer_allocator
+        self.max_workers = 30
 
     # pylint: disable=too-many-locals
     def fit(self, num_rounds: int, timeout: Optional[float]) -> History:
@@ -221,7 +222,6 @@ class Server(FlwrServer):
             len(results),
             len(failures),
         )
-        print("OK CLIENTS", [c.cid for c, _ in results])
         for failure in failures:
             log(ERROR, "OH NOOO!!!" + str(failure))
             try:

@@ -1,2 +1,7 @@
 _target_: exp.src.model.architectures.vit.ViT
 num_classes: ${data.num_classes}
+dropout: 0.0
+num_layers: 10
+hidden: 384
+mlp_hidden: 384
+head: 12

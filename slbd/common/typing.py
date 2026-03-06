@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Union, List, Optional, Tuple
+from typing import Dict, Union, List, Optional
 
 import numpy as np
 import torch
@@ -30,7 +30,7 @@ class SocketTimingMetrics:
         self.throughput_Mbps = -1.
         if self.downlink_throughput_Mbps:
             # ignore uplink as it is not reliable due to asyncio
-            self.throughput_Mbps = self.downlink_throughput_Mbps
+            self.throughput_Mbps = min(1_000, 2 * self.downlink_throughput_Mbps)
 
 
 @dataclass
@@ -43,6 +43,7 @@ class TimingMetrics:
     throughput_Mbps: float = field(init=False)
 
     def __post_init__(self):
+        raise Exception("Should no longer be used")
         # client_round_time and client_tot_local_time are in seconds
         self.communication_time = self.client_round_time - self.client_tot_local_time
 

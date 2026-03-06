@@ -79,12 +79,26 @@ def ndarray_list_to_bytes(ndarray_list):
 def np_dict_to_torch_dict(np_dict):
     torch_dict = {}
     for k, v in np_dict.items():
-        torch_dict[k] = torch.from_numpy(v) if isinstance(v, np.ndarray) else [torch.from_numpy(d) for d in v]
+        if isinstance(v, np.ndarray):
+            torch_dict[k] = torch.from_numpy(v)
+        elif isinstance(v, list) and isinstance(v[0], np.ndarray):
+            torch_dict[k] = [torch.from_numpy(d) for d in v]
+        elif isinstance(v, list) and isinstance(v[0], dict):
+            torch_dict[k] = [{k: torch.from_numpy(inner_v) for k, inner_v in list_dict.items()} for list_dict in v]
+        else:
+            raise Exception(f"{str(v)}")
     return torch_dict
 
 
 def torch_dict_to_np_dict(torch_dict):
     np_dict = {}
     for k, v in torch_dict.items():
-        np_dict[k] = v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else [d.detach().cpu().numpy() for d in v]
+        if isinstance(v, torch.Tensor):
+            np_dict[k] = v.detach().cpu().numpy()
+        elif isinstance(v, list) and isinstance(v[0], torch.Tensor):
+            np_dict[k] = [d.detach().cpu().numpy() for d in v]
+        elif isinstance(v, list) and isinstance(v[0], dict):
+            np_dict[k] = [{k: inner_v.detach().cpu().numpy() for k, inner_v in list_dict.items()} for list_dict in v]
+        else:
+            raise Exception(f"unknown type {type(v)}")
     return np_dict

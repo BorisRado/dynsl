@@ -15,7 +15,7 @@ class EfficientNet(FlexibleSequential):
         if use_groupnorm:
             replace_bn_with_gn(model)
         super().__init__(*list(model.features), nn.AdaptiveAvgPool2d(1), nn.Flatten(), model.classifier)
-        self.meaningful_split_points = [2, 3, 4, 5, 6, 7, 8, 9, 12]
+        self.meaningful_split_points = [3, 4, 5, 6, 7, 8, 9, 12]
         self._data_type = "cv"
 
 

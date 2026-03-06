@@ -1,20 +1,21 @@
-# configuration for running time measurements on colext
 apiVersion: v1
 kind: Pod
 metadata:
   name: boris-HOSTNAME
 spec:
-  restartPolicy: Never
+  restartPolicy: Never  # or OnFailure
   containers:
   - name: fl-client
     image: flserver:5000/slwr/BASEIMAGE:latest
     stdin: true
     tty: true
-    # replace the model in the following line with the actual model you want to profile
-    command: ["python3", "exp/scripts/py/profile_model_on_device.py", "model=resnet18"]
+    command: ["python3.10", "-u", "exp/scripts/py/compare_profiling_times.py", "model=MODEL_NAME"]
+    # command: ["sleep", "infinity"]
     env:
       - name: PYTHONPATH
         value: "."
+      - name: COLEXT_DEVICE_TYPE
+        value: HOSTNAME
   imagePullSecrets:
     - name: regcred
   nodeSelector:

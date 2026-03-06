@@ -1,0 +1,22 @@
+# configuration for running time measurements on colext
+apiVersion: v1
+kind: Pod
+metadata:
+  name: boris-HOSTNAME
+spec:
+  restartPolicy: Never
+  containers:
+  - name: fl-client
+    image: flserver:5000/slwr/BASEIMAGE:latest
+    stdin: true
+    tty: true
+    # replace the model in the following line with the actual model you want to profile
+    command: ["python3", "exp/scripts/py/profile_model_on_device.py", "model=MODEL_NAME"]
+    # command: ["sleep", "infinity"]
+    env:
+      - name: PYTHONPATH
+        value: "."
+  imagePullSecrets:
+    - name: regcred
+  nodeSelector:
+    kubernetes.io/hostname: HOSTNAME

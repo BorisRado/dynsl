@@ -84,17 +84,28 @@ class MeasureTime:
     def __init__(self, use_cuda):
         self.use_cuda = use_cuda
         self.elapsed = 0.
+        self._start_event = None
+        self._end_event = None
 
     def __enter__(self):
         if self.use_cuda:
-            torch.cuda.synchronize()
-        self._start = time.perf_counter()
+            # Use CUDA events to measure GPU time without synchronizing the whole device
+            self._start_event = torch.cuda.Event(enable_timing=True)
+            self._end_event = torch.cuda.Event(enable_timing=True)
+            self._start_event.record()
+        else:
+            self._start = time.perf_counter()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.use_cuda:
-            torch.cuda.synchronize()
-        tmp_elapsed = time.perf_counter() - self._start
+            # Record end event and synchronize only on that event
+            self._end_event.record()
+            self._end_event.synchronize()
+            tmp_ms = self._start_event.elapsed_time(self._end_event)
+            tmp_elapsed = tmp_ms / 1000.0
+        else:
+            tmp_elapsed = time.perf_counter() - self._start
         self.elapsed += tmp_elapsed
 
     def get_elapsed_and_reset(self):
@@ -139,9 +150,10 @@ class PerLayerTimer:
     def get_per_layer_times(self):
         """Get per-layer times. Synchronizes once for all CUDA events."""
         if self.use_cuda:
-            # Synchronize once for all events
-            torch.cuda.synchronize()
-
+            # Synchronize only the last event (wait for forward to finish)
+            if len(self.events) < 2:
+                raise Exception("Should not happen!")
+            self.events[-1].synchronize()
             layer_times = []
             for i in range(1, len(self.events)):
                 elapsed_ms = self.events[0].elapsed_time(self.events[i])

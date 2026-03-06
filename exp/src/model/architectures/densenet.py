@@ -6,6 +6,15 @@ import torch.nn.functional as F
 from exp.src.model.utils import replace_bn_with_gn
 
 
+def manual_avg_pool2d(x):
+    return (
+        x[:, :, 0::2, 0::2] +
+        x[:, :, 0::2, 1::2] +
+        x[:, :, 1::2, 0::2] +
+        x[:, :, 1::2, 1::2]
+    ) * 0.25
+
+
 class BasicBlock(nn.Module):
     def __init__(self, in_planes, out_planes, dropRate=0.0):
         super(BasicBlock, self).__init__()
@@ -53,7 +62,8 @@ class TransitionBlock(nn.Module):
         out = self.conv1(self.relu(self.bn1(x)))
         if self.droprate > 0:
             out = F.dropout(out, p=self.droprate, inplace=False, training=self.training)
-        return F.avg_pool2d(out, 2)
+        return manual_avg_pool2d(out)
+
 
 class DenseBlock(nn.Module):
     def __init__(self, nb_layers, in_planes, growth_rate, block, dropRate=0.0):
@@ -102,12 +112,11 @@ class DenseNet3(nn.Sequential):
         relu = nn.ReLU(inplace=False)
         fc = nn.Linear(in_planes, num_classes)
         in_planes = in_planes
-        self.meaningful_split_points = [3, 5, 9]
-
+        self.meaningful_split_points = [2, 3, 4, 5, 6, 9, 11]
+        self._data_type = "cv"
         super().__init__(
-            conv1, block1, trans1, block2, trans2, block3, bn1, relu, nn.AvgPool2d(8), nn.Flatten(), fc
+            conv1, block1, trans1, block2, trans2, block3, bn1, relu, nn.AdaptiveAvgPool2d(1), nn.Flatten(), fc
         )
-
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels

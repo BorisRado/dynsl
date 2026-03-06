@@ -151,7 +151,7 @@ class ModelTrainer:
 
             # attach a vector stating how many data points have been processed by these layers
             self._removed_weights.append(
-                np.array([
+                torch.tensor([
                     self._per_layer_data_points[k]
                     for k in range(new_num_training_layers, prev_num_of_layers)
                 ])
@@ -238,7 +238,7 @@ class ModelTrainer:
     def evaluate(self, input_vars, output_vars):
         input_vars = input_vars.to(self._device)
 
-        with torch.no_grad(), self.timer():
+        with torch.no_grad(), self.timer:
             client_output = self._model(input_vars)
 
         self._dataset_size += input_vars.shape[0]

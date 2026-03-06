@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from flwr.common import log
 
-from slbd.common import LayerChangeInfo, bytes_to_ndarray_dict, ndarray_dict_to_bytes
+from slbd.common import LayerChangeInfo
 from slbd.common.constants import (
     SL_EMBEDDINGS, SL_LABELS, SL_WEIGHTS, SL_OPTIM_STATES, SL_GRAD,
     SL_DOWNLINK_THROUGHPUT, SL_PER_LAYER_FORWARD_TIMES, SL_BACKWARD_TIME
@@ -67,9 +67,9 @@ class SocketServerModelProxy(ServerModelProxy):
             SL_LABELS: kwargs[SL_LABELS].numpy(),
         }
         if kwargs[SL_WEIGHTS]:
-            batch_data[SL_WEIGHTS] = [d.detach().cpu().numpy() for d in kwargs[SL_WEIGHTS]]
+            batch_data[SL_WEIGHTS] = [t.detach().cpu().numpy() for t in kwargs[SL_WEIGHTS]]
             if kwargs[SL_OPTIM_STATES]:
-                batch_data[SL_OPTIM_STATES] = [d.detach().cpu().numpy() for d in kwargs[SL_OPTIM_STATES]]
+                batch_data[SL_OPTIM_STATES] = [{k: t.detach().cpu().numpy() for k, t in dct.items()} for dct in kwargs[SL_OPTIM_STATES]]
 
         # Prepare message
         message = {
@@ -93,10 +93,15 @@ class SocketServerModelProxy(ServerModelProxy):
 
         layer_change_info = None
         if num_layers_diff != 0:
+            additional_layers_parameters, additional_optimizer_states = None, None
+            if SL_WEIGHTS in backward_data:
+                additional_layers_parameters = [torch.from_numpy(t) for t in backward_data[SL_WEIGHTS]]
+                if SL_OPTIM_STATES in backward_data:
+                    additional_optimizer_states = [{k: torch.from_numpy(v) for k, v in dct.items()} for dct in backward_data[SL_OPTIM_STATES]]
             layer_change_info = LayerChangeInfo(
                 layers_diff=num_layers_diff,
-                additional_layers_parameters=backward_data.get(SL_WEIGHTS, None),
-                additional_optimizer_states=backward_data.get(SL_OPTIM_STATES, None),
+                additional_layers_parameters=additional_layers_parameters,
+                additional_optimizer_states=additional_optimizer_states,
             )
 
         return gradient, layer_change_info, response["training_loss"]

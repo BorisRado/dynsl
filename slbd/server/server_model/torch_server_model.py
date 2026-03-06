@@ -30,6 +30,8 @@ class TorchServerModel:
         self._weight_integration_strategy = None
 
     def get_train_results(self):
+        if len(self._per_layer_data_points) == 0:
+            return None
         state_dict = shift_state_dict(
             self._model.state_dict(),
             self.first_server_layer
@@ -145,7 +147,6 @@ class TorchServerModel:
         server_model_weights: Dict[int, int],
         optimizer_states: Optional[List[torch.Tensor]] = None,
     ):
-        assert False
         if self._weight_integration_strategy == "ignore":
             return
         idx = 0
@@ -173,7 +174,7 @@ class TorchServerModel:
                 elif self._weight_integration_strategy == "keep_optim_state":
                     pass
                 else:
-                    raise Exception("self._weight_integration_strategy MUST NOT BE NONE")
+                    assert optimizer_states is not None
 
                 idx += 1
             if idx == len(parameters):

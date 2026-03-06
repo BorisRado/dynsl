@@ -106,6 +106,7 @@ def binary_search(
     clients,
     meaningful_split_points,
     allocated_layers_now,
+    per_client_max_layers,
     client_fn,
     server_fn,
     gamma,
@@ -115,7 +116,7 @@ def binary_search(
     max_T = max(
         server_fn(allocated_layers_now),
         max(client_fn(cid, sp) for cid, sp in allocated_layers_now.items())
-    )
+    ) * 2.0
 
     assert meaningful_split_points == sorted(meaningful_split_points)
 
@@ -129,9 +130,12 @@ def binary_search(
         # Construct candidate split vector
         candidate_split_vector = {}
         for cid in clients:
+            # print(f"considering {cid}")
             # Start with the smallest feasible split
-            candidate_split_vector[cid] = meaningful_split_points[0]
+            candidate_split_vector[cid] = None
             for sp in meaningful_split_points:
+                if sp > per_client_max_layers[cid]:
+                    continue
                 tmp_time = client_fn(cid, sp)
                 if tmp_time <= mid_T:
                     candidate_split_vector[cid] = sp
@@ -139,7 +143,9 @@ def binary_search(
                         max_client_time = tmp_time
                 else:
                     break  # monotonicity allows early stopping
-
+        if any(sp is None for sp in candidate_split_vector.values()):
+            min_T = mid_T
+            continue
         server_time = server_fn(candidate_split_vector)
 
         if max(max_client_time, server_time) <= mid_T:

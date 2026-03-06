@@ -1,6 +1,6 @@
 name: dynsl_w_profiling
 num_server_models: 1
-end_epoch_weight_integration_strategy: immediate
+end_epoch_weight_integration_strategy: hierarchical
 server_optim_state_handling: null
 layer_allocator_init_args:
   max_client_layers: 1000

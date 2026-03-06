@@ -34,7 +34,6 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         num_concat_batches: int,
         layer_allocation_optimizer: str,
         meaningful_split_points: List[int],
-        cache_client_data: bool,
         modeled_layer_complexities: List[float],
         static_server_computational_times: List[float],
         per_layer_emb_sizes: List[int],
@@ -58,8 +57,6 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             Strategy to be used for computing the new split vector
         meaningful_split_points : List[int]
             List of indices where it makes sense to split the model
-        cache_client_data : bool
-            Whether to use info from previous epochs to determine the new configuration
         modeled_layer_complexities : List[float]
             A "model" stating how complex every layer is (e.g., determined via FLOPS or by running
             the model on the server)
@@ -77,7 +74,6 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._num_model_layers: int = num_model_layers
         self.reallocation_frequency = reallocation_frequency
         self._num_concat_batches = num_concat_batches
-        self.cache_client_data = cache_client_data
         self.layer_allocation_optimizer = layer_allocation_optimizer
         self.meaningful_split_points = [msp for msp in meaningful_split_points if msp <= max_client_layers]
         self._max_client_layers = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers))
@@ -110,7 +106,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # point (key), contains the computational requirements of training the model up to that point
         modeled_layer_complexities = [modeled_layer_complexities[idx] for idx in range(len(modeled_layer_complexities))]
         # print(modeled_layer_complexities)
-        self.comput_compl_per_sp = [sum(modeled_layer_complexities[:start_idx]) for start_idx in range(num_model_layers)]
+        self.comput_compl_per_sp = [sum(modeled_layer_complexities[:start_idx]) for start_idx in range(1, num_model_layers+1)]
 
 
         # we assume that the training time on the server do not vary
@@ -126,13 +122,13 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # * 2 ... forward+backward // the server will have to send and recive the data over a single link
         # * 32 ... 32 bit representation of FP values
         self.per_batch_server_communication_time = {
-            k: 2 * 32 * per_layer_emb_sizes[k] / 1e9 # server has a 1Gbps connection link, which is shared across all clienst
+            k: 2 * 32 * per_layer_emb_sizes[k-1] / 1e9 if k != num_model_layers else 0.
             for k in self.meaningful_split_points
         }
         # print(per_layer_communication_volume)
         # * 32 as we use 32 bit FP representation,  / 1e6 to convert bits in megabits
         self._per_batch_embedding_sizes_Mbits = {
-            k: per_layer_emb_sizes[k] * 32 / 1e6
+            k: per_layer_emb_sizes[k-1] * 32 / 1e6 if k != num_model_layers else 0
             for k in self.meaningful_split_points
         }
         # print("per batch", self._per_batch_embedding_sizes_Mbits)
@@ -147,6 +143,11 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # print("Static server training times:", self._server_training_times)
         # print(f"Complexity factors: {self.complexity_factors}")
         print("Communication:", self.per_batch_server_communication_time)
+
+        # print("_server_training_times=", self._server_training_times)
+        # print("per_batch_server_communication_time=", self.per_batch_server_communication_time)
+        # print("_per_batch_embedding_sizes_Mbits=", self._per_batch_embedding_sizes_Mbits)
+        # print("comput_compl_per_sp=", self.comput_compl_per_sp)
 
     def _get_client_properties(self, client_proxy: ClientProxy) -> int:
         if client_proxy.cid in self._per_client_min_layers:
@@ -248,18 +249,14 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]
 
         self._init_all_client_properties(epoch_clients)
-        assert not self.cache_client_data, "Need to check implementation again"
-        if self.cache_client_data:
-            initial_config_dict = self._get_initial_number_of_layers_with_caching()
-        else:
-            # if not caching, we set the clients to initially use the minimum number of layers
-            initial_config_dict = self._per_client_min_layers
+        initial_config_dict = self._per_client_min_layers
 
         # init dictionaries storing client configuration
         self._client_layer_diff = {cid: 0 for cid in self._epoch_clients} # temp difference in the number of layers of clients
         self._client_train_batches_count = {cid: 0 for cid in self._epoch_clients} # number of batches the client has processed since it last received a reallocation
         self._client_allocated_layers = {cid: initial_config_dict[cid] for cid in self._epoch_clients} # layers every client has
         self._pending_batches = {cid: self._dataset_sizes[cid] for cid in self._epoch_clients} # batches the client still has to process
+        self._client_was_decreased_last_iteration = {cid: False for cid in self._epoch_clients} # track if client was decreased in previous reallocation
 
         # bookkeeping / debugging
         self._allocated_layer_history = []
@@ -277,40 +274,42 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # print("Pending batches", {self._cid_to_node_name[k]: v for k, v in self._pending_batches.items() if k in self._client_layer_diff})
         # print("Throughputs", {self._cid_to_node_name[k]: v for k, v in self._client_throughput.items() if k in self._client_layer_diff})
         # print("Training times", {self._cid_to_node_name[k]: v for k, v in self._client_training_times.items() if k in self._client_layer_diff})
+        # print("COUNTS=",{self._cid_to_node_name[k]: v for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers})
         self._allocated_layer_history.append(self._client_allocated_layers.copy())
-        if any(v < 5 for v in self._client_train_batches_count.values()):
-            print("Not enough data to try reallocating...")
+        if any(v < 2 for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers):
+            print("Not enough data to try reallocating...\n\n")
             return
         if len(self._client_layer_diff) == 0:
             print("All have completed training. Exiting...")
             return
 
-        if self.layer_allocation_optimizer == "genetic":
-            print("Using genetic algorithm")
-            best_config = genetic_reallocation(
-                clients=self._epoch_clients,
-                meaningful_split_points=self.meaningful_split_points,
-                allocated_layers_now=self._client_allocated_layers,
-                objective_fn=self._compute_objective
-            )
-        elif self.layer_allocation_optimizer == "bottleneck_descent":
-            print("Using bottleneck descent")
-            best_config = bottleneck_descent(
-                clients=self._epoch_clients,
-                meaningful_split_points=self.meaningful_split_points,
-                allocated_layers_now=self._client_allocated_layers,
-                objective_fn=self._compute_objective
-            )
-        elif self.layer_allocation_optimizer == "binary_search":
-            print("Using binary_search")
-            best_config = binary_search(
-                clients=self._epoch_clients,
-                meaningful_split_points=self.meaningful_split_points,
-                allocated_layers_now=self._client_allocated_layers,
-                client_fn=self.compute_client_time,
-                server_fn=self.compute_server_time,
-                gamma=self._gamma,
-            )
+        # print("_client_training_times=",{self._cid_to_node_name[k]: v for k, v in self._client_training_times.items()})
+        # print("_pending_batches=",{self._cid_to_node_name[k]: v for k, v in self._pending_batches.items()})
+        # print("_client_throughput=",{self._cid_to_node_name[k]: v for k, v in self._client_throughput.items()})
+        # print("_per_client_max_layers=",{self._cid_to_node_name[k]: v for k, v in self._per_client_max_layers.items()})
+        # print("_client_backward_times=", {self._cid_to_node_name[k]: v for k, v in self._client_backward_times.items()})
+        # print("_server_training_times=", self._server_training_times)
+        # print("_per_batch_embedding_sizes_Mbits=", self._per_batch_embedding_sizes_Mbits)
+        # print("per_batch_server_communication_time=", self.per_batch_server_communication_time)
+        tmp_max_layers = {}
+        for k, v in self._per_client_max_layers.items():
+            if self._client_was_decreased_last_iteration.get(k, False):
+                # If client was decreased last iteration, max is current layers
+                tmp_max_layers[k] = self._client_allocated_layers[k]
+            elif self._client_allocated_layers[k] == self.meaningful_split_points[0]:
+                tmp_max_layers[k] = min(v, self.meaningful_split_points[2+self.meaningful_split_points.index(self._client_allocated_layers[k])])
+            else:
+                # Default case
+                tmp_max_layers[k] = v
+        best_config = binary_search(
+            clients=self._epoch_clients,
+            per_client_max_layers=tmp_max_layers,
+            meaningful_split_points=self.meaningful_split_points,
+            allocated_layers_now=self._client_allocated_layers,
+            client_fn=self.compute_client_time,
+            server_fn=self.compute_server_time,
+            gamma=self._gamma,
+        )
 
         # print("current", self._client_allocated_layers)
         # print("predicted", best_config)
@@ -320,21 +319,18 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         print(f"Current cost: {J_current:.3f}")
         print(f"Found cost: {J_new:.3f}")
 
-        for cid in best_config:
-            if best_config[cid] > self._client_allocated_layers[cid] and self._client_allocated_layers[cid] == self.meaningful_split_points[0]:
-                print(f"Client {self._cid_to_node_name[cid]} not known. Should send {best_config[cid]} layers but sending {self.meaningful_split_points[1]} to estimate complexity better")
-                best_config[cid] = self.meaningful_split_points[1]
-
         if delta > self._gamma:
-            print(f"[GA] Adopt new configuration (ΔJ={delta:.3f} > γ={self._gamma})")
+            print(f"[BS] Adopt new configuration (ΔJ={delta:.3f} > γ={self._gamma})")
             for cid, new_layers in best_config.items():
                 current_client_layers = self._client_allocated_layers[cid]
                 self._client_layer_diff[cid] = new_layers - current_client_layers
-                if self._client_layer_diff[cid] != 0:
-                    self._client_train_batches_count[cid] = 0
-                    del self._client_training_times[cid]
+                # Track if client was decreased
+                self._client_was_decreased_last_iteration[cid] = new_layers < current_client_layers
         else:
-            print(f"[GA] Keep current configuration (ΔJ={delta:.3f} ≤ γ={self._gamma})")
+            print(f"[BS] Keep current configuration (ΔJ={delta:.3f} ≤ γ={self._gamma})")
+            # No changes, so no decreases
+            for cid in self._epoch_clients:
+                self._client_was_decreased_last_iteration[cid] = False
         print(f"Total reallocation time: {time.time() - start_time:4f}")
 
     def _compute_objective(self, layer_config):
@@ -353,7 +349,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             server_communication_time += B * self.per_batch_server_communication_time[L]
 
         # slightly increase the server_communication_time to account for the overhead of serializing and deserializing
-        server_time = max(server_time, server_communication_time * 1.2)
+        server_time = max(server_time, server_communication_time)
 
         return server_time
 
@@ -380,11 +376,14 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         #           at the end of the epoch, so we say that the layer_movement_time is still 0.
         if current_num_layers_on_device < L:
             num_moved_layer_Mbits = self._per_layer_model_parameters_Mbits[(current_num_layers_on_device, L)]
-            layer_movement_time = 2 * num_moved_layer_Mbits / self._client_throughput[cid]
+            layer_movement_time = 8 * num_moved_layer_Mbits / self._client_throughput[cid]
         return self._pending_batches[cid] * per_batch_time + layer_movement_time
 
     def _estimate_client_training_time(self, cid, layer):
         # try to predict how much time training would take if client `cid` were to train `layer` layers
+        if self._client_allocated_layers[cid] == self._num_model_layers:
+            return 0.
+
         num_client_layers = self._client_allocated_layers[cid]
 
         if layer == num_client_layers:
@@ -393,25 +392,29 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         if layer < num_client_layers:
             # we know exactly what is the forward time of the client, as the client reports what is the training time
             # for every layer until its last one
-            # -1 because because lists are 0 indexed -- TODO: check if this is correct
+            # -1 because because lists are 0 indexed
             predicted_forward_time = self._client_training_times[cid][layer-1]
+
         else:
-            # need to predict the complexity for a larger number of layers
-            # than the client currently has
-            recorded_layers_forward_time = self._client_training_times[cid]
-            base_complexity = self.comput_compl_per_sp[:num_client_layers]
+            # need to predict the complexity for a **larger** number of layers than the client currently has
+            recorded_layers_forward_time = [0,] + self._client_training_times[cid]
+            base_complexity = [0,] + self.comput_compl_per_sp[:num_client_layers]
             assert len(base_complexity) == len(recorded_layers_forward_time)
+            # now we know the forward time for every layer until the current number of layers of the model
+            # we do a linear interpolation, by taking the `self.comput_compl_per_sp` as the complexity model
 
             # fit linear model for simplicity
             coefficients = np.polyfit(base_complexity, recorded_layers_forward_time, 1)
-            new_num_layers_complexity = self.comput_compl_per_sp[layer]
-            predicted_forward_time = np.polyval(coefficients, new_num_layers_complexity)
+            new_num_layers_complexity = self.comput_compl_per_sp[layer-1]
+            predicted_forward_time = np.polyval(coefficients, new_num_layers_complexity) * 1.25
+            if layer == self._num_model_layers:
+                predicted_forward_time *= 2.0
 
         # now we know an estimate of the forward time -- we still need to account for the backward pass
         current_fwd_time = self._client_training_times[cid][-1]
         tot_current_client_time = current_fwd_time + self._client_backward_times[cid]
         factor = tot_current_client_time / current_fwd_time
-        return predicted_forward_time * factor * 1.5 # * 1.5 to make more conservative predictions
+        return predicted_forward_time * factor
 
     def update_server_metrics(
         self,
@@ -426,6 +429,10 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             diff = self._client_layer_diff[client_id]
             self._client_allocated_layers[client_id] += diff
             self._client_layer_diff[client_id] = 0
+            self._client_train_batches_count[client_id] = 0
+            del self._client_training_times[client_id]
+            if self._client_allocated_layers[client_id] == self._num_model_layers:
+                self._pending_batches[client_id] = 0
             return previous, diff
         return None
 
@@ -453,7 +460,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._client_backward_times[client_id] = \
             self._rolling_average(self._client_backward_times[client_id], metrics.tot_backward_time)
 
-        if len(self._client_training_times.get(client_id, [])) != len(metrics.per_layer_forward_times):
+        assert len(metrics.per_layer_forward_times) == self._client_allocated_layers[client_id]
+        if client_id not in self._client_training_times:
             # reallocation happened -- start measuring from scratch, i.e., we override any pre-existing value
             self._client_training_times[client_id] = metrics.per_layer_forward_times
         else:
@@ -470,17 +478,16 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         self._epoch_clients = []
         self._reallocation_stop_event.set()
         self._reallocation_thread.join(timeout=5.0)
-        if not self.cache_client_data:
-            self._client_allocated_layers.clear()
-            self._client_training_times.clear()
-            self._client_throughput.clear()
-            self._client_backward_times.clear()
+        self._client_allocated_layers.clear()
+        self._client_training_times.clear()
+        self._client_throughput.clear()
+        self._client_backward_times.clear()
 
     def collect_epoch_metrics(self):
         return {
             "train/tot_server_training_time": self.tot_server_computation_time,
             "train/layer_history": self._allocated_layer_history,
-            "train/client_throughputs": list(self._client_throughputs.items()),
+            "train/client_throughputs": list(self._client_throughput.items()),
         }
 
     def get_client_offloaded_layer_count(self, client_id):
@@ -489,7 +496,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         return self._num_model_layers - self._client_allocated_layers[client_id]
 
     def _rolling_average(self, average, new_value):
-        return 0.8 * average + 0.2 * new_value
+        return 0.7 * average + 0.3 * new_value
 
     def get_max_client_layers(self, cid):
         print("Getting max number of layers for", cid, self._per_client_max_layers[cid], self._max_client_layers)

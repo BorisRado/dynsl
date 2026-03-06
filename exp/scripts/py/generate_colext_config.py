@@ -41,10 +41,8 @@ def generate():
     parser.add_argument("--dynsl-reallocation-frequency", required=False, type=float, default=8.0, help="... [DYNSL]")
     parser.add_argument("--dynsl-max-client-layers", required=False, type=int, default=-1, help="... [DYNSL]")
     parser.add_argument("--dynsl-gamma", required=False, type=float, default=8.0, help="... [DYNSL]")
-    parser.add_argument("--dynsl-cache-client-data", required=False, type=str, default="false", choices=["true", "false"], help="... [DYNSL]")
     parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="binary_search", choices=["bottleneck_descent", "genetic", "binary_search"], help="... [DYNSL]")
-    parser.add_argument("--dynsl-dynamic-layers-strategy", required=False, type=str, default="afl", choices=["afl"], help="... [DYNSL]")
-    parser.add_argument("--dynsl-exchange-optimizer-states", required=False, type=str, default="false", choices=["false"], help="... [DYNSL]")
+    parser.add_argument("--dynsl-exchange-optimizer-states", required=False, type=str, default="false", choices=["false", "true"], help="... [DYNSL]")
 
     # algorithm specific configuration -- ORACLE
     parser.add_argument("--oracle-nl-jao", required=False, type=int, default=-1, help="... [ORACLE]")
@@ -92,7 +90,7 @@ def generate():
 
         if args.algorithm == "dynsl_w_profiling":
             # delete unnecessary keys
-            delete_keys = ["reallocation_frequency", "gamma", "cache_client_data", "exchange_optimizer_states"]
+            delete_keys = ["reallocation_frequency", "gamma", "exchange_optimizer_states"]
             algo_args = [arg for arg in algo_args if not any(k in arg for k in delete_keys)]
 
         args_dict["algo_config"] = "\n      ".join(algo_args)
