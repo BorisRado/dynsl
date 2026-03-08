@@ -29,7 +29,7 @@ class ResNet(FlexibleSequential):
             nn.Flatten(),
             model.fc,
         )
-        self.meaningful_split_points = [4, 5, 6, 7, 8, 11]
+        self.meaningful_split_points = [5, 6, 7, 8, 11]
         self._data_type = "cv"
 
 

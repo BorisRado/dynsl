@@ -52,7 +52,7 @@ class OptimizerGenerator:
 
         elif self._decay_strategy == "step":
             # every `step_size` steps multiply the learning rate by `gamma`
-            if (self._epoch - self._warmup_epochs) % self._scheduler_config["step_size"] == 0:
+            if self._scheduler_config["step_size"] == 0:
                 self._optim_config["lr"] *= self._scheduler_config["gamma"]
 
         elif self._decay_strategy == "cosine":

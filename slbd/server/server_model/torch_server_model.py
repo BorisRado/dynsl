@@ -6,7 +6,7 @@ import torch
 from slbd.torch.model_utils import shift_state_dict
 from slbd.torch.utils import init_optimizer
 from slbd.common.typing import ServerModelFitIns, ServerModelEvaluateIns, ServerModelFitRes
-from slbd.torch.model_utils import extract_submodel, get_num_layers, override_optimizer_state
+from slbd.torch.model_utils import extract_submodel, get_num_layers, override_optimizer_state, iterate_params_and_state_dict
 from slbd.torch.sequential_model import FlexibleSequential
 
 
@@ -158,23 +158,33 @@ class TorchServerModel:
             tot_dp = s_weight + c_weight
             s_weight, c_weight = s_weight / tot_dp, c_weight / tot_dp
 
-            for server_param in self._model[server_layer_idx].parameters():
+            for _, server_param in iterate_params_and_state_dict(self._model[server_layer_idx]):
                 client_param = parameters[idx]
                 assert client_param.shape == server_param.shape
-                server_param.data \
-                    .mul_(s_weight) \
-                    .add_(
-                        client_param.to(server_param.device) * c_weight
+                if server_param.data.dtype == torch.float32:
+                    server_param.data \
+                        .mul_(s_weight) \
+                        .add_(
+                            client_param.to(server_param.device) * c_weight
+                        )
+                elif server_param.data.dtype == torch.long:
+                    server_param.data.copy_(
+                        (server_param.data.float() * s_weight +
+                         client_param.to(server_param.device).float() * c_weight)
+                        .round().long()
                     )
+                else:
+                    raise Exception(f"Unknown type {server_param.dtype}")
                 integrated_parameters.append(server_param)
 
-                # since we "override" the weight, we reset the optimizer state for the considered parameter
-                if self._weight_integration_strategy == "reset_optim_state":
-                    self._optimizer.state[server_param] = {}
-                elif self._weight_integration_strategy == "keep_optim_state":
-                    pass
-                else:
-                    assert optimizer_states is not None
+                if isinstance(server_param, torch.nn.Parameter):
+                    # since we "override" the weight, we reset the optimizer state for the considered parameter
+                    if self._weight_integration_strategy == "reset_optim_state":
+                        self._optimizer.state[server_param] = {}
+                    elif self._weight_integration_strategy == "keep_optim_state":
+                        pass
+                    else:
+                        assert optimizer_states is not None
 
                 idx += 1
             if idx == len(parameters):

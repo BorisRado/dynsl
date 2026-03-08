@@ -165,6 +165,7 @@ def run(cfg: DictConfig):
 
     start_time = time.time()
 
+    all_accuracies = []
     for epoch_idx in range(1, cfg.general.rounds+1):
         client_instructions, server_model_configs = strategy.configure_fit(
             server_round=epoch_idx,
@@ -200,11 +201,13 @@ def run(cfg: DictConfig):
             layer_allocator=client_layer_allocator,
             failures=[],
         )
-        strategy.evaluate(
+        test_metrics = strategy.evaluate(
             server_round=epoch_idx,
             model_state_dict=model_state_dict
-        )
+        )[1]
         client_layer_allocator.finalize_epoch()
+        all_accuracies.append(test_metrics["test/accuracy"])
+        print(epoch_idx, all_accuracies)
         if strategy.has_converged:
             print("Early exit....")
             break

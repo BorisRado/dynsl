@@ -65,12 +65,11 @@ def extract_submodel_weights(
         end_idx = get_num_layers(model)
     layers_to_copy = list(model.children())[start_idx:end_idx]
 
-    weights = [tensor for layer in layers_to_copy for tensor in layer.parameters()]
+    weights = [tensor for layer in layers_to_copy for _, tensor in iterate_params_and_state_dict(layer)]
     optimizer_states = []
     if extract_optimizer_states:
         for w in weights:
             if w not in optimizer.state:
-                assert False
                 continue
             optimizer_states.append({
                 k: v.detach() for k, v in optimizer.state[w].items()
@@ -193,6 +192,16 @@ def concat_sequential_models(
         optimizer.param_groups[0]["params"].extend(list(model2.parameters()))
     combined_layers = layers1 + layers2
     return FlexibleSequential(*combined_layers)
+
+
+def iterate_params_and_state_dict(model):
+    state_dict = model.state_dict()
+    named_parameters = dict(model.named_parameters())
+    for k, v in state_dict.items():
+        if k in named_parameters:
+            yield (k, named_parameters[k])
+        else:
+            yield (k, v)
 
 
 def attach_layers(

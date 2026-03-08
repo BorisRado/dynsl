@@ -407,7 +407,7 @@ class SLExecutor:
 
         n_late_params = 0 # "late" parameters will be aggregated at the end of the epoch as usual
         for layer, _ in zip(self.whole_model, range(self.whole_model.meaningful_split_points[0])):
-            n_late_params += len(list(layer.parameters()))
+            n_late_params += len(list(layer.state_dict()))
 
         trained_parameters, immediate_integration_parameters = \
             trained_parameters[:n_late_params], trained_parameters[n_late_params:]
