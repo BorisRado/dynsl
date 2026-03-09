@@ -84,7 +84,7 @@ def run(cfg):
 
     if cuda_available:
         print("Cuda is available... => Warming up divece")
-        warmup_device()
+        warmup_device(model)
 
     for _ in range(20):
         run_training_iteration(model, optimizer, device, batch_size)

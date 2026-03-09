@@ -2,7 +2,7 @@ name: dynsl_v2
 num_server_models: 1
 exchange_optimizer_states: false
 end_epoch_weight_integration_strategy: hierarchical
-server_optim_state_handling: optim_state_resetting
+server_optim_state_handling: reset_optim_state
 layer_allocator_init_args:
   reallocation_frequency: 8.0
   max_client_layers: 1000

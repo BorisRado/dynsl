@@ -166,13 +166,19 @@ class BatchingWorkerManager:
         if self.receiving_transform_fn:
             kwargs["embeddings"] = [self.receiving_transform_fn(d) for d in kwargs["embeddings"]]
 
+        start_event, end_event = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        start_event.record()
         grad_results = await self.server_model_manager.marshall_train_request(
             model_id=server_id,
             num_offloaded_layers=num_offloaded_layers,
             **kwargs
         )
+        end_event.record()
+        while not end_event.query():
+            await asyncio.sleep(5e-4)
 
-        self.client_layer_allocator.update_server_metrics(num_offloaded_layers, 0.)
+        elapsed = start_event.elapsed_time(end_event) / 1e3  # seconds
+        self.client_layer_allocator.update_server_metrics(num_offloaded_layers, elapsed)
 
         results = []
         for (gradient, training_loss), client_id, received_data in zip(grad_results, client_ids, kwargs_list):

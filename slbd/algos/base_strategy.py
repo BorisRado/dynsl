@@ -42,7 +42,7 @@ def weighted_average(metrics: List[Tuple[int, Dict[str, float]]], cids):
     for key in metrics[0][1].keys():
         if key.startswith("_"):
             continue
-        if key not in {"local_train_time", "local_computation_time"}:
+        if key not in {"local_train_time", "local_computation_time", "train/local_computation_time"}:
             weighted_sum = sum(num_examples * metric[key] for num_examples, metric in metrics)
             weighted_metrics[key] = weighted_sum / total_examples
         else:
@@ -124,6 +124,7 @@ class BaseStrategy(Strategy):
             if self.iter_wo_improve == tmp_patience:
                 self.has_converged = True
         torch.cuda.empty_cache()
+        self.optimizer_config_generator.end_epoch_callback()
         return metrics["test/loss"], metrics
 
     def _setup_epoch_clients(
@@ -287,7 +288,6 @@ class BaseStrategy(Strategy):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]]
     ) -> Tuple[OrderedDict, Dict[str, Scalar]]:
         _ = (server_round, )
-        self.optimizer_config_generator.end_epoch_callback()
         for failure in failures:
             log(ERROR, str(failure))
 

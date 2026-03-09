@@ -1,5 +1,5 @@
 defaults:
-  - scheduler: cosine
+  - scheduler: step
   - _self_
 optimizer:
   optimizer_name: sgd

@@ -215,7 +215,7 @@ def init_ares_components(config, model, model_evaluate_fn):
     client_layer_allocator = ARESClientLayerAllocator(
         server_fb_times=[fw+bw for fw, bw in zip(forward_times, backward_times)],
         activation_sizes=activation_sizes,
-        client_throughputs_MBps=1000, # TODO: it is hardcoded right now
+        client_throughputs_MBps=600,
         **OmegaConf.to_container(config.algorithm.layer_allocator_init_args),
         meaningful_split_points=model.meaningful_split_points,
     )

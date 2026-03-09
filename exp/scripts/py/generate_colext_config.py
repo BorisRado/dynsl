@@ -16,6 +16,9 @@ def generate():
     parser.add_argument("--algorithm", required=True, type=str, help="FL algorithm to be tested",
                         choices=["splitfed_v1", "splitfed_v2", "ares", "dynsl_v2", "oracle", "fedavg", "dynsl_w_profiling", "sfsl"])
     parser.add_argument("--model-name", required=True, type=str, help="Model to be trained")
+    parser.add_argument("--optimizer", required=False, type=str, choices=["adam", "sgd"], help="Optimizer to be used")
+    parser.add_argument("--use-groupnorm", required=False, type=str, choices=["true", "false"], default="true", help="Whether the model should use groupnorm. If false, use batchnorm")
+    parser.add_argument("--batch-size", required=False, type=int, default=16, help="Client batch size")
     parser.add_argument("--num-rounds", required=False, type=int, default=1, help="Number of training rounds")
     parser.add_argument("--num-partitions", required=False, type=int, default=10, help="Number of partitions of the training dataset")
     parser.add_argument("--experiment-name", required=False, type=str, default="colext", help="Name of experiment on wandb. If `null`, data is not logged to wandb")

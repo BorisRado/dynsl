@@ -10,7 +10,7 @@ defaults:
 general:
   seed: 10
   rounds: 1
-  patience: 10
+  patience: 12
 server:
   async_: true
   communication_channel: socket # options: grpc, socket

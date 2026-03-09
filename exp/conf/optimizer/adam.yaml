@@ -1,5 +1,5 @@
 defaults:
-  - scheduler: constant
+  - scheduler: step
   - _self_
 optimizer:
   optimizer_name: adam

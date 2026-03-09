@@ -248,8 +248,8 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
     def collect_epoch_metrics(self):
         return {
-            "tot_server_training_time": self.tot_server_computation_time,
-            "allocated_layers": self._client_allocated_layers,
+            "train/tot_server_training_time": self.tot_server_computation_time,
+            "train/allocated_layers": [(self._cid_to_node_name[k], v) for k, v in self._client_allocated_layers.items()],
         }
 
     def get_min_client_layers(self, cid):

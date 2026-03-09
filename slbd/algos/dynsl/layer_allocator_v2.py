@@ -20,7 +20,7 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS,
 )
 
-from slbd.algos.dynsl.optimization_algorithms import genetic_reallocation, bottleneck_descent, binary_search
+from slbd.algos.dynsl.optimization_algorithms import binary_search
 
 
 class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
@@ -240,7 +240,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # Uncomment following lines to log the tracked metrics
 
         # print("COUNTS=",{self._cid_to_node_name[k]: v for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers})
-        self._allocated_layer_history.append(self._client_allocated_layers.copy())
+        self._allocated_layer_history.append({self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items()})
         if any(v < 2 for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers):
             print("Not enough data to try reallocating...\n\n")
             return
@@ -264,8 +264,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             if self._client_was_decreased_last_iteration.get(k, False):
                 # If client was decreased last iteration, max is current layers
                 tmp_max_layers[k] = self._client_allocated_layers[k]
-            elif self._client_allocated_layers[k] == self.meaningful_split_points[0]:
-                tmp_max_layers[k] = min(v, self.meaningful_split_points[2+self.meaningful_split_points.index(self._client_allocated_layers[k])])
+            # elif self._client_allocated_layers[k] == self.meaningful_split_points[0]:
+            #     tmp_max_layers[k] = min(v, self.meaningful_split_points[2+self.meaningful_split_points.index(self._client_allocated_layers[k])])
             else:
                 # Default case
                 tmp_max_layers[k] = v
@@ -373,7 +373,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             # fit linear model for simplicity
             coefficients = np.polyfit(base_complexity, recorded_layers_forward_time, 1)
             new_num_layers_complexity = self.comput_compl_per_sp[layer-1]
-            predicted_forward_time = np.polyval(coefficients, new_num_layers_complexity) * 1.25
+            predicted_forward_time = np.polyval(coefficients, new_num_layers_complexity) * 1.5
             if layer == self._num_model_layers:
                 predicted_forward_time *= 2.0
 

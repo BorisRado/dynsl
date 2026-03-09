@@ -1,8 +1,8 @@
 def ares_compute_optimal_split_layer(
-    client_fb_times, # fb indicates that it is the sum of the forward and backward time
-    server_fb_times, # fb indicates that it is the sum of the forward and backward time
+    client_fb_times, # fb indicates that it is the sum of the forward and backward time - it is cumulative from start to the considered layer
+    server_fb_times, # fb indicates that it is the sum of the forward and backward time - it is layer-by-layer
     tensor_sizes,
-    network_throughput_mbps,
+    network_throughput_Mbps,
 ):
     """
     Compute optimal split vector for ARES based on training time minimization.
@@ -25,11 +25,8 @@ def ares_compute_optimal_split_layer(
 
     split_options = []
 
-    # Convert network throughput from Mbps to bytes per second
-    network_throughput_Bps = network_throughput_mbps * 1_000_000 / 8  # Mbps to bytes/sec
-
     # Evaluate each possible split point
-    for split_layer in range(1, num_layers + 1):
+    for split_layer in range(2, num_layers + 1):
         # split after `split_layer` layers
         # First layer has index 1
         # `split_layer=1` -> layer1 || layer2 layer3 ...
@@ -39,22 +36,21 @@ def ares_compute_optimal_split_layer(
 
         if split_layer == num_layers:
             # Local execution (no split) - all layers on client
-            total_time = sum(client_fb_times)
+            total_time = client_fb_times[-1]
 
         else:
             # Split execution
 
             # 1. Client computation time (layers 0 to split_layer)
-            client_compute_time = sum(client_fb_times[:split_layer])
+            client_compute_time = client_fb_times[split_layer-1]
 
             # 2. Server computation time (from `split_layer` until the end)
             server_compute_time = sum(server_fb_times[split_layer:])
 
             # 3. Communication time
             # Forward: send intermediate activations from client to server
-            forward_tensor_size_bytes = tensor_sizes[split_layer - 1] * 4  # 4B per float32
-            # simplify -- assume that network speed is symmetrical => * 2
-            communication_time = 2 * forward_tensor_size_bytes / network_throughput_Bps
+            forward_tensor_size_bits = tensor_sizes[split_layer - 1] * 32  # 4B per float32
+            communication_time = 2 * forward_tensor_size_bits / network_throughput_Mbps / 1e6
 
             # Total training time for this split configuration
             total_time = client_compute_time + server_compute_time + communication_time
@@ -67,7 +63,7 @@ def ares_compute_optimal_split_layer(
     # Find the split configuration with minimum training time
     optimal_config = min(split_options, key=lambda x: x["total_time"])
 
-    return optimal_config["split_layer"] - 1, optimal_config["total_time"], split_options
+    return optimal_config["split_layer"], optimal_config["total_time"], split_options
 
 
 # Example usage:

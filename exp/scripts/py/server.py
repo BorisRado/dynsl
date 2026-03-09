@@ -1,6 +1,8 @@
 import os
 import time
+import asyncio
 
+import torch
 from dotenv import load_dotenv
 import hydra
 from hydra.utils import instantiate
@@ -20,9 +22,12 @@ from exp.src.data.utils import get_dataloader
 @hydra.main(version_base=None, config_path="../../conf", config_name="config")
 def run(cfg: DictConfig):
 
-    import uvloop
-    import asyncio
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    try:
+        # try using uvloop if possible
+        import uvloop
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    except:
+        pass
 
     OmegaConf.resolve(cfg)
     if cfg.wandb:
@@ -33,7 +38,9 @@ def run(cfg: DictConfig):
         init_wandb(cfg)
         print("Logging data to", os.getenv("WANDB_PROJECT"))
 
-    testloader = get_dataloader(load_cv_testset(cfg.data), batch_size=1024, shuffle=False)
+    testloader = torch.utils.data.DataLoader(
+        load_cv_testset(cfg.data), batch_size=256, shuffle=False, pin_memory=True, num_workers=2
+    )
 
     # remove configuration that does not pertain to the server
     # del cfg.client # cannot remove it as we need batch size

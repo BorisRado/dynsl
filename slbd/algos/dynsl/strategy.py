@@ -104,6 +104,10 @@ class DynSLStrategy(BaseStrategy):
         iter_weight = server_state_dict[key]
         previous_fork = server_processed_dp_per_layer[layer_idx]
 
+        convert_to_long = False
+        if iter_weight.dtype == torch.long:
+            iter_weight = iter_weight.float()
+            convert_to_long = True
         for cid, num_cfdp in sorted(clients_num_dp_when_forking.items(), key=lambda x: x[1], reverse=True):
             client_w, client_dp = all_client_statedicts[cid][key]
             num_processed_on_server = previous_fork - num_cfdp
@@ -113,8 +117,13 @@ class DynSLStrategy(BaseStrategy):
             w1, w2 = w1 / (w1 + w2), w2 / (w1 + w2)
             assert client_w.shape == iter_weight.shape
             client_w = client_w.to(iter_weight.device)
-            iter_weight = iter_weight.mul_(w1).add_(w2 * client_w)
+            if convert_to_long:
+                iter_weight = iter_weight.mul_(w1).add_(w2 * client_w.float())
+            else:
+                iter_weight = iter_weight.mul_(w1).add_(w2 * client_w)
             previous_fork = previous_fork + num_processed_on_client
+        if convert_to_long:
+            iter_weight = iter_weight.long()
         return iter_weight.cpu(), previous_fork
 
     def aggregate_fit(
@@ -131,8 +140,6 @@ class DynSLStrategy(BaseStrategy):
             return super().aggregate_fit(
                 server_round, client_results, server_results, layer_allocator, failures
             )
-
-        self.optimizer_config_generator.end_epoch_callback()
 
         # Verify all server_res have afl_data attribute with same value
         afl_data_values = [server_res.afl_data for server_res in server_results]

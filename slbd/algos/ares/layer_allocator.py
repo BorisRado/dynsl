@@ -29,7 +29,6 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         server_fb_times: List[float],
         activation_sizes: List[int],
         client_throughputs_MBps: float,
-        max_client_layers: int,
         meaningful_split_points: List[int]
     ):
         self._client_profiling_frequency = client_profiling_frequency
@@ -38,13 +37,10 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         self._client_throughputs_MBps = client_throughputs_MBps
         self._epoch = 0
         self._client_allocated_layers = {}
+        self.tot_server_computation_time = None
         self._num_model_layers = len(server_fb_times)
         self._computing_properties_time = 0.
         self._dict_lock = Lock()
-        self.max_client_layers = max_client_layers
-        if max_client_layers == -1:
-            self.max_client_layers = meaningful_split_points[-1]
-        print("Max client layers", self.max_client_layers)
 
     def _get_client_properties(self, client_proxy, optimizer_config):
         get_properties_instructions = GetPropertiesIns({
@@ -58,7 +54,6 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         ).properties
         # the client dataset size appears in equation 3, but in truth the value does not
         # affect in any way the result -- it is just a multiplicative constant
-        _ = result.pop(CLIENT_DATASET_SIZE)
 
         # extract the time from the result, which is a dictionary
         client_fb_times = [result[f"f+b{idx}"] for idx in range(len(result))]
@@ -71,7 +66,7 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         )[0]
         # enforce at least one layer on the client -- don't send raw data
         with self._dict_lock:
-            self._client_allocated_layers[client_proxy.cid] = min(max(tmp, 1), self.max_client_layers)
+            self._client_allocated_layers[client_proxy.cid] = tmp
 
     def initialize_epoch(
         self,
@@ -81,6 +76,7 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         optimizer_config,
     ) -> None:
         self._computing_properties_time = -1
+        self.tot_server_computation_time = 0.
 
         if is_training and self._epoch % self._client_profiling_frequency == 0:
             start_time = time.time()
@@ -114,11 +110,16 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
     def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
         _ = (client_id, metrics)
 
-    def update_server_metrics(self, *args, **kwargs):
-        pass
+    def update_server_metrics(
+        self,
+        num_offloaded_layers: int,
+        elapsed_time: float,
+    ):
+        self.tot_server_computation_time += elapsed_time
 
     def collect_epoch_metrics(self):
         return {
-            **self._client_allocated_layers.copy(),
-            "model_profiling_time": self._computing_properties_time,
+            "train/allocated_layers": list(self._client_allocated_layers.items()),
+            "train/model_profiling_time": self._computing_properties_time,
+            "train/tot_server_training_time": self.tot_server_computation_time,
         }

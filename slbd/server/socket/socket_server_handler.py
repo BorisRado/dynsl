@@ -201,7 +201,7 @@ async def start_socket_server(
             client_socket, client_address = await loop.sock_accept(server_socket)
             # Keep client socket non-blocking for async recv/send operations
             client_socket.setblocking(False)
-            print(f"Received connection from {client_address}")
+            # print(f"Received connection from {client_address}")
             # Handle each client in a separate task
             asyncio.create_task(handler.handle_client(client_socket, client_address))
     finally:
