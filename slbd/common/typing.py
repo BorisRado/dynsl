@@ -29,8 +29,7 @@ class SocketTimingMetrics:
     def __post_init__(self):
         self.throughput_Mbps = -1.
         if self.downlink_throughput_Mbps:
-            # ignore uplink as it is not reliable due to asyncio
-            self.throughput_Mbps = min(1_000, 2 * self.downlink_throughput_Mbps)
+            self.throughput_Mbps = (self.uplink_throughput_Mbps + self.downlink_throughput_Mbps) / 2
 
 
 @dataclass

@@ -91,11 +91,19 @@ def create_classification_head(encoder_model, num_classes, fc_dims=[256,]):
     g = torch.Generator().manual_seed(42)
     for m in clf_head.modules():
         if isinstance(m, nn.Linear):
-            nn.init.kaiming_uniform_(m.weight, a=np.sqrt(5), generator=g)
-            if m.bias is not None:
-                fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
-                bound = 1 / np.sqrt(fan_in) if fan_in > 0 else 0
-                nn.init.uniform_(m.bias, -bound, bound, generator=g)
+            try:
+                nn.init.kaiming_uniform_(m.weight, a=np.sqrt(5), generator=g)
+                if m.bias is not None:
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
+                    bound = 1 / np.sqrt(fan_in) if fan_in > 0 else 0
+                    nn.init.uniform_(m.bias, -bound, bound, generator=g)
+            except:
+                print("Probably using an older torch version -- trying to initialize without generator. Used e.g. on JN")
+                nn.init.kaiming_uniform_(m.weight, a=np.sqrt(5))
+                if m.bias is not None:
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
+                    bound = 1 / np.sqrt(fan_in) if fan_in > 0 else 0
+                    nn.init.uniform_(m.bias, -bound, bound)
     return clf_head
 
 

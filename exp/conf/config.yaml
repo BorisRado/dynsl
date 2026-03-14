@@ -8,9 +8,9 @@ defaults:
   - server_model_manager: multithreading
   - _self_
 general:
-  seed: 10
+  seed: 16
   rounds: 1
-  patience: 12
+  patience: 10
 server:
   async_: true
   communication_channel: socket # options: grpc, socket

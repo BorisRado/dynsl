@@ -4,7 +4,7 @@ source ~/.venv/colext/bin/activate
 
 
 NUM_ROUNDS=6
-EXP_NAME="colext_separate_heads"
+EXP_NAME="colext_separate_heads_new"
 
 NUM_JAO="2"
 NUM_JXN="2"

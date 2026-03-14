@@ -141,8 +141,6 @@ def binary_search(
                     candidate_split_vector[cid] = sp
                     if tmp_time > max_client_time:
                         max_client_time = tmp_time
-                else:
-                    break  # monotonicity allows early stopping
         if any(sp is None for sp in candidate_split_vector.values()):
             min_T = mid_T
             continue
