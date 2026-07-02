@@ -16,11 +16,12 @@ def generate():
     parser.add_argument("--algorithm", required=True, type=str, help="FL algorithm to be tested",
                         choices=["splitfed_v1", "splitfed_v2", "ares", "dynsl_v2", "oracle", "fedavg", "dynsl_w_profiling", "sfsl"])
     parser.add_argument("--model-name", required=True, type=str, help="Model to be trained")
-    parser.add_argument("--optimizer", required=False, type=str, choices=["adam", "sgd"], help="Optimizer to be used")
+    parser.add_argument("--optimizer", required=False, type=str, choices=["adam", "sgd"], default="adam", help="Optimizer to be used")
     parser.add_argument("--use-groupnorm", required=False, type=str, choices=["true", "false"], default="true", help="Whether the model should use groupnorm. If false, use batchnorm")
     parser.add_argument("--batch-size", required=False, type=int, default=16, help="Client batch size")
     parser.add_argument("--num-rounds", required=False, type=int, default=1, help="Number of training rounds")
     parser.add_argument("--num-partitions", required=False, type=int, default=10, help="Number of partitions of the training dataset")
+    parser.add_argument("--partitioning", required=False, type=str, default="iid", help="Type of partitioning")
     parser.add_argument("--experiment-name", required=False, type=str, default="colext", help="Name of experiment on wandb. If `null`, data is not logged to wandb")
     parser.add_argument("--num-concat-batches", required=False, type=int, default=1, help="Number of batches the server will concatenate before training")
     parser.add_argument("--num-epochs-per-round", required=False, type=int, default=1, help="Number of client training epochs per server round")
@@ -44,7 +45,6 @@ def generate():
     parser.add_argument("--dynsl-reallocation-frequency", required=False, type=float, default=8.0, help="... [DYNSL]")
     parser.add_argument("--dynsl-max-client-layers", required=False, type=int, default=-1, help="... [DYNSL]")
     parser.add_argument("--dynsl-gamma", required=False, type=float, default=8.0, help="... [DYNSL]")
-    parser.add_argument("--dynsl-layer-allocation-optimizer", required=False, type=str, default="binary_search", choices=["bottleneck_descent", "genetic", "binary_search"], help="... [DYNSL]")
     parser.add_argument("--dynsl-exchange-optimizer-states", required=False, type=str, default="false", choices=["false", "true"], help="... [DYNSL]")
 
     # algorithm specific configuration -- ORACLE

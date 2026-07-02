@@ -165,6 +165,7 @@ def measure_per_layer_time(
     optimizer: torch.optim.Optimizer,
     batch_size: int,
     iterations: int,
+    device: torch.device,
     dry_runs: int = 0,
 ) -> Tuple[List[float], List[float], List[int]]:
     """Measure the forward and backward time for every layer in the model
@@ -197,7 +198,6 @@ def measure_per_layer_time(
     model = copy.deepcopy(model)
     optimizer = copy.deepcopy(optimizer)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if model._data_type == "cv":
         return _measure_per_layer_time_cv(
             model=model,
@@ -220,21 +220,8 @@ def measure_per_layer_time(
 
 
 def measure_per_layer_complexity(disable_cuda=False, **kwargs):
-    if torch.cuda.is_available() and disable_cuda:
-        print("Measuring without cuda...")
-        prev = os.environ.get("CUDA_VISIBLE_DEVICES", None)
-        os.environ["CUDA_VISIBLE_DEVICES"] = ""  # Hide all GPUs
-        torch.cuda.device_count()  # Force re-check of available devices
-
-        forward_times, backward_times, tensor_sizes = measure_per_layer_time(**kwargs)
-
-        if prev is None:
-            del os.environ["CUDA_VISIBLE_DEVICES"]
-        else:
-            os.environ["CUDA_VISIBLE_DEVICES"] = prev
-        torch.cuda.device_count()  # Reset state
-    else:
-        forward_times, backward_times, tensor_sizes = measure_per_layer_time(**kwargs)
+    device = torch.device("cuda" if torch.cuda.is_available() and not disable_cuda else "cpu")
+    forward_times, backward_times, tensor_sizes = measure_per_layer_time(**kwargs, device=device)
     assert len(forward_times) == len(backward_times) == len(kwargs["model"])
     times = {
         i: fw+bw for i, (fw, bw) in enumerate(zip(forward_times, backward_times))
