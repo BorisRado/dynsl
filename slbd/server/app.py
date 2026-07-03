@@ -10,7 +10,6 @@ from typing import Optional, Tuple
 import grpc
 import grpc.aio
 import torch.optim as optim
-from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
 
 from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
@@ -25,15 +24,12 @@ from flwr.server.superlink.fleet.grpc_bidi.grpc_server import valid_certificates
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 from slbd.server.grpc.flower_servicer import FlowerServiceServicer
 from slbd.server.server_model.manager import ServerModelManager
-from slbd.server.grpc.server_model_servicer import ServerModelServicer
-from slbd.server.grpc.queue_server_model_servicer import ServerModelServicer as QueueServerModelServicer
-from slbd.server.grpc.ping_pong_servicer import ServerModelServicer as PPServerModelServicer
 from slbd.server.socket.socket_server_handler import SocketServerHandler, start_socket_server
 from slbd.server.server import Server
 from slbd.common.utils import run_async
-from slbd.proto import server_model_pb2_grpc
 from slbd.torch.model_utils import get_num_layers
 from slbd.torch.utils import init_optimizer, OptimizerGenerator
+from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
 
 # import of algorithm components
 from slbd.common.profiling import (
@@ -41,7 +37,7 @@ from slbd.common.profiling import (
     measure_per_layer_complexity
 )
 from slbd.algos.ares import ARESStrategy, ARESClientLayerAllocator
-from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocator, DynSLClientLayerAllocatorV2, DynSLClientLayerAllocatorWProfiling
+from slbd.algos.dynsl import DynSLStrategy, DynSLClientLayerAllocatorV2, DynSLClientLayerAllocatorWProfiling
 from slbd.algos.sfsl import SFSLClientLayerAllocator, SFSLStrategy
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
 from slbd.algos.splitfed import SplitFedStrategy, SplitFedClientLayerAllocator
@@ -55,21 +51,6 @@ ADDRESS_FLEET_API_GRPC_BIDI = "[::]:8080"  # IPv6 to keep start_server compatibl
 ADDRESS_FLEET_API_REST = "0.0.0.0:9093"
 
 DATABASE = ":flwr-in-memory-state:"
-
-
-def init_dynsl_components(config, model, model_evaluate_fn):
-    strategy = DynSLStrategy(
-        model=model,
-        model_evaluate_fn=model_evaluate_fn,
-        optimizer_config=OmegaConf.to_container(config.optimizer),
-        **OmegaConf.to_container(config.strategy, resolve=True),
-    )
-    client_layer_allocator = DynSLClientLayerAllocator(
-        num_model_layers=get_num_layers(model),
-        meaningful_split_points=model.meaningful_split_points,
-        **OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True),
-    )
-    return strategy, client_layer_allocator
 
 
 def init_oracle_components(config, model, model_evaluate_fn):
@@ -114,9 +95,6 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
         disable_cuda=True
     )
     del tmp_optimizer
-    if layer_allocator_config["max_client_layers"] < 0 or layer_allocator_config["max_client_layers"] > model.meaningful_split_points[-1]:
-        layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
-    assert layer_allocator_config["max_client_layers"] <= get_num_layers(model)
     per_layer_parameters = {
         idx: sum(p.numel() for p in layer.state_dict().values())
         for idx, layer in enumerate(model.children())
@@ -153,9 +131,6 @@ def init_dynsl_w_profiling(config, model, model_evaluate_fn):
     )
     del tmp_optimizer
 
-    if layer_allocator_config["max_client_layers"] < 0 or layer_allocator_config["max_client_layers"] > model.meaningful_split_points[-1]:
-        layer_allocator_config["max_client_layers"] = model.meaningful_split_points[-1]
-    assert layer_allocator_config["max_client_layers"] <= get_num_layers(model)
     per_layer_parameters = {
         idx: sum(p.numel() for p in layer.state_dict().values())
         for idx, layer in enumerate(model.children())
@@ -264,7 +239,6 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
     server_model_servicer_config,
     data_manipulation_config,
     server_address: str,
-    use_grpc_for_sl: bool,
     max_concurrent_workers: int = 1000,
     max_message_length: int = GRPC_MAX_MESSAGE_LENGTH,
     keepalive_time_ms: int = 210000,
@@ -300,24 +274,6 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
         server.add_secure_port(server_address, server_credentials)
     else:
         server.add_insecure_port(server_address)
-
-    if use_grpc_for_sl:
-        server_model_servicer_name = server_model_servicer_config.pop("servicer_name")
-        if server_model_servicer_name == "queue":
-            print("Using queue servicer")
-            slbd_servicer = QueueServerModelServicer(
-                server_model_manager=server_model_manager,
-                client_layer_allocator=client_layer_allocator,
-                sending_transform_fn_config=data_manipulation_config.server.sending_fn,
-                receiving_transform_fn_config=data_manipulation_config.server.receiving_fn,
-                **server_model_servicer_config
-            )
-        elif server_model_servicer_name == "ping_pong":
-            slbd_servicer = PPServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
-        else:
-            print("Using usual servicer")
-            slbd_servicer = ServerModelServicer(server_model_manager, client_layer_allocator, **server_model_servicer_config)
-        server_model_pb2_grpc.add_ServerModelServicer_to_server(slbd_servicer, server)
 
     flwr_servicer = FlowerServiceServicer(client_manager)
     add_FlowerServiceServicer_to_server(flwr_servicer, server)
@@ -358,7 +314,6 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
 
     # initialize the server
     strategy, client_layer_allocator = {
-        "dynsl": init_dynsl_components,
         "dynsl_v2": init_dynsl_v2_components,
         "dynsl_w_profiling": init_dynsl_w_profiling,
         "sfsl": init_sfsl_components,
@@ -369,11 +324,9 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         "oracle": init_oracle_components,
     }[config.algorithm.name](config, model, model_evaluate_fn)
 
-    server_model_manager = instantiate(
-        config.server_model_manager,
+    server_model_manager = MultithreadingServerModelManager(
         model=strategy.get_model_architecture(),
         exp_config=OmegaConf.to_container(config.copy()),
-        _recursive_=False
     )
     initialized_server = Server(
         client_manager=SimpleClientManager(),
@@ -405,7 +358,6 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
         server_model_manager=initialized_server.server_model_manager,
         server_model_servicer_config=OmegaConf.to_container(config.server_model_servicer),
         client_layer_allocator=initialized_server.get_client_layer_allocator(),
-        use_grpc_for_sl=config.server.communication_channel == "grpc",
         data_manipulation_config=config.data_manipulation,
         server_address=address,
         max_message_length=grpc_max_message_length,
@@ -419,26 +371,24 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
     )
 
     # Optionally start socket server
-    socket_server_task = None
-    if config.server.communication_channel == "socket":
-        socket_host = "0.0.0.0"
-        socket_port = config.server.socket_port
+    socket_host = "0.0.0.0"
+    socket_port = config.server.socket_port
 
-        socket_handler = SocketServerHandler(
-            server_model_manager=initialized_server.server_model_manager,
-            client_layer_allocator=initialized_server.get_client_layer_allocator(),
-            num_concat_batches=config.server_model_servicer.num_concat_batches,
-            request_group_timeout=config.server_model_servicer.request_group_timeout,
-            sending_transform_fn_config=config.data_manipulation.server.sending_fn,
-            receiving_transform_fn_config=config.data_manipulation.server.receiving_fn,
-            exchange_optimizer_states=config.server_model_servicer.exchange_optimizer_states,
-            event_loop=asyncio.get_running_loop(),
-        )
+    socket_handler = SocketServerHandler(
+        server_model_manager=initialized_server.server_model_manager,
+        client_layer_allocator=initialized_server.get_client_layer_allocator(),
+        num_concat_batches=config.server_model_servicer.num_concat_batches,
+        request_group_timeout=config.server_model_servicer.request_group_timeout,
+        sending_transform_fn_config=config.data_manipulation.server.sending_fn,
+        receiving_transform_fn_config=config.data_manipulation.server.receiving_fn,
+        exchange_optimizer_states=config.server_model_servicer.exchange_optimizer_states,
+        event_loop=asyncio.get_running_loop(),
+    )
 
-        socket_server_task = asyncio.create_task(
-            start_socket_server(socket_handler, socket_host, socket_port)
-        )
-        log(INFO, "Socket server started on %s:%s", socket_host, socket_port)
+    socket_server_task = asyncio.create_task(
+        start_socket_server(socket_handler, socket_host, socket_port)
+    )
+    log(INFO, "Socket server started on %s:%s", socket_host, socket_port)
 
     # Start training
     try:
@@ -452,8 +402,7 @@ async def start_server(  # pylint: disable=too-many-arguments,too-many-locals
 
     finally:
         initialized_server.server_model_manager.clean_resources()
-        if socket_server_task:
-            socket_server_task.cancel()
+        socket_server_task.cancel()
         await grpc_server.stop(grace=1)
 
     event(EventType.START_SERVER_LEAVE)

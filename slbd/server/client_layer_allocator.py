@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple, Dict, Any
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
-from slbd.common.typing import TimingMetrics
+from slbd.common.typing import SocketTimingMetrics
 
 
 class ClientLayerAllocator(ABC):
@@ -87,7 +87,7 @@ class ClientLayerAllocator(ABC):
         """
 
     @abstractmethod
-    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics]):
+    def update_client_metrics(self, client_id: str, metrics: Optional[SocketTimingMetrics]):
         """The layer allocator is given the training time of the client every time the
         client sends embeddings to the server
 
@@ -95,7 +95,7 @@ class ClientLayerAllocator(ABC):
         ----------
         client_id : str
             CID for the client being considered
-        metrics : TimingMetrics
+        metrics : SocketTimingMetrics
             Client metrics
         """
 

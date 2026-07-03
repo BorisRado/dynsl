@@ -5,7 +5,6 @@ defaults:
   - optimizer: adam
   - data_manipulation: cv
   - algorithm: splitfed_v2
-  - server_model_manager: multithreading
   - _self_
 general:
   seed: 16
@@ -13,12 +12,10 @@ general:
   patience: 10
 server:
   async_: true
-  communication_channel: socket # options: grpc, socket
   socket_port: 9094 # port for socket communication (if enabled)
   port: 8089 # default port
 client:
   server_address: 0.0.0.0:8089 # should be set at runtime
-  communication_channel: ${server.communication_channel}
   socket_port: ${server.socket_port}
   init_kwargs: # kwargs that are passed to the model owner client
     cid: 0 # should be set at runtime

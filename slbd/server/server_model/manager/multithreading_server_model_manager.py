@@ -6,7 +6,6 @@ import numpy as np
 import torch
 
 from slbd.server.server_model.torch_server_model import TorchServerModel
-from slbd.server.server_model.manager.multiprocessing.model_worker import TaskType
 from slbd.server.server_model.manager import BaseServerModelManager
 from slbd.common.typing import ServerModelEvaluateIns, ServerModelFitIns, ServerModelFitRes
 from slbd.torch.model_utils import extract_submodel_weights
@@ -46,10 +45,6 @@ class MultithreadingServerModelManager(BaseServerModelManager):
 
     def marshall_evaluation_request(self, model_id, embeddings, num_offloaded_layers):
         raise Exception("")
-        return self._model_process_pool.marshall_request(model_id, (
-            TaskType.EVALUATE,
-            (embeddings, num_offloaded_layers)
-        ))
 
     async def marshall_weight_integration_request(
         self,

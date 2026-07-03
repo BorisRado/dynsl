@@ -10,15 +10,14 @@ code:
       PYTHONPATH=$PYTHONPATH:. python3 exp/scripts/py/client.py
       model={{ model_name }}
       optimizer={{ optimizer }}
+      partitioning={{ partitioning }}
       model.use_groupnorm={{ use_groupnorm }}
       client.init_kwargs.batch_size={{ batch_size }}
       partitioning.num_partitions={{ num_partitions }}
       client.init_kwargs.num_epochs={{ num_epochs_per_round }}
-      algorithm={{ algorithm }}
-      server.communication_channel={{ sl_communication_channel }} {% if misc %}{{ misc }}{% endif %} {% if bg_devices %}{{ bg_devices }}{% endif %} {% if bg_configuration %}{{ bg_configuration }}{% endif %} {%- if algo_config %} {{ algo_config }}{%- endif %}
+      algorithm={{ algorithm }} {% if misc %}{{ misc }}{% endif %} {% if bg_devices %}{{ bg_devices }}{% endif %} {% if bg_configuration %}{{ bg_configuration }}{% endif %} {%- if algo_config %} {{ algo_config }}{%- endif %}
 
   server:
-      # algorithm.layer_allocator_init_args.max_client_layers=46
     command: >-
       sed -i '/FLOWER_LOGGER.addHandler(console_handler)/d' /opt/conda/lib/python3.10/site-packages/flwr/common/logger.py && PYTHONPATH=$PYTHONPATH:. python3 -u exp/scripts/py/server.py
       general.rounds={{ num_rounds }}
@@ -29,7 +28,6 @@ code:
       client.init_kwargs.num_epochs={{ num_epochs_per_round }}
       algorithm.num_server_models={{ num_server_models }}
       strategy.min_available_clients=${COLEXT_N_CLIENTS}
-      server.communication_channel={{ sl_communication_channel }}
       server.port=8080
       wandb={{ wandb }}
       model={{ model_name }}

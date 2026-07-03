@@ -11,7 +11,6 @@ from hydra.utils import instantiate
 from omegaconf import OmegaConf, DictConfig
 from flwr.common import log
 
-from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.algos.dynsl import DynSLStrategy
 from slbd.algos.dynsl.simulation_layer_allocator import DynSLSimulationClientLayerAllocator
 from slbd.algos.fedavg import FedAvgStrategy, FedAvgClientLayerAllocator
@@ -28,7 +27,6 @@ from exp.src.common.wandb import init_wandb, finish_wandb, run_exists_already
 from exp.src.common.stochasticity import set_seed
 from exp.src.common.other import set_torch_flags
 from exp.src.data.loading import load_client_trainset, load_cv_testset
-from exp.src.data.utils import get_dataloader
 from exp.src.model.utils import test_model
 
 from exp.src.sl.mo_client import MOTorchClient
@@ -46,10 +44,8 @@ def run(cfg: DictConfig):
     # remove what is not needed in simulations
     del cfg.client.server_address
     del cfg.server
-    del cfg.client.communication_channel
     del cfg.client.socket_port
     del cfg.server_model_manager
-    del cfg.server_model_servicer.servicer_name
 
     # sanity checks
     assert len([v for v in cfg.client.init_kwargs.keys() if v.startswith("bg_")]) == 0, \

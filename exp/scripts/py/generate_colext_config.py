@@ -43,7 +43,6 @@ def generate():
 
     # algorithm specific configuration -- DYNSL
     parser.add_argument("--dynsl-reallocation-frequency", required=False, type=float, default=8.0, help="... [DYNSL]")
-    parser.add_argument("--dynsl-max-client-layers", required=False, type=int, default=-1, help="... [DYNSL]")
     parser.add_argument("--dynsl-gamma", required=False, type=float, default=8.0, help="... [DYNSL]")
     parser.add_argument("--dynsl-exchange-optimizer-states", required=False, type=str, default="false", choices=["false", "true"], help="... [DYNSL]")
 

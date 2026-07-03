@@ -11,8 +11,7 @@ from flwr.server.client_manager import ClientManager
 
 from slbd.algos.ares.utils import ares_compute_optimal_split_layer
 from slbd.server.client_layer_allocator import ClientLayerAllocator
-from slbd.common.typing import TimingMetrics
-from slbd.common.constants import CLIENT_DATASET_SIZE
+from slbd.common.typing import SocketTimingMetrics
 
 
 class ARESClientLayerAllocator(ClientLayerAllocator):
@@ -107,7 +106,7 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         return self._num_model_layers - self._client_allocated_layers[client_id]
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
+    def update_client_metrics(self, client_id: str, metrics: SocketTimingMetrics):
         _ = (client_id, metrics)
 
     def update_server_metrics(

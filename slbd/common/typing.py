@@ -1,6 +1,6 @@
-from collections import OrderedDict
-from dataclasses import dataclass, field
 from enum import Enum
+from dataclasses import dataclass
+from collections import OrderedDict
 from typing import Dict, Union, List, Optional
 
 import numpy as np
@@ -29,37 +29,11 @@ class SocketTimingMetrics:
     def __post_init__(self):
         self.throughput_Mbps = -1.
         if self.downlink_throughput_Mbps:
-            self.throughput_Mbps = (self.uplink_throughput_Mbps + self.downlink_throughput_Mbps) / 2
+            # self.throughput_Mbps = (self.uplink_throughput_Mbps + self.downlink_throughput_Mbps) / 2
+            self.throughput_Mbps = self.downlink_throughput_Mbps
 
-
-@dataclass
-class TimingMetrics:
-    client_local_computation_time: float
-    client_round_time: float
-    client_tot_local_time: float
-    response_length: int # expressed in number of bytes
-    communication_time: float = field(init=False)
-    throughput_Mbps: float = field(init=False)
-
-    def __post_init__(self):
-        raise Exception("Should no longer be used")
-        # client_round_time and client_tot_local_time are in seconds
-        self.communication_time = self.client_round_time - self.client_tot_local_time
-
-        # throughput is in Mbps -- divide by 1_000_000 to go from bps to Mbps
-        # * 8 to convert Bytes to bits
-        # * 2 as communication time includes forward and backward computation
-        #       thus, if the communication time was T, on average T/2 was spent sending and T/2 receiving the message
-        #       for the current application, it makes no sense to differentiate between upload/download speed
-        if self.client_local_computation_time > 0:
-            self.throughput_Mbps = 2 * BYTES_TO_MEGABITS * self.response_length / self.communication_time
-        else:
-            # client_local_computation_time is < 0 if reallocation happened recently
-            # we say that we cannot compute the throughput because in the current iteration, the
-            # amount of sent and received data differs (for instance, because sending the model
-            # weights from the server to the client or vice versa). Thus, we ignore the throughput
-            # measurement for this iteration by setting it to -1
-            self.throughput_Mbps = -1
+            # FIGURE: Uncomment the following line when running experiments for network throughput estimation
+            # self.throughput_Mbps = self.uplink_throughput_Mbps
 
 
 @dataclass
@@ -69,7 +43,7 @@ class BatchDataForward:
     """
     data: Dict[str, Union[np.ndarray, List[np.ndarray]]]
     is_training: bool
-    client_timing_metrics: Optional[TimingMetrics] = None
+    client_timing_metrics: Optional[SocketTimingMetrics] = None
 
 
 @dataclass

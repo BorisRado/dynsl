@@ -153,3 +153,86 @@ def binary_search(
             min_T = mid_T
 
     return best_split_vector
+
+
+def exact_solution(
+    clients,
+    meaningful_split_points,
+    allocated_layers_now,
+    per_client_max_layers,
+    client_fn,
+    server_fn,
+    gamma=None, # kept just for backward compatibility
+):
+    assert meaningful_split_points == sorted(meaningful_split_points)
+
+    if not clients:
+        return dict(allocated_layers_now)
+
+    # Admissible split points per client: everything up to the per-client
+    # ceiling. This mirrors `binary_search`, which likewise enforces only the
+    # maximum (the smallest meaningful split point acts as the floor). There is
+    # no per-client minimum in this signature, so none is enforced here.
+    admissible = {
+        cid: [sp for sp in meaningful_split_points if sp <= per_client_max_layers[cid]]
+        for cid in clients
+    }
+
+    # Pre-compute (cache) the client cost of every admissible (client, split).
+    client_cost = {
+        (cid, sp): client_fn(cid, sp)
+        for cid in clients
+        for sp in admissible[cid]
+    }
+
+    def client_time(cid, sp):
+        # Cache hit for admissible splits; recompute for anything else (e.g. the
+        # current split of a client, which may sit above its current ceiling).
+        cost = client_cost.get((cid, sp))
+        return client_fn(cid, sp) if cost is None else cost
+
+    def objective(split_vector):
+        max_client_time = max(client_time(cid, sp) for cid, sp in split_vector.items())
+        return max(server_fn(split_vector), max_client_time)
+
+    # Candidate objective thresholds: the distinct per-client split costs.
+    thresholds = sorted(set(client_cost.values()))
+
+    # Feasible fallback -- never return something worse than the current config.
+    best_vector = dict(allocated_layers_now)
+    best_objective = objective(best_vector)
+
+    evaluated = set()
+    for alpha in thresholds:
+        # Greedy witness at threshold α: every client takes its largest
+        # admissible split whose client cost does not exceed α. Since server_fn
+        # is non-increasing in each split, this simultaneously minimises the
+        # server term, so it is the best client-feasible vector at α. `S_c` need
+        # not be contiguous (client cost is non-monotone), so scan for the max.
+        candidate = {}
+        feasible = True
+        for cid in clients:
+            chosen = None
+            for sp in admissible[cid]:  # ascending -> keeps the largest feasible
+                if client_cost[(cid, sp)] <= alpha:
+                    chosen = sp
+            if chosen is None:
+                feasible = False
+                break
+            candidate[cid] = chosen
+        if not feasible:
+            continue
+
+        # Greedy vectors are monotone in α, so consecutive thresholds often map
+        # to the same vector; evaluate each distinct one (a server_fn call) once.
+        key = tuple(candidate[cid] for cid in clients)
+        if key in evaluated:
+            continue
+        evaluated.add(key)
+
+        candidate_objective = objective(candidate)
+        if candidate_objective < best_objective:
+            best_objective = candidate_objective
+            best_vector = candidate
+
+    return best_vector

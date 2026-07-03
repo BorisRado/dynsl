@@ -14,6 +14,8 @@ from slbd.common.constants import (
 from slbd.common.socket_utils import send_message, recv_message
 from slbd.server.server_model.proxy.server_model_proxy import ServerModelProxy
 
+from exp.src.common.k8s import get_node_name
+
 
 class SocketServerModelProxy(ServerModelProxy):
     """Socket-based proxy for communicating with the server model."""
@@ -31,6 +33,7 @@ class SocketServerModelProxy(ServerModelProxy):
         self.server_port = server_port
         self.sock: Optional[socket.socket] = None
         self.downlink_throughput = None
+        self.node_name = get_node_name()
         self._initialize_connection()
 
     def _initialize_connection(self):
@@ -39,7 +42,7 @@ class SocketServerModelProxy(ServerModelProxy):
         self.sock.connect((self.server_address, self.server_port))
         # Send initialization message with client ID
         send_message(self.sock, {"type": "init", "cid": self.cid})
-        response = recv_message(self.sock)[0]
+        response = recv_message(self.sock, self.node_name)[0]
         assert response["type"] == "init_ack"
 
     def __call__(
@@ -84,7 +87,8 @@ class SocketServerModelProxy(ServerModelProxy):
         send_message(self.sock, message)
         if not _requires_response_:
             return
-        response, self.downlink_throughput = recv_message(self.sock)
+        response, self.downlink_throughput = recv_message(self.sock, self.node_name)
+        print(round(self.downlink_throughput, 2), flush=True)
 
         # Parse response
         num_layers_diff = response["layers_diff"]
@@ -120,7 +124,7 @@ class SocketServerModelProxy(ServerModelProxy):
             "error": error
         }
         send_message(self.sock, message)
-        response = recv_message(self.sock)[0]
+        response = recv_message(self.sock, self.node_name)[0]
         assert response["type"] == "close_ack"
 
         self.sock.close()
@@ -136,5 +140,5 @@ class SocketServerModelProxy(ServerModelProxy):
             SL_WEIGHTS: model_parameters,
         }
         send_message(self.sock, message)
-        response = recv_message(self.sock)[0]
+        response = recv_message(self.sock, self.node_name)[0]
         assert response == {"message": "ok"}

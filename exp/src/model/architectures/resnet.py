@@ -9,7 +9,7 @@ from exp.src.model.utils import replace_bn_with_gn
 
 
 class ResNet(FlexibleSequential):
-    def __init__(self, num_classes, base_cls, use_groupnorm):
+    def __init__(self, num_classes, base_cls, use_groupnorm, use_maxpool):
         model = base_cls(weights=None, num_classes=num_classes)
         # replace the first conv layers, otherwise the resolution is reduced too much
         # same as in https://github.com/kuangliu/pytorch-cifar/blob/master/models/resnet.py
@@ -20,7 +20,7 @@ class ResNet(FlexibleSequential):
             model.conv1,
             model.bn1,
             nn.ReLU(), # replace the default relu as it is inplace
-            nn.Identity(),
+            nn.MaxPool2d() if use_maxpool else nn.Identity(),
             model.layer1,
             model.layer2,
             model.layer3,

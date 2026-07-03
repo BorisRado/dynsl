@@ -2,7 +2,7 @@ from typing import Type
 
 from flwr.client.mod.utils import make_ffn
 from flwr.client import NumPyClient, ClientFn
-from flwr.common import Context, Message, Scalar
+from flwr.common import Context, Message
 
 from slbd.client.grpc.message_handler import handle_legacy_message_from_msgtype
 
@@ -47,7 +47,6 @@ class ClientApp:
         model,
         client_fn: ClientFn,
         client_adapter_cls: Type[NumPyClient],
-        use_socket: bool = False,
         socket_address: str = None,
         socket_port: int = None,
     ) -> None:
@@ -60,9 +59,7 @@ class ClientApp:
                 client_fn=client_fn,
                 model=model,
                 message=message,
-                context=context,
                 client_adapter_cls=client_adapter_cls,
-                use_socket=use_socket,
                 socket_address=socket_address,
                 socket_port=socket_port,
             )

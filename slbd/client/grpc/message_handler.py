@@ -7,7 +7,7 @@ from flwr.client.client import (
     maybe_call_get_properties,
 )
 from flwr.client import NumPyClient, ClientFn
-from flwr.common import Context, Message
+from flwr.common import Message
 from flwr.common.constant import MessageType, MessageTypeLegacy
 from flwr.common.recordset_compat import (
     evaluateres_to_recordset,
@@ -29,9 +29,7 @@ def handle_legacy_message_from_msgtype(
     client_fn: ClientFn,
     model: FlexibleSequential,
     message: Message,
-    context: Context,
     client_adapter_cls: Type[NumPyClient],
-    use_socket: bool = False,
     socket_address: str = None,
     socket_port: int = None,
 ) -> Message:
@@ -44,7 +42,6 @@ def handle_legacy_message_from_msgtype(
         server_cid = config_record.pop(CLIENT_ID_CONFIG_KEY)
 
     # Create appropriate proxy based on transport type
-    assert use_socket
     server_model_proxy = SocketServerModelProxy(
         server_address=socket_address,
         server_port=socket_port,

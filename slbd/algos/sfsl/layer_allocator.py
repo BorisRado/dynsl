@@ -5,8 +5,8 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
 from slbd.server.client_layer_allocator import ClientLayerAllocator
-from slbd.common.typing import TimingMetrics
-from slbd.common.constants import CLIENT_DEVICE_TYPE
+from slbd.common.typing import SocketTimingMetrics
+from slbd.common.constants import CLIENT_DEVICE_TYPE, CLIENT_DATASET_SIZE
 
 
 class SFSLClientLayerAllocator(ClientLayerAllocator):
@@ -26,13 +26,18 @@ class SFSLClientLayerAllocator(ClientLayerAllocator):
 
     def _get_properties(self, client_proxies):
         get_properties_instructions = GetPropertiesIns({})
+        dataset_distributions = []
         for client_proxy in client_proxies:
             result = client_proxy.get_properties(
                 get_properties_instructions, timeout=None, group_id=None
             )
             device_type = result.properties[CLIENT_DEVICE_TYPE]
+            dataset_distributions.append(
+                result.properties[CLIENT_DATASET_SIZE]
+            )
             self._cid_to_device_type_mapping[client_proxy.cid] = device_type
             print(f"{client_proxy.cid} is device type {device_type}")
+        print(f"=== Client distributions{sorted(dataset_distributions)}")
 
     def initialize_epoch(
         self,
@@ -60,7 +65,7 @@ class SFSLClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         return self._num_offloaded_layers[client_id]
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
+    def update_client_metrics(self, client_id: str, metrics: SocketTimingMetrics):
         return
 
     def update_server_metrics(

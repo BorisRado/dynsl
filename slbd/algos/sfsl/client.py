@@ -19,7 +19,7 @@ from slbd.common.constants import (
     CLIENT_DEVICE_TYPE,
     CLIENT_NUM_RECEIVED_LAYERS,
 )
-from slbd.server.server_model.proxy.grpc_server_model_proxy import GrpcServerModelProxy
+from slbd.server.server_model.proxy.socket_server_model_proxy import SocketServerModelProxy
 from slbd.torch.sequential_model import FlexibleSequential
 
 from slbd.algos.base_numpy_client import BaseNumpyClientAdapter
@@ -34,7 +34,7 @@ class SFSLClientAdapter(BaseNumpyClientAdapter):
         self,
         torch_client: AbstractTorchClient,
         whole_model: FlexibleSequential,
-        server_model_proxy: GrpcServerModelProxy,
+        server_model_proxy: SocketServerModelProxy,
         data_manipulation_config,
         exchange_optimizer_states: Optional[bool]=False,
         clf_head_dimensions=[256,],

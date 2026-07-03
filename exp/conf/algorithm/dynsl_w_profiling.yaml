@@ -3,9 +3,7 @@ num_server_models: 1
 end_epoch_weight_integration_strategy: hierarchical
 server_optim_state_handling: null
 layer_allocator_init_args:
-  max_client_layers: 1000
   num_concat_batches: ${server_model_servicer.num_concat_batches}
-  layer_allocation_optimizer: binary_search
 client_adapter_args:
   end_epoch_weight_integration_strategy: ${algorithm.end_epoch_weight_integration_strategy}
 strategy_init_args:

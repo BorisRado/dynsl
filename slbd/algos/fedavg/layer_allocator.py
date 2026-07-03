@@ -4,7 +4,7 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
 from slbd.server.client_layer_allocator import ClientLayerAllocator
-from slbd.common.typing import TimingMetrics
+from slbd.common.typing import SocketTimingMetrics
 
 
 class FedAvgClientLayerAllocator(ClientLayerAllocator):
@@ -38,7 +38,7 @@ class FedAvgClientLayerAllocator(ClientLayerAllocator):
     def get_client_offloaded_layer_count(self, client_id):
         self.raise_exception()
 
-    def update_client_metrics(self, client_id: str, metrics: TimingMetrics):
+    def update_client_metrics(self, client_id: str, metrics: SocketTimingMetrics):
         self.raise_exception()
 
     def update_server_metrics(self, num_offloaded_layers: int, elapsed_time: float):

@@ -21,10 +21,7 @@ def run(cfg: DictConfig):
     # remove what is not needed in simulations
     del cfg.client.server_address
     del cfg.server
-    del cfg.client.communication_channel
     del cfg.client.socket_port
-    del cfg.server_model_manager
-    del cfg.server_model_servicer.servicer_name
 
     # sanity checks
     assert cfg.algorithm.name == "fedavg"

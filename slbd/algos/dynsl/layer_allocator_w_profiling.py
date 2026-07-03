@@ -1,5 +1,6 @@
 import itertools
 from logging import INFO
+from functools import partial
 from typing import List, Dict, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
@@ -7,7 +8,7 @@ from flwr.common import GetPropertiesIns, log
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.client_manager import ClientManager
 
-from slbd.common.typing import TimingMetrics
+from slbd.common.typing import SocketTimingMetrics
 from slbd.common.constants import (
     MIN_NUMBER_OF_CLIENT_LAYERS,
     CLIENT_DATASET_SIZE,
@@ -15,7 +16,8 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS,
 )
 
-from slbd.algos.dynsl.optimization_algorithms import binary_search
+from slbd.algos.dynsl.optimization_algorithms import exact_solution
+from slbd.algos.dynsl.utils import compute_server_time
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 
@@ -23,10 +25,8 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
     def __init__(
         self,
-        max_client_layers: int,
         num_model_layers: int,
         num_concat_batches: int,
-        layer_allocation_optimizer: str,
         meaningful_split_points: List[int],
         static_server_computational_times: List[float],
         per_layer_emb_sizes: List[int],
@@ -37,8 +37,6 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
         Parameters
         ----------
-        max_client_layers : int
-            Max number of layers that any client can train, as per MO desire
         num_model_layers : int
             Number of layers that the model consists of
         num_concat_batches : int
@@ -52,15 +50,11 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
         per_layer_parameters : Dict[int]
             Size of model layers. For each key (layer idx) we get the number of FP values
         """
-        # safety checks
-        assert layer_allocation_optimizer == "binary_search"
-
         # store basic attributes
         self._num_model_layers: int = num_model_layers
         self._num_concat_batches = num_concat_batches
-        self.meaningful_split_points = [msp for msp in meaningful_split_points if msp <= max_client_layers]
-        self._max_client_layers = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers))
-        self.connection_bandwidth = connection_bandwidth
+        self._meaningful_split_points = meaningful_split_points
+        self._connection_bandwidth = connection_bandwidth
 
         # client desires -- client sets the maximum and minimum number of layers it is willing to train
         self._per_client_min_layers: Dict[str, int] = {}
@@ -71,7 +65,7 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
         # debugging / tracking
         self._cid_to_device_type_mapping = {}
-        self.tot_server_computation_time = None
+        self._tot_server_computation_time = None
         self._cid_to_node_name = {}
 
         # metrics for layer allocation
@@ -79,16 +73,16 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
             [static_server_computational_times[idx] for idx in range(len(static_server_computational_times))]
         self._server_training_times = {
             start_idx: sum(static_server_computational_times[start_idx:])
-            for start_idx in self.meaningful_split_points
+            for start_idx in self._meaningful_split_points
         }
         self._client_profiled_times = {}
         self.per_batch_server_communication_time = {
             k: 2 * 32 * per_layer_emb_sizes[k-1] / 1e9 if k != num_model_layers else 0. # server has a 1Gbps connection link, which is shared across all clienst
-            for k in self.meaningful_split_points
+            for k in self._meaningful_split_points
         }
         self._per_batch_embedding_sizes_Mbits = {
             k: per_layer_emb_sizes[k-1] * 32 / 1e6 if k != num_model_layers else 0
-            for k in self.meaningful_split_points
+            for k in self._meaningful_split_points
         }
         # print("per batch", self._per_batch_embedding_sizes_Mbits)
         tmp_split_points = [0,] + list(meaningful_split_points)
@@ -98,24 +92,10 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
             for a, b in itertools.product(tmp_split_points, tmp_split_points)
             if a < b
         }
-        print("Meaningful split points: ", self.meaningful_split_points)
+        print("Meaningful split points: ", self._meaningful_split_points)
         print("Static server training times:", self._server_training_times)
         print("Communication:", self.per_batch_server_communication_time)
         self._epoch = 0
-
-    def compute_server_time(self, candidate_split_vector):
-        server_time = 0. # Compute the time the server needs to train with the current configuration
-        server_communication_time = 0. # time the server is communicating
-
-        for cid, L in candidate_split_vector.items():
-            B = self._dataset_sizes[cid] # number of batches the client still has to process
-            server_time += B * self._server_training_times[L] / self._num_concat_batches # time the server will be processing client batches
-            server_communication_time += B * self.per_batch_server_communication_time[L]
-
-        # slightly increase the server_communication_time to account for the overhead of serializing and deserializing
-        server_time = max(server_time, server_communication_time)
-
-        return server_time
 
     def _get_client_properties(self, client_proxy: ClientProxy, refresh=False) -> int:
         if (not refresh) and client_proxy.cid in self._per_client_min_layers:
@@ -127,9 +107,8 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
         # Call get_properties on client to fetch their requirements, specifically
         # the minimum number of layers they must train
-        get_properties_instructions = GetPropertiesIns({})
         result = client_proxy.get_properties(
-            get_properties_instructions, timeout=None, group_id=None
+            GetPropertiesIns({}), timeout=None, group_id=None
         )
         node_name = result.properties["node_name"]
         min_client_layers = int(result.properties[MIN_NUMBER_OF_CLIENT_LAYERS])
@@ -138,13 +117,13 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
         # align min client layers to the model configuration. Find the first value in
         # model.meaningful_split_points that is larger or equal to min layers
         aligned_min_client_layers = \
-            next((point for point in self.meaningful_split_points if point >= min_client_layers), None)
+            next((point for point in self._meaningful_split_points if point >= min_client_layers), None)
         assert aligned_min_client_layers is not None
 
         max_client_layers = int(result.properties[MAX_NUMBER_OF_CLIENT_LAYERS])
         # align max client layers to the model configuration. Find the first value in
         # model.meaningful_split_points that is smaller or equal to the max layers
-        aligned_max_client_layers = next((point for point in reversed(self.meaningful_split_points) if point <= max_client_layers), None)
+        aligned_max_client_layers = next((point for point in reversed(self._meaningful_split_points) if point <= max_client_layers), None)
 
         self._per_client_min_layers[client_proxy.cid] = aligned_min_client_layers
         self._per_client_max_layers[client_proxy.cid] = aligned_max_client_layers
@@ -179,22 +158,25 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
         self._epoch_clients = [client_proxy.cid for client_proxy in epoch_clients]
 
         self._init_all_client_properties(epoch_clients)
-        self.tot_server_computation_time = 0.
+        self._tot_server_computation_time = 0.
 
-        min_layers = self.meaningful_split_points[0]
+        min_layers = self._meaningful_split_points[0]
         self._client_allocated_layers = {cid: min_layers for cid in self._epoch_clients}
-        self._client_allocated_layers = binary_search(
+        self._client_allocated_layers = exact_solution(
             clients=self._epoch_clients,
-            meaningful_split_points=self.meaningful_split_points,
+            meaningful_split_points=self._meaningful_split_points,
             per_client_max_layers=self._per_client_max_layers,
             allocated_layers_now=self._client_allocated_layers, # for simplicity
             client_fn=self.compute_client_time,
-            server_fn=self.compute_server_time,
-            gamma=0.2
+            server_fn=partial(compute_server_time,
+                pending_batches=self._dataset_sizes,
+                server_training_times=self._server_training_times,
+                per_batch_server_communication_time=self.per_batch_server_communication_time,
+                num_concat_batches=self._num_concat_batches,
+            ),
         )
         for cid, l in self._client_allocated_layers.items():
             print(self._cid_to_node_name[cid], self.compute_client_time(cid, l))
-        print("SERVER TIME", self.compute_server_time(self._client_allocated_layers))
         print("Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items()})
         return [self._client_allocated_layers[cid] for cid in self._epoch_clients]
 
@@ -209,17 +191,14 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
             assert L == self._num_model_layers
         else:
             # communication -- * 2 because we need to both send and receive the data
-            per_batch_time += 2 * self._per_batch_embedding_sizes_Mbits[L] / self.connection_bandwidth
+            per_batch_time += 2 * self._per_batch_embedding_sizes_Mbits[L] / self._connection_bandwidth
 
         current_num_layers_on_device = self._client_allocated_layers[cid]
 
         layer_movement_time = 0.
-        # if current_num_layers_on_device == L -- there is no additional layer movement ==>> layer_movement_time=0
-        # if current_num_layers_on_device > L -- layers are moved from device to server. This has to happend either
-        #           at the end of the epoch, so we say that the layer_movement_time is still 0.
         if current_num_layers_on_device < L:
             num_moved_layer_Mbits = self._per_layer_model_parameters_Mbits[(current_num_layers_on_device, L)]
-            layer_movement_time = 2 * num_moved_layer_Mbits / self.connection_bandwidth
+            layer_movement_time = 2 * num_moved_layer_Mbits / self._connection_bandwidth
         return self._dataset_sizes[cid] * per_batch_time + layer_movement_time
 
     def update_server_metrics(
@@ -227,7 +206,7 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
         num_offloaded_layers: int,
         elapsed_time: float,
     ):
-        self.tot_server_computation_time += elapsed_time
+        self._tot_server_computation_time += elapsed_time
 
     def get_post_reallocation_layer_difference(self, client_id: str) -> Optional[Tuple[int, int]]:
         return None
@@ -235,7 +214,7 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
     def remove_client(self, cid):
         return
 
-    def update_client_metrics(self, client_id: str, metrics: Optional[TimingMetrics]):
+    def update_client_metrics(self, client_id: str, metrics: Optional[SocketTimingMetrics]):
         return
 
     def finalize_epoch(self):
@@ -248,7 +227,7 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
     def collect_epoch_metrics(self):
         return {
-            "train/tot_server_training_time": self.tot_server_computation_time,
+            "train/tot_server_training_time": self._tot_server_computation_time,
             "train/allocated_layers": [(self._cid_to_node_name[k], v) for k, v in self._client_allocated_layers.items()],
         }
 

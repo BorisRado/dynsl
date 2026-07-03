@@ -5,7 +5,7 @@ import pickle
 import struct
 import socket
 import asyncio
-from typing import Any, Optional
+from typing import Any
 
 
 def send_message(sock: socket.socket, data: Any) -> None:
@@ -22,7 +22,7 @@ def send_message(sock: socket.socket, data: Any) -> None:
     sock.sendall(serialized_data)
 
 
-def recv_message(sock: socket.socket) -> Any:
+def recv_message(sock: socket.socket, node_name) -> Any:
     """Receive a Python object from a socket with length prefix.
 
     Args:

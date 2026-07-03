@@ -30,7 +30,6 @@ def run(filename):
 if __name__ == "__main__":
     """First run `profile_model_layers.sh`
     Then run this script to average the times of the clients (e.g., `python average_layer_times.py resnet18.yaml`)
-    Then move the output file to the `exp/conf/profiled_times` folder
     """
     assert len(sys.argv) == 2
     run(sys.argv[1])

@@ -11,7 +11,6 @@ from flwr.common import GRPC_MAX_MESSAGE_LENGTH, EventType, event
 from flwr.common.constant import TRANSPORT_TYPE_GRPC_BIDI
 from flwr.client.message_handler.message_handler import handle_control_message
 from flwr.client.app import _AppStateTracker, _check_actionable_client
-from flwr.client.node_state import NodeState
 from flwr.client.client_app import LoadClientAppError
 from flwr.common.retry_invoker import RetryInvoker, RetryState, exponential
 from flwr.common.message import Error
@@ -168,7 +167,6 @@ def _start_client_internal(
                 client_fn=client_fn,
                 model=model,
                 client_adapter_cls=client_adapter_cls,
-                use_socket=config.client.communication_channel == "socket",
                 socket_address=config.client.server_address.split(":")[0],
                 socket_port=config.client.socket_port,
             )
