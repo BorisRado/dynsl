@@ -395,7 +395,7 @@ def profile_cumulative_per_layer_time_partial_model(model, optimizer_name, batch
     return times
 
 
-def profile_cumulative_per_layer_time_individual_layers(model, optimizer_name, batch_size, iterations, dry_runs):
+def profile_cumulative_per_layer_time_individual_layers(model, batch_size, iterations, dry_runs):
 
     is_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if is_cuda else "cpu")

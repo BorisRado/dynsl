@@ -26,7 +26,7 @@ def run(cfg):
     out_data = {}
     for batch_size in [4, 8, 16, 32]:
         print("Working with batch size:", batch_size, flush=True)
-        times = profile_cumulative_per_layer_time_individual_layers(model, "adam", batch_size, num_iterations, dry_runs=dry_runs)
+        times = profile_cumulative_per_layer_time_individual_layers(model, batch_size, num_iterations, dry_runs=dry_runs)
         out_data[batch_size] = times
 
     out_data = {get_node_name(): out_data}
