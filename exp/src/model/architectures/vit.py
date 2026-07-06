@@ -79,7 +79,7 @@ class TokenExtractor(nn.Module):
 
 class ViT(nn.Sequential):
     """Adaptation of https://github.com/omihub777/ViT-CIFAR"""
-    def __init__(self, num_classes=10, patch=8, dropout:float=0.1, num_layers=7, hidden=384, mlp_hidden=384, head=12):
+    def __init__(self, num_classes=10, patch=8, dropout:float=0.1, num_layers=7, hidden=384, mlp_hidden=384, head=12, use_groupnorm=False):
         super().__init__()
 
         img_size = 32

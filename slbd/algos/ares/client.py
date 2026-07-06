@@ -19,13 +19,12 @@ class ARESNumpyClientAdapter(BaseNumpyClientAdapter):
 
         per_layer_times = profile_cumulative_per_layer_time_individual_layers(
             model=self.whole_model,
-            optimizer_name="adam",
             batch_size=self.torch_client.batch_size,
             iterations=iterations,
             dry_runs=dry_runs,
         )
 
-        out = {f"f+b{idx}": per_layer_times[idx] for idx in range(len(per_layer_times))}
+        out = {f"f+b{idx}": per_layer_times[idx] for idx in range(len(per_layer_times))} | {"__min_number_of_layers__": self.whole_model.meaningful_split_points[0]}
         log(INFO, "Profiling complete %s", str(out))
         torch.cuda.empty_cache()
         return out

@@ -5,3 +5,4 @@ num_layers: 12
 hidden: 384
 mlp_hidden: 384
 head: 12
+use_groupnorm: false # just for consistency. This parameter is effectively ignored

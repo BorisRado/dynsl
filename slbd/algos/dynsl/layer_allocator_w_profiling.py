@@ -16,7 +16,7 @@ from slbd.common.constants import (
     MAX_NUMBER_OF_CLIENT_LAYERS,
 )
 
-from slbd.algos.dynsl.optimization_algorithms import exact_solution
+from slbd.algos.dynsl.optimization_algorithms import exact_solution_v2
 from slbd.algos.dynsl.utils import compute_server_time
 from slbd.server.client_layer_allocator import ClientLayerAllocator
 
@@ -162,7 +162,7 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
         min_layers = self._meaningful_split_points[0]
         self._client_allocated_layers = {cid: min_layers for cid in self._epoch_clients}
-        self._client_allocated_layers = exact_solution(
+        self._client_allocated_layers = exact_solution_v2(
             clients=self._epoch_clients,
             meaningful_split_points=self._meaningful_split_points,
             per_client_max_layers=self._per_client_max_layers,

@@ -165,7 +165,7 @@ def measure_per_layer_time(
     optimizer: torch.optim.Optimizer,
     batch_size: int,
     iterations: int,
-    device: torch.device,
+    device: torch.device = None,
     dry_runs: int = 0,
 ) -> Tuple[List[float], List[float], List[int]]:
     """Measure the forward and backward time for every layer in the model
@@ -193,6 +193,8 @@ def measure_per_layer_time(
     assert iterations > dry_runs, \
         "The number of overall iterations must be larger than the number of iterations to be skipped"
 
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # copy the model and optimizer so that updates that happen
     # in the function do not get reflected outside
     model = copy.deepcopy(model)

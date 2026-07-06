@@ -42,15 +42,15 @@ def run(cfg):
         print(f"Iter time: {end - start_time:.6f}")
 
     clear_resources()
-    t1 = profile_cumulative_per_layer_time_full_model(model, "adam", 32, iterations, dry_runs)
+    t1 = profile_cumulative_per_layer_time_full_model(model, 32, iterations, dry_runs)
     print("full_model =", t1)
 
     clear_resources()
-    t2 = profile_cumulative_per_layer_time_partial_model(model, "adam", 32, iterations, dry_runs)
+    t2 = profile_cumulative_per_layer_time_partial_model(model, 32, iterations, dry_runs)
     print("partial_model =", t2)
 
     clear_resources()
-    t3 = profile_cumulative_per_layer_time_individual_layers(model, "adam", 32, iterations, dry_runs)
+    t3 = profile_cumulative_per_layer_time_individual_layers(model, 32, iterations, dry_runs)
     print("individual_layers =", t3)
 
 

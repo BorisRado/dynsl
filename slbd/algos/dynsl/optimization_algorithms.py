@@ -236,3 +236,107 @@ def exact_solution(
             best_vector = candidate
 
     return best_vector
+
+
+def exact_solution_v2(
+    clients,
+    meaningful_split_points,
+    allocated_layers_now,
+    per_client_max_layers,
+    client_fn,
+    server_fn,
+    gamma=None, # kept just for backward compatibility
+):
+    """Algorithm 1: exact minimizer of the FSL epoch-time objective.
+
+    Same contract as `exact_solution` -- returns a true minimizer of
+    ``F(delta) = max(server_fn(delta), max_c client_fn(c, delta_c))`` over the
+    per-client feasible box -- but built around a single sort of all
+    ``(client, split)`` pairs instead of one greedy rebuild per candidate
+    threshold. Candidate construction therefore drops from ``O(|P|^2)`` to
+    ``O(|P| log |P|)`` with ``|P| = sum_c |admissible(c)|``.
+
+    It relies only on what this problem already provides: ``client_fn(c, l)``
+    already folds in the migration cost and is generally non-monotone in ``l``,
+    while ``server_fn`` is separable per client and non-increasing in each
+    split (fewer server layers when a client trains more locally).
+    """
+    assert meaningful_split_points == sorted(meaningful_split_points)
+
+    if not clients:
+        return dict(allocated_layers_now)
+
+    # Admissible split points per client: everything up to the per-client
+    # ceiling (the smallest meaningful split point acts as the floor). Mirrors
+    # `exact_solution`; there is no per-client minimum in this signature.
+    admissible = {
+        cid: [sp for sp in meaningful_split_points if sp <= per_client_max_layers[cid]]
+        for cid in clients
+    }
+
+    # A client with no admissible split makes the feasible box empty -- there is
+    # nothing to solve, so fall back to the current allocation.
+    if any(not splits for splits in admissible.values()):
+        return dict(allocated_layers_now)
+
+    # Pre-compute (cache) the client cost T_ic(l) of every admissible pair.
+    client_cost = {
+        (cid, sp): client_fn(cid, sp)
+        for cid in clients
+        for sp in admissible[cid]
+    }
+
+    # --- initialization: every client at its min-cost (argmin T_ic) split ---
+    # Ties resolve to the smallest split point (admissible is ascending). This
+    # vector is feasible and its client bottleneck is exactly
+    # `alpha_min = max_c min_l T_ic(l)`.
+    delta_bar = {}
+    alpha_min = float("-inf")
+    for cid in clients:
+        best_sp = admissible[cid][0]
+        best_cost = client_cost[(cid, best_sp)]
+        for sp in admissible[cid][1:]:
+            cost = client_cost[(cid, sp)]
+            if cost < best_cost:
+                best_cost, best_sp = cost, sp
+        delta_bar[cid] = best_sp
+        alpha_min = max(alpha_min, best_cost)
+
+    # The min-time vector is the first genuine candidate (F* in the paper).
+    server_time = server_fn(delta_bar)
+    best_objective = max(server_time, alpha_min)
+    best_vector = dict(delta_bar)
+
+    # --- sweep the candidate list in ascending client-cost order ---
+    order = {cid: i for i, cid in enumerate(clients)}
+    pairs = sorted(
+        (client_cost[(cid, sp)], order[cid], sp, cid)
+        for cid in clients
+        for sp in admissible[cid]
+    )
+
+    # `server_time` tracks `delta_bar`; `dirty` marks that a raise happened and
+    # it must be recomputed before the next evaluation.
+    dirty = False
+    for cost, _, sp, cid in pairs:
+        # GUARD 1 -- only ever *raise* a client's split. Because T_ic is
+        # non-monotone a shallower split can sort later; lowering delta_bar
+        # would wrongly push work back onto the server (a correctness bug).
+        if sp > delta_bar[cid]:
+            delta_bar[cid] = sp
+            dirty = True
+
+        # GUARD 2 -- below alpha_min some client is still pinned above budget,
+        # so `cost` understates the true client bottleneck; only evaluate once
+        # the bottleneck surrogate `cost` is well-defined. The optimum's budget
+        # is >= alpha_min, so this never skips it.
+        if cost >= alpha_min:
+            if dirty:
+                server_time = server_fn(delta_bar)
+                dirty = False
+            candidate_objective = max(server_time, cost)
+            if candidate_objective < best_objective:
+                best_objective = candidate_objective
+                best_vector = dict(delta_bar)
+
+    return best_vector

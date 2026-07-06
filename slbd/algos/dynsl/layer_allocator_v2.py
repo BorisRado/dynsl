@@ -20,7 +20,7 @@ from slbd.common.constants import (
     CLIENT_DEVICE_TYPE,
     MAX_NUMBER_OF_CLIENT_LAYERS,
 )
-from slbd.algos.dynsl.optimization_algorithms import exact_solution
+from slbd.algos.dynsl.optimization_algorithms import exact_solution_v2
 from slbd.algos.dynsl.utils import compute_server_time
 
 
@@ -63,6 +63,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         """
         # safety checks
         assert reallocation_frequency > 0.
+        print("Using updated version")
 
         # store basic attributes
         self._gamma = gamma
@@ -223,7 +224,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
     def trigger_reallocation(self) -> None:
         start_time = time.time()
         log(INFO, f"Running reallocation {datetime.now().strftime('%H:%M:%S')}")
-        log(INFO, "Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items() if k in self._client_layer_diff})
+        log(INFO, "Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items()})
         # Uncomment following lines to log the tracked metrics
 
         # log(INFO, "COUNTS=",{self._cid_to_node_name[k]: v for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers})
@@ -256,7 +257,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
             else:
                 # Default case
                 tmp_max_layers[k] = v
-        best_config = exact_solution(
+        best_config = exact_solution_v2(
             clients=self._epoch_clients,
             per_client_max_layers=tmp_max_layers,
             meaningful_split_points=self._meaningful_split_points,

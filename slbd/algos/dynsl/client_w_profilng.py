@@ -33,7 +33,6 @@ class DynSLClientAdapterWProfiling(DynSLClientAdapter):
 
         per_layer_complexity = profile_cumulative_per_layer_time_individual_layers(
             model=self.whole_model,
-            optimizer_name="adam",
             batch_size=self.torch_client.batch_size,
             iterations=50 if torch.cuda.is_available() else 12,
             dry_runs=20 if torch.cuda.is_available() else 4,

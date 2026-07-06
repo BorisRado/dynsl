@@ -32,6 +32,7 @@ code:
       wandb={{ wandb }}
       model={{ model_name }}
       partitioning.num_partitions={{ num_partitions }}
+      partitioning={{ partitioning }}
       server_model_servicer.num_concat_batches={{ num_concat_batches }}
       experiment_name={{ experiment_name }}
       {{ device_listing }} {%- if algo_config %} {{ algo_config }}{%- endif %} {% if misc %}{{ misc }}{% endif %} {% if bg_devices %}{{ bg_devices }}{% endif %} {% if bg_configuration %}{{ bg_configuration }}{% endif %}
