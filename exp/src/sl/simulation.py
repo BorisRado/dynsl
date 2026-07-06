@@ -97,7 +97,7 @@ class SLExecutor:
         num_concat_batches: int,
         request_group_timeout: float,
         training_speed_imbalance_value: Optional[float],
-        end_epoch_weight_integration_strategy,
+        seed: int,
         client_optim_state_resetting_frequency=-1,
         client_clf_head = None,
         client_exchange_optimizer_states=None,
@@ -110,6 +110,13 @@ class SLExecutor:
         self.client_clf_head = client_clf_head
         self.client_exchange_optimizer_states = client_exchange_optimizer_states
         self.client_optim_state_resetting_frequency = client_optim_state_resetting_frequency
+        # Dedicated RNGs for control-flow randomness (client sampling / ordering / speeds).
+        # These are isolated instances so they are NOT saved/restored by the per-client
+        # StatefulRng contexts (which touch the *global* random / np.random state). Using the
+        # global RNGs here entangles the sampler with each client's fixed data-loading seed,
+        # which collapses `run_stochastic_order` into a degenerate, near-deterministic order.
+        self._rng = random.Random(seed)
+        self._np_rng = np.random.default_rng(seed)
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
         self.event_loop = asyncio.new_event_loop()
         self._no_metrics = SocketTimingMetrics(
@@ -119,7 +126,6 @@ class SLExecutor:
             tot_backward_time=-1
         )
         self.training_speed_imbalance_value = training_speed_imbalance_value
-        self._end_epoch_weight_integration_strategy = end_epoch_weight_integration_strategy
         self._worker_manager = BatchingWorkerManager(
             server_model_manager=server_model_manager,
             client_layer_allocator=client_layer_allocator,
@@ -180,6 +186,7 @@ class SLExecutor:
                 if torch.cuda.is_available():
                     client_clf_head.cuda()
                 model_trainer._separate_client_clf_head = client_clf_head
+                model_trainer._optimizer.param_groups[0]["params"].extend(client_clf_head.parameters())
 
             # build dataloader for this client so we can step through batches in lockstep
             client_obj = proxy.client
@@ -237,7 +244,7 @@ class SLExecutor:
 
         while any(r > 0 for r in remaining):
             order = [i for i, r in enumerate(remaining) if r > 0]
-            random.shuffle(order)
+            self._rng.shuffle(order)
             futures = []
             client_outputs = []
             for idx in order:
@@ -347,7 +354,7 @@ class SLExecutor:
         iteration = 0
         while any(r > 0 for r in remaining):
             order = [i for i, r in enumerate(remaining) if r > 0]
-            random.shuffle(order)
+            self._rng.shuffle(order)
             for idx in order:
                 await self._iterate_client_fw_bck_pass(clients, idx, remaining)
 
@@ -368,7 +375,7 @@ class SLExecutor:
         num_clients = len(clients)
         sigma = float(self.training_speed_imbalance_value)
         mu = -0.5 * sigma * sigma
-        speeds = np.random.lognormal(mean=mu, sigma=sigma, size=num_clients)
+        speeds = self._np_rng.lognormal(mean=mu, sigma=sigma, size=num_clients)
         speeds = speeds / float(speeds.mean())  # normalize so mean speed == 1.0
 
         iter_since_sampling = [3] * len(clients)
@@ -382,55 +389,13 @@ class SLExecutor:
                 for i in active
             ]
             assert sum(weights) > 0
-            sampled_client_idx = random.choices(active, weights=weights, k=1)[0]
+            sampled_client_idx = self._rng.choices(active, weights=weights, k=1)[0]
             for idx in range(n_clients):
                 iter_since_sampling[idx] += 1
             iter_since_sampling[sampled_client_idx] = 0
             await self._iterate_client_fw_bck_pass(clients, sampled_client_idx, remaining)
-            if remaining[sampled_client_idx] == 0 and self._end_epoch_weight_integration_strategy == "immediate":
-                results.append(
-                    await self._handle_early_finishing_client(clients[sampled_client_idx])
-                )
-        if self._end_epoch_weight_integration_strategy == "immediate":
-            print("returning previously collected results")
-            return results
+
         return self.collect_results(clients)
-
-    async def _handle_early_finishing_client(self, entry):
-        # immediately extract the weights and send them to the server
-        trained_parameters, processed_data_points_dict, metrics = entry["trainer"].get_fit_results()
-        combined_metrics = processed_data_points_dict | metrics
-        print("Client has finished training!", len(entry["trainer"]._model))
-        assert entry["trainer"]._separate_client_clf_head is None
-
-        dataset_size = entry["trainer"]._dataset_size
-
-        n_late_params = 0 # "late" parameters will be aggregated at the end of the epoch as usual
-        for layer, _ in zip(self.whole_model, range(self.whole_model.meaningful_split_points[0])):
-            n_late_params += len(list(layer.state_dict()))
-
-        trained_parameters, immediate_integration_parameters = \
-            trained_parameters[:n_late_params], trained_parameters[n_late_params:]
-        nl_end = len([k for k in combined_metrics if k.startswith("_proc")])
-        extract_keys = [f"_proc{idx}" for idx in range(self.whole_model.meaningful_split_points[0], nl_end)]
-        send_dps_dict = {k: combined_metrics.pop(k) for k in extract_keys}
-
-        layer_idxs = sorted(int(k[len("_proc"):]) for k in send_dps_dict)
-        proc_dp = np.array([send_dps_dict[f"_proc{idx}"] for idx in layer_idxs])
-        immediate_integration_parameters.append(proc_dp)
-        await self._worker_manager.immediately_integrate_client_parameters(
-            cid=entry["cid"],
-            client_parameters=[torch.from_numpy(t) for t in immediate_integration_parameters],
-        )
-        return (
-            entry["proxy"],
-            FitRes(
-                status=Status(code=Code.OK, message="Success"),
-                parameters=ndarrays_to_parameters(trained_parameters),
-                num_examples=dataset_size,
-                metrics=combined_metrics,
-            )
-        )
 
 
     async def run_no_backward_wo_concatenation(self):
@@ -443,7 +408,7 @@ class SLExecutor:
 
         while any(r > 0 for r in remaining):
             order = [i for i, r in enumerate(remaining) if r > 0]
-            random.shuffle(order)
+            self._rng.shuffle(order)
             for idx in order:
                 entry = clients[idx]
                 try:

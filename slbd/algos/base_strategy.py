@@ -356,19 +356,7 @@ class BaseStrategy(Strategy):
         results: List[Tuple[ClientProxy, EvaluateRes]],
         failures: List[Union[Tuple[ClientProxy, EvaluateRes], BaseException]]
     ):
-        _ = (server_round, failures, )
-        loss_aggregated = weighted_loss_avg(
-            [
-                (evaluate_res.num_examples, evaluate_res.loss)
-                for _, evaluate_res in results
-            ]
-        )
-        aggregated_metrics = {}
-        if self.evaluate_metrics_aggregation_fn is not None:
-            evaluation_metrics = [(res.num_examples, res.metrics) for _, res in results]
-            aggregated_metrics = self.evaluate_metrics_aggregation_fn(evaluation_metrics)
-
-        return loss_aggregated, aggregated_metrics
+        raise Exception("Should not be called")
 
     def num_fit_clients(self, num_available_clients: int) -> Tuple[int, int]:
         """Return the sample size and the required number of available clients."""

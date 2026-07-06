@@ -21,23 +21,9 @@ from slbd.server.client_layer_allocator import ClientLayerAllocator
 
 class DynSLStrategy(BaseStrategy):
 
-    def __init__(self, end_epoch_weight_integration_strategy: str, server_optim_state_handling, **kwargs):
-        """Initialize
-
-        Parameters
-        ----------
-        end_epoch_weight_integration_strategy : str
-            Whether we integrate weights immediately or not
-        """
+    def __init__(self, server_optim_state_handling, **kwargs):
         super().__init__(**kwargs)
-        if self.num_server_models == -1:
-            assert end_epoch_weight_integration_strategy == "hierarchical"
-
-        assert end_epoch_weight_integration_strategy in {"hierarchical", "immediate", "ignore"}
-        if end_epoch_weight_integration_strategy == "ignore":
-            assert end_epoch_weight_integration_strategy == "hierarchical"
         self._server_optim_state_handling = server_optim_state_handling
-        self._end_epoch_weight_integration_strategy = end_epoch_weight_integration_strategy
 
     def configure_fit(
         self,
@@ -76,7 +62,6 @@ class DynSLStrategy(BaseStrategy):
         if self.num_server_models == 0:
             raise Exception("Cannot use model per split point --- would it make sense to integrate?")
         elif self.num_server_models == -1:
-            assert self._end_epoch_weight_integration_strategy == "hierarchical"
             all_server_models_fit_ins = self._setup_epoch_server_models([
                 (
                     proxy.cid,

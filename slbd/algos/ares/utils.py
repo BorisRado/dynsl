@@ -3,6 +3,7 @@ def ares_compute_optimal_split_layer(
     server_fb_times, # fb indicates that it is the sum of the forward and backward time - it is layer-by-layer
     tensor_sizes,
     network_throughput_Mbps,
+    min_client_layers,
 ):
     """
     Compute optimal split vector for ARES based on training time minimization.
@@ -27,6 +28,8 @@ def ares_compute_optimal_split_layer(
 
     # Evaluate each possible split point
     for split_layer in range(2, num_layers + 1):
+        if split_layer < min_client_layers:
+            continue
         # split after `split_layer` layers
         # First layer has index 1
         # `split_layer=1` -> layer1 || layer2 layer3 ...

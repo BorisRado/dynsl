@@ -1,7 +1,6 @@
 import time
 from logging import INFO
 from typing import List, Optional, Tuple
-from functools import partial
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor
 
@@ -41,11 +40,10 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         self._computing_properties_time = 0.
         self._dict_lock = Lock()
 
-    def _get_client_properties(self, client_proxy, optimizer_config):
+    def _get_client_properties(self, client_proxy):
         get_properties_instructions = GetPropertiesIns({
             "iterations": 20,
             "dry_runs": 4,
-            **optimizer_config,
         })
 
         result = client_proxy.get_properties(
@@ -55,6 +53,8 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         # affect in any way the result -- it is just a multiplicative constant
 
         # extract the time from the result, which is a dictionary
+        min_layers = result.pop("__min_number_of_layers__")
+        result = {k: v for k, v in result.items() if k.startswith("f+b")}
         client_fb_times = [result[f"f+b{idx}"] for idx in range(len(result))]
 
         tmp = ares_compute_optimal_split_layer(
@@ -62,6 +62,7 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
             self._server_fb_times,
             self._activation_sizes,
             self._client_throughputs_MBps,
+            min_client_layers=min_layers
         )[0]
         # enforce at least one layer on the client -- don't send raw data
         with self._dict_lock:
@@ -72,7 +73,6 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
         epoch_clients: List[ClientProxy],
         client_manager: ClientManager,
         is_training: bool,
-        optimizer_config,
     ) -> None:
         self._computing_properties_time = -1
         self.tot_server_computation_time = 0.
@@ -81,9 +81,8 @@ class ARESClientLayerAllocator(ClientLayerAllocator):
             start_time = time.time()
             log(INFO, "Triggering profiling of all clients and re-running optimization algorithm")
             # profile clients
-            get_props_fn = partial(self._get_client_properties, optimizer_config=optimizer_config)
             with ThreadPoolExecutor() as executor:
-                executor.map(get_props_fn, list(client_manager.all().values()))
+                executor.map(self._get_client_properties, list(client_manager.all().values()))
 
             log(INFO, "Re-allocation completed!")
             log(INFO, "New client layer allocations: %s", str(self._client_allocated_layers))

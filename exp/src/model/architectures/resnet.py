@@ -20,7 +20,7 @@ class ResNet(FlexibleSequential):
             model.conv1,
             model.bn1,
             nn.ReLU(), # replace the default relu as it is inplace
-            nn.MaxPool2d() if use_maxpool else nn.Identity(),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1) if use_maxpool else nn.Identity(),
             model.layer1,
             model.layer2,
             model.layer3,

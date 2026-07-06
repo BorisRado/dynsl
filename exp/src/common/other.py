@@ -8,4 +8,7 @@ def set_torch_flags():
         torch.backends.cuda.matmul.allow_tf32 = False
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-    torch.set_flush_denormal(True)
+        # torch.backends.cuda.matmul.allow_tf32 = True
+        # torch.backends.cudnn.benchmark = True
+        # torch.backends.cudnn.deterministic = False
+    # torch.set_flush_denormal(True)

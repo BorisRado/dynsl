@@ -19,6 +19,7 @@ from slbd.algos.dtfl import DTFLStrategy, DTFLSimulationClientLayerAllocator
 from slbd.algos.oracle import OracleSimulationClientLayerAllocator, OracleStrategy
 from slbd.algos.sfsl import SFSLClientLayerAllocator, SFSLStrategy
 from slbd.torch.model_utils import get_num_layers
+from slbd.common.constants import CLIENT_ID_CONFIG_KEY
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
 from slbd.torch.utils import create_classification_head
 from slbd.torch.model_utils import extract_submodel
@@ -45,7 +46,6 @@ def run(cfg: DictConfig):
     del cfg.client.server_address
     del cfg.server
     del cfg.client.socket_port
-    del cfg.server_model_manager
 
     # sanity checks
     assert len([v for v in cfg.client.init_kwargs.keys() if v.startswith("bg_")]) == 0, \
@@ -63,8 +63,6 @@ def run(cfg: DictConfig):
             encoder = extract_submodel(model, 0, sp)
             sp_head = create_classification_head(encoder, cfg.data.num_classes, cfg.algorithm.strategy_init_args.clf_head_dimensions)
             client_clf_head[sp] = sp_head
-    elif cfg.algorithm.name.startswith("dynsl") and cfg.algorithm.end_epoch_weight_integration_strategy == "immediate":
-        assert cfg.general.get("training_speed_imbalance_value") > 0
 
     if cfg.wandb:
         if run_exists_already(cfg):
@@ -149,8 +147,8 @@ def run(cfg: DictConfig):
         request_group_timeout=cfg.server_model_servicer.request_group_timeout,
         num_concat_batches=cfg.server_model_servicer.num_concat_batches,
         training_speed_imbalance_value=training_speed_imbalance_value,
+        seed=cfg.general.seed,
         client_optim_state_resetting_frequency=cfg.general.get("optim_reset_frequency", -1),
-        end_epoch_weight_integration_strategy=cfg.algorithm.get("end_epoch_weight_integration_strategy", None),
         whole_model=copy.deepcopy(model),
         client_clf_head=client_clf_head,
         server_exchange_optimizer_states=cfg.algorithm.get("exchange_optimizer_states", None),
@@ -207,6 +205,8 @@ def run(cfg: DictConfig):
         if strategy.has_converged:
             print("Early exit....")
             break
+
+        server_model_manager.end_round()
     print(f"Total runtime {time.time() - start_time:.2f}")
     sl_executor.shutdown()
     finish_wandb()

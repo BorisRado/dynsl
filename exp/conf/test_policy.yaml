@@ -5,7 +5,6 @@ defaults:
   - profiled_times: ${model}
   - data_manipulation: cv
   - algorithm: splitfed_v2
-  - server_model_manager: multithreading
   - _self_
 general:
   seed: 10

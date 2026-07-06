@@ -87,6 +87,7 @@ class SFSLClientAdapter(BaseNumpyClientAdapter):
             clf_head.cuda()
 
         model_trainer._separate_client_clf_head = clf_head
+        model_trainer._optimizer.param_groups[0]["params"].extend(clf_head.parameters())
 
         # call the model-owner training logic, and measure the time it takes
         start_time = time.time()

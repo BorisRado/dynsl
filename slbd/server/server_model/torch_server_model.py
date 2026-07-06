@@ -69,6 +69,7 @@ class TorchServerModel:
         self._model.train()
         self._model.to(self.device)
         self._weight_integration_strategy = instructions.config.get("weight_integration_strategy", None)
+        print("===", self._weight_integration_strategy)
         optim_config = {k: v for k, v in instructions.config.items() if k.startswith("optim.")}
         self._optimizer = init_optimizer(self._model.parameters(), **optim_config)
 
@@ -147,6 +148,10 @@ class TorchServerModel:
         server_model_weights: Dict[int, int],
         optimizer_states: Optional[List[torch.Tensor]] = None,
     ):
+        if optimizer_states:
+            assert self._weight_integration_strategy == "override_optim_states"
+        else:
+            assert self._weight_integration_strategy in {"reset_optim_state", "keep_optim_state", "ignore"}
         if self._weight_integration_strategy == "ignore":
             return
         idx = 0
@@ -184,7 +189,7 @@ class TorchServerModel:
                     elif self._weight_integration_strategy == "keep_optim_state":
                         pass
                     else:
-                        assert optimizer_states is not None
+                        assert self._weight_integration_strategy == "override_optim_states"
 
                 idx += 1
             if idx == len(parameters):
