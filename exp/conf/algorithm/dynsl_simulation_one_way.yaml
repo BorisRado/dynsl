@@ -1,29 +1,20 @@
 name: dynsl_simulation
-num_server_models: -1
-dynamic_layers_strategy: afl
+num_server_models: 1
 exchange_optimizer_states: false
+server_optim_state_handling: null
 layer_allocator_init_args:
   client_configuration:
-    - ids: "0-19"
+    - ids: "0-40"
       evolution:
         - start: 0.0
-          num_layers: 4
-        - start: 0.4
           num_layers: 5
-    - ids: "20-37"
-      evolution:
-        - start: 0.0
-          num_layers: 4
-        - start: 0.2
-          num_layers: 8
-    - ids: "38-50"
-      evolution:
-        - start: 0.0
-          num_layers: 4
-        - start: 0.1
+        - start: 0.4
           num_layers: 6
+        - start: 0.8
+          num_layers: 8
+        # - start: 0.75
+        #   num_layers: 8
 strategy_init_args:
-  dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
+  server_optim_state_handling: ${algorithm.server_optim_state_handling}
 client_adapter_args:
-  dynamic_layers_strategy: ${algorithm.dynamic_layers_strategy}
   exchange_optimizer_states: ${algorithm.exchange_optimizer_states}

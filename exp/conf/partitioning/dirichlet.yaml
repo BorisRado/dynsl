@@ -1,6 +1,6 @@
 _target_: flwr_datasets.partitioner.DirichletPartitioner
 num_partitions: 250
-partition_by: "label"
+partition_by: ${data.label_column}
 alpha: 0.2
 min_partition_size: 10
 self_balancing: True

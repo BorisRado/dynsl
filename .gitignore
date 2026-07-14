@@ -37,3 +37,5 @@ exp/scripts/old_slurm/
 .env
 colext_config.yaml
 *_interactive.sh
+
+*.lock

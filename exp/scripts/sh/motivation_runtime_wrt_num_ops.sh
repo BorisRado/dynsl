@@ -10,22 +10,17 @@ if [[ -z "$gpu_type" || ! "$gpu_type" =~ ^(a100|v100|p100)$ ]]; then
     exit 1
 fi
 
-COMMON_ARGS="experiment.num_rounds=5 client.num_iterations=100 model=resnet18 +filepath=times_${gpu_type}"
+COMMON_ARGS="experiment.num_rounds=2 client.num_iterations=20 model=resnet18 +filepath=times_${gpu_type}"
 
 
 for device_count in "op:5" "op:40" "op:120"; do
 
     DEVICE_COUNTS="+experiment.device_counts={$device_count}"
     echo $DEVICE_COUNTS
-    # python -u exp/scripts/py/test_policy.py \
-    #     algorithm=dynsl_v2 \
-    #     algorithm.layer_allocator_init_args.layer_allocation_optimizer=binary_search \
-    #     $COMMON_ARGS "${DEVICE_COUNTS}"
-
     python -u exp/scripts/py/test_policy.py algorithm=splitfed_v2 algorithm.layer_allocator_init_args.num_client_layers=4 $COMMON_ARGS "${DEVICE_COUNTS}"
     python -u exp/scripts/py/test_policy.py algorithm=splitfed_v2 algorithm.layer_allocator_init_args.num_client_layers=5 $COMMON_ARGS "${DEVICE_COUNTS}"
     python -u exp/scripts/py/test_policy.py algorithm=splitfed_v2 algorithm.layer_allocator_init_args.num_client_layers=6 $COMMON_ARGS "${DEVICE_COUNTS}"
-    python -u exp/scripts/py/test_policy.py algorithm=splitfed_v2 algorithm.layer_allocator_init_args.num_client_layers=8 $COMMON_ARGS "${DEVICE_COUNTS}"
+    python -u exp/scripts/py/test_policy.py algorithm=splitfed_v2 algorithm.layer_allocator_init_args.num_client_layers=7 $COMMON_ARGS "${DEVICE_COUNTS}"
 done
 
 

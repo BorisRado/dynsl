@@ -1,31 +1,32 @@
 name: dynsl_simulation
-num_server_models: -1
+num_server_models: 1
 exchange_optimizer_states: false
+server_optim_state_handling: reset_optim_state
 layer_allocator_init_args:
   client_configuration:
-    - ids: "0-19"
+    - ids: "0-17"
       evolution:
         - start: 0.0
-          num_layers: 4
-        - start: 0.4
+          num_layers: 5
+        - start: 0.25
           num_layers: 6
-        - start: 0.8
-          num_layers: 7
-    - ids: "20-37"
+        - start: 0.5
+          num_layers: 8
+    - ids: "18-35"
       evolution:
         - start: 0.0
-          num_layers: 4
+          num_layers: 5
         - start: 0.2
           num_layers: 7
-    - ids: "38-40"
+    - ids: "36-40"
       evolution:
         - start: 0.0
-          num_layers: 4
+          num_layers: 5
         - start: 0.1
           num_layers: 7
         - start: 0.7
-          num_layers: 6
+          num_layers: 5
 strategy_init_args:
-  end_epoch_weight_integration_strategy: hierarchical
+  server_optim_state_handling: ${algorithm.server_optim_state_handling}
 client_adapter_args:
   exchange_optimizer_states: ${algorithm.exchange_optimizer_states}
