@@ -68,11 +68,14 @@ def extract_submodel_weights(
     weights = [tensor for layer in layers_to_copy for _, tensor in iterate_params_and_state_dict(layer)]
     optimizer_states = []
     if extract_optimizer_states:
+        # Keep this list positionally aligned with `weights`: buffers (e.g. batchnorm
+        # running stats) and parameters that have not taken an optimizer step yet have
+        # no optimizer state, so emit an empty dict rather than skipping them. The
+        # empty placeholder is what lets the receiver zip the two lists together.
         for w in weights:
-            if w not in optimizer.state:
-                continue
+            state = optimizer.state.get(w, {})
             optimizer_states.append({
-                k: v.detach() for k, v in optimizer.state[w].items()
+                k: v.detach() for k, v in state.items()
             })
     weights = [w.detach() for w in weights]
     return weights, optimizer_states
@@ -229,14 +232,23 @@ def attach_layers(
 
     # Restore optimizer states for the new parameters if provided
     if optimizer_states_list:
-        override_optimizer_state(optimizer, optimizer_states_list, list(attach_model.parameters()))
+        # Iterate params+buffers so this list is aligned with the one produced by
+        # `extract_submodel_weights` on the sender (which includes buffers as empty states).
+        override_optimizer_state(
+            optimizer,
+            optimizer_states_list,
+            [param for _, param in iterate_params_and_state_dict(attach_model)],
+        )
     concat_model._is_complete = end_idx == get_num_layers(whole_model)
     return concat_model
 
 
 def override_optimizer_state(optimizer, optimizer_state_list, parameters):
-    assert len(parameters) == len(optimizer_state_list)
+    assert len(parameters) == len(optimizer_state_list), f"parameters {len(parameters)} optimizer {len(optimizer_state_list)}"
     for param, state in zip(parameters, optimizer_state_list):
+        if not state:
+            # empty state -> a buffer or a parameter that never took a step; nothing to restore
+            continue
         optimizer.state[param] = {k: v.to(param.device) for k, v in state.items()}
 
 

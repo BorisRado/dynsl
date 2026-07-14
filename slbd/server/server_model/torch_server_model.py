@@ -198,7 +198,7 @@ class TorchServerModel:
         # Restore optimizer states if provided -- should only be used when clients are paired
         # with a dedicated classificaiton head
         if optimizer_states:
-            assert self._weight_integration_strategy is None
+            assert self._weight_integration_strategy == "override_optim_states"
             override_optimizer_state(self._optimizer, optimizer_states, integrated_parameters)
 
     def get_current_layer_data_points(self, layer_idx):

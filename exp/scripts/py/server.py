@@ -44,9 +44,8 @@ def run(cfg: DictConfig):
 
     # remove configuration that does not pertain to the server
     # del cfg.client # cannot remove it as we need batch size
-    del cfg.partitioning
-
     print(OmegaConf.to_yaml(cfg))
+    del cfg.partitioning
 
     set_seed(cfg.general.seed)
 

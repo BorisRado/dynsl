@@ -162,6 +162,17 @@ class DynSLClientLayerAllocatorWProfiling(ClientLayerAllocator):
 
         min_layers = self._meaningful_split_points[0]
         self._client_allocated_layers = {cid: min_layers for cid in self._epoch_clients}
+        # print("self._meaningful_split_points", self._meaningful_split_points)
+        # print("self._per_client_max_layers", self._per_client_max_layers)
+        # print("self._client_allocated_layers", self._client_allocated_layers)
+        # print("self._dataset_sizes", self._dataset_sizes)
+        # print("self._server_training_times", self._server_training_times)
+        # print("self.per_batch_server_communication_time", self.per_batch_server_communication_time)
+        # print("self._num_concat_batches", self._num_concat_batches)
+        # print("self._client_profiled_times", self._client_profiled_times)
+        # print("self._per_batch_embedding_sizes_Mbits", self._per_batch_embedding_sizes_Mbits)
+        # print("self._num_model_layers", self._num_model_layers)
+        # print("self._per_layer_model_parameters_Mbits", self._per_layer_model_parameters_Mbits)
         self._client_allocated_layers = exact_solution_v2(
             clients=self._epoch_clients,
             meaningful_split_points=self._meaningful_split_points,

@@ -27,6 +27,7 @@ from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.socket.socket_server_handler import SocketServerHandler, start_socket_server
 from slbd.server.server import Server
 from slbd.common.utils import run_async
+from slbd.common.profiling import get_flops_per_layer_fvcore
 from slbd.torch.model_utils import get_num_layers
 from slbd.torch.utils import init_optimizer, OptimizerGenerator
 from slbd.server.server_model.manager.multithreading_server_model_manager import MultithreadingServerModelManager
@@ -79,21 +80,14 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
     )
     layer_allocator_config = OmegaConf.to_container(config.algorithm.layer_allocator_init_args, resolve=True)
     tmp_optimizer = optim.Adam(model.parameters())
-    layer_complexities_cuda, _ = measure_per_layer_complexity(
+    layer_complexities_cuda, tensor_sizes = measure_per_layer_complexity(
         model=model,
         optimizer=tmp_optimizer,
         batch_size=config.client.init_kwargs.batch_size * config.server_model_servicer.num_concat_batches,
         iterations=400,
         dry_runs=50,
     )
-    layer_complexities_cpu, tensor_sizes = measure_per_layer_complexity(
-        model=model,
-        optimizer=tmp_optimizer,
-        batch_size=config.client.init_kwargs.batch_size,
-        iterations=50,
-        dry_runs=5,
-        disable_cuda=True
-    )
+    modeled_layer_complexities = get_flops_per_layer_fvcore(model)
     del tmp_optimizer
     per_layer_parameters = {
         idx: sum(p.numel() for p in layer.state_dict().values())
@@ -105,7 +99,7 @@ def init_dynsl_v2_components(config, model, model_evaluate_fn):
         per_layer_emb_sizes=tensor_sizes,
         per_layer_parameters=per_layer_parameters,
         **layer_allocator_config,
-        modeled_layer_complexities=layer_complexities_cpu,
+        modeled_layer_complexities=modeled_layer_complexities,
         static_server_computational_times=layer_complexities_cuda,
     )
 
@@ -250,8 +244,13 @@ async def start_grpc_server(  # pylint: disable=too-many-arguments
         ("grpc.max_send_message_length", max_message_length),
         ("grpc.max_receive_message_length", max_message_length),
         ("grpc.keepalive_time_ms", keepalive_time_ms),
+        ("grpc.keepalive_timeout_ms", 30_000),
         ("grpc.http2.max_pings_without_data", 0),
-        ("grpc.keepalive_permit_without_calls", 0),
+        # keep the connection alive even when the Join stream is quiet (the whole
+        # duration of a long fit()), and do NOT GOAWAY the client for the frequent
+        # keepalive PINGs it now sends during training.
+        ("grpc.keepalive_permit_without_calls", 1),
+        ("grpc.http2.min_ping_interval_without_data_ms", 10_000),
     ]
 
     server = grpc.aio.server(

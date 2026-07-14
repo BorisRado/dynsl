@@ -24,11 +24,7 @@ class ARESStrategy(BaseStrategy):
         if len(clients) == 0:
             return [], []
 
-        num_initial_client_layers = client_layer_allocator \
-            .initialize_epoch(
-                clients, client_manager, is_training,
-                optimizer_config=self.optimizer_config_generator.get_optimizer_config()
-            )
+        num_initial_client_layers = client_layer_allocator.initialize_epoch(clients, client_manager, is_training)
 
         all_clients_fit_ins = self._setup_epoch_clients(
             server_round, clients, num_initial_client_layers, model_state_dict, is_training, config

@@ -6,11 +6,11 @@ from logging import DEBUG
 from contextlib import contextmanager
 from typing import Optional, Callable, Tuple, Union, Type, ContextManager, Iterator, cast
 
+import grpc
 from grpc import RpcError
 from cryptography.hazmat.primitives.asymmetric import ec
 
 from flwr.common.address import parse_address
-from flwr.common.grpc import create_channel
 from flwr.client.grpc_client.connection import on_channel_state_change
 from flwr.common.constant import (
     TRANSPORT_TYPE_GRPC_BIDI,
@@ -148,12 +148,23 @@ def grpc_connection(  # pylint: disable=R0913, R0915
     if isinstance(root_certificates, str):
         root_certificates = Path(root_certificates).read_bytes()
 
-    channel = create_channel(
-        server_address=server_address,
-        insecure=insecure,
-        root_certificates=root_certificates,
-        max_message_length=max_message_length,
-    )
+    channel_options = [
+        ("grpc.max_send_message_length", max_message_length),
+        ("grpc.max_receive_message_length", max_message_length),
+        ("grpc.keepalive_time_ms", 60_000),          # send a PING every 60s
+        ("grpc.keepalive_timeout_ms", 30_000),       # wait up to 30s for the PING ack
+        ("grpc.keepalive_permit_without_calls", 1),  # keep pinging even on a quiet stream
+        ("grpc.http2.max_pings_without_data", 0),    # 0 == no limit on data-less PINGs
+    ]
+    if insecure:
+        channel = grpc.insecure_channel(server_address, options=channel_options)
+        log(DEBUG, "Opened insecure gRPC connection (keepalive enabled)")
+    else:
+        ssl_channel_credentials = grpc.ssl_channel_credentials(root_certificates)
+        channel = grpc.secure_channel(
+            server_address, ssl_channel_credentials, options=channel_options
+        )
+        log(DEBUG, "Opened secure gRPC connection (keepalive enabled)")
     channel.subscribe(on_channel_state_change)
 
     queue: Queue[ClientMessage] = Queue(  # pylint: disable=unsubscriptable-object

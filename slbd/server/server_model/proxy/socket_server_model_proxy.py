@@ -11,7 +11,7 @@ from slbd.common.constants import (
     SL_EMBEDDINGS, SL_LABELS, SL_WEIGHTS, SL_OPTIM_STATES, SL_GRAD,
     SL_DOWNLINK_THROUGHPUT, SL_PER_LAYER_FORWARD_TIMES, SL_BACKWARD_TIME
 )
-from slbd.common.socket_utils import send_message, recv_message
+from slbd.common.socket_utils import send_message, recv_message, enable_keepalive
 from slbd.server.server_model.proxy.server_model_proxy import ServerModelProxy
 
 from exp.src.common.k8s import get_node_name
@@ -39,6 +39,7 @@ class SocketServerModelProxy(ServerModelProxy):
     def _initialize_connection(self):
         """Establish socket connection to server."""
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        enable_keepalive(self.sock)
         self.sock.connect((self.server_address, self.server_port))
         # Send initialization message with client ID
         send_message(self.sock, {"type": "init", "cid": self.cid})
@@ -119,16 +120,22 @@ class SocketServerModelProxy(ServerModelProxy):
         if self.sock is None:
             return
 
-        message = {
-            "type": "close",
-            "error": error
-        }
-        send_message(self.sock, message)
-        response = recv_message(self.sock, self.node_name)[0]
-        assert response["type"] == "close_ack"
+        try:
+            message = {
+                "type": "close",
+                "error": error
+            }
+            send_message(self.sock, message)
+            response = recv_message(self.sock, self.node_name)[0]
+            assert response["type"] == "close_ack"
 
-        self.sock.close()
-        self.sock = None
+        except (OSError, AssertionError, ConnectionError):
+            pass  # connection already gone during error cleanup
+        finally:
+            try:
+                self.sock.close()
+            finally:
+                self.sock = None
 
     def integrate_weights(self, model_parameters, processed_data_points_per_layer):
         # convert dictionary to list as expected on the server

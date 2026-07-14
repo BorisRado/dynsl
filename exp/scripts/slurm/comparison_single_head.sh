@@ -55,7 +55,7 @@ COMMON_ARGS=(
 
 model=resnet18
 
-for seed in 16 23; do # 4 8 15
+for seed in 4 8 15 16 23; do
 for dataset in cifar10 cifar100 cinic; do
 
 COMMON_EXP_ARGS=(

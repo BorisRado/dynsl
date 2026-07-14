@@ -4,13 +4,13 @@ source ~/.venv/colext/bin/activate
 
 
 NUM_ROUNDS=4
-EXP_NAME="colext_sp_heads"
+EXP_NAME="colext_sp_heads_flops_sgd"
 
 NUM_JAO="2"
 NUM_JXN="2"
 NUM_JON="3"
 NUM_JN="6"
-NUM_LP="3"
+NUM_LP="2"
 NUM_OP="8"
 
 
@@ -40,10 +40,11 @@ common_args=(
     --num-jxn=$NUM_JXN
     --num-op=$NUM_OP
 
+    --optimizer=sgd
 )
 
 # data distribution configuration
-for partitioning in dirichlet; do
+for partitioning in iid dirichlet; do
 if [[ "$partitioning" == "dirichlet" ]]; then
     meta_partitioning_config=("--misc=partitioning.alpha=0.2" "--misc=partitioning.alpha=1.0")
 else
@@ -57,7 +58,7 @@ for metapar in "${meta_partitioning_config[@]}"; do
     fi
     echo "Running with partitioning configuration: ${partitioning_args[*]}"
 
-    for model in resnet18 efficientnet mobilenet vit; do
+    for model in resnet18 efficientnet mobilenet vit densenet; do
 
         if [[ "$model" == "resnet18" ]]; then
             split_points=(5 6 7)
@@ -65,6 +66,8 @@ for metapar in "${meta_partitioning_config[@]}"; do
             split_points=(3 6 8)
         elif [[ "$model" == "mobilenet" ]]; then
             split_points=(5 10 15)
+        elif [[ "$model" == "densenet" ]]; then
+            split_points=(2 4 6)
         elif [[ "$model" == "vit" ]]; then
             split_points=(2 3 5)
         else

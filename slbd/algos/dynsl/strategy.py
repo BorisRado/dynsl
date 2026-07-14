@@ -62,13 +62,15 @@ class DynSLStrategy(BaseStrategy):
         if self.num_server_models == 0:
             raise Exception("Cannot use model per split point --- would it make sense to integrate?")
         elif self.num_server_models == -1:
+            server_config = config.copy()
+            server_config["weight_integration_strategy"] = self._server_optim_state_handling
             all_server_models_fit_ins = self._setup_epoch_server_models([
                 (
                     proxy.cid,
                     client_layer_allocator.get_min_client_layers(proxy.cid),
                     [proxy.cid]
                 ) for proxy in clients],
-                model_state_dict, True, config
+                model_state_dict, True, server_config
             )
 
         return all_clients_fit_ins, all_server_models_fit_ins

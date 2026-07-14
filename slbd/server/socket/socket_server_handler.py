@@ -16,7 +16,7 @@ from slbd.common.constants import (
     SL_PER_LAYER_FORWARD_TIMES, SL_BACKWARD_TIME
 )
 from slbd.common.parameter import np_dict_to_torch_dict, torch_dict_to_np_dict
-from slbd.common.socket_utils import send_message_async, recv_message_async
+from slbd.common.socket_utils import send_message_async, recv_message_async, enable_keepalive
 from slbd.server.batching_worker_manager import BatchingWorkerManager
 from slbd.server.server_model.manager import ServerModelManager
 from slbd.server.client_layer_allocator import ClientLayerAllocator
@@ -137,6 +137,21 @@ class SocketServerHandler:
             log(INFO, f"Error handling socket client {client_id}: {e}")
             traceback.print_exc()
 
+            # The client failed mid-training: drop it from the allocator so the rest
+            # of the epoch (e.g. layer reallocation) stops accounting for a client
+            # that is gone. Not all allocators implement remove_client, and it is not
+            # idempotent, so guard both cases -- this cleanup must never mask the
+            # original error nor crash the handler task.
+            if client_id is not None:
+                remove_client = getattr(
+                    self._batching_worker.client_layer_allocator, "remove_client", None
+                )
+                if remove_client is not None:
+                    try:
+                        remove_client(client_id)
+                    except Exception as remove_err:
+                        log(INFO, f"Failed to remove client {client_id} from allocator: {remove_err}")
+
         finally:
             extra_info = ""
             if hasattr(self.client_layer_allocator, "_cid_to_device_type_mapping") and \
@@ -201,6 +216,7 @@ async def start_socket_server(
             client_socket, client_address = await loop.sock_accept(server_socket)
             # Keep client socket non-blocking for async recv/send operations
             client_socket.setblocking(False)
+            enable_keepalive(client_socket)
             # print(f"Received connection from {client_address}")
             # Handle each client in a separate task
             asyncio.create_task(handler.handle_client(client_socket, client_address))

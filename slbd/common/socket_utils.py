@@ -8,6 +8,27 @@ import asyncio
 from typing import Any
 
 
+def enable_keepalive(sock: socket.socket) -> None:
+    """Enable aggressive, permissive TCP keepalive on a socket.
+
+    Sends keepalive probes after a short idle period so any NAT/conntrack/firewall
+    state along the path (and the peer's liveness) is kept fresh during long idle
+    gaps -- e.g. while a slow client runs its local forward pass. Tolerates a long
+    burst of failed probes before ever declaring the peer dead, so a transient
+    network stall does not tear the connection down.
+    """
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    # start probing after a short idle period so middlebox state gets refreshed
+    if hasattr(socket, "TCP_KEEPIDLE"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+    # probe frequently while idle
+    if hasattr(socket, "TCP_KEEPINTVL"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+    # tolerate a very long run of failed probes before giving up (~8 min here)
+    if hasattr(socket, "TCP_KEEPCNT"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 100)
+
+
 def send_message(sock: socket.socket, data: Any) -> None:
     """Send a Python bytes over a socket with length prefix.
 

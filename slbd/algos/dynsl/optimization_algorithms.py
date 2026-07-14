@@ -335,7 +335,7 @@ def exact_solution_v2(
                 server_time = server_fn(delta_bar)
                 dirty = False
             candidate_objective = max(server_time, cost)
-            if candidate_objective < best_objective:
+            if candidate_objective <= best_objective:
                 best_objective = candidate_objective
                 best_vector = dict(delta_bar)
 

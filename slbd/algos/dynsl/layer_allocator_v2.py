@@ -217,6 +217,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         # bookkeeping / debugging
         self._allocated_layer_history = []
         self._tot_server_computation_time = 0.
+        self.is_first_iteration = True
 
         self._init_reallocation_thread()
         return [self._client_allocated_layers[proxy.cid]  for proxy in epoch_clients]
@@ -225,6 +226,7 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         start_time = time.time()
         log(INFO, f"Running reallocation {datetime.now().strftime('%H:%M:%S')}")
         log(INFO, "Allocated layers", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items()})
+        print("--- layers ---", {self._cid_to_node_name[k]: v for k, v in self._client_allocated_layers.items()}, "---")
         # Uncomment following lines to log the tracked metrics
 
         # log(INFO, "COUNTS=",{self._cid_to_node_name[k]: v for k, v in self._client_train_batches_count.items() if self._client_allocated_layers[k] != self._num_model_layers})
@@ -274,13 +276,14 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         log(INFO, f"Found cost: {J_new:.3f}")
 
         # if delta > self._gamma or (self.is_first_iteration and sum(self._client_allocated_layers[k] < best_config[k] for k in self._epoch_clients) > 5):
-        if delta > self._gamma:
+        if delta > self._gamma or (self.is_first_iteration and best_config != self._client_allocated_layers):
             log(INFO, f"[BS] Adopt new configuration (ΔJ={delta:.3f} > γ={self._gamma})")
             for cid, new_layers in best_config.items():
                 current_client_layers = self._client_allocated_layers[cid]
                 self._client_layer_diff[cid] = new_layers - current_client_layers
                 # Track if client was decreased
                 self._client_was_decreased_last_iteration[cid] = new_layers < current_client_layers
+            self.is_first_iteration = False
         else:
             log(INFO, f"[BS] Keep current configuration (ΔJ={delta:.3f} ≤ γ={self._gamma})")
             # No changes, so no decreases
@@ -379,6 +382,8 @@ class DynSLClientLayerAllocatorV2(ClientLayerAllocator):
         print(f"Removing {cid} as it has finished", self._pending_batches[cid])
         self._epoch_clients.remove(cid)
         del self._client_layer_diff[cid]
+        if cid in self._client_train_batches_count:
+            del self._client_train_batches_count[cid]
         # we remove the cid from self._client_layer_diff
         # ==>> if a cid is not in self._client_layer_diff, it means the client has finished training
 
