@@ -94,4 +94,6 @@ Alongside DynSL (`dynsl_v2`, `dynsl_w_profiling`) the repository implements the 
 
 At runtime, the *controller* that orchestrates communication between clients, classification heads, and the allocator (Section 5.1 of the paper) is implemented by the `BatchingWorkerManager` class in `slbd/server/batching_worker_manager.py`.
 
+**Notes on the baselines.** All baselines are reimplemented within this framework so that every method shares the same training loop, batching, and aggregation, and differs only in how it allocates layers. We follow the original papers as faithfully as possible. For ARES, the objective is the weighted sum of training time and energy from Eq. (7) of its paper, governed by a hyperparameter α; since DynSL targets training time, we set α=1 to consider time alone (see `slbd/algos/ares/utils.py`). This keeps the algorithm unchanged while placing ARES on the most favorable footing for the metric under comparison, so that the difference reflects the allocation strategy — server-aware vs. server-blind — rather than a mismatch in objectives.
+
 Every model is expressed as a `slbd.torch.sequential_model.FlexibleSequential` -- an ordered list of layers, where "splitting the model" simply means keeping the first *N* on the client and the rest on the server. Model definitions are in `exp/src/model/architectures/`.
